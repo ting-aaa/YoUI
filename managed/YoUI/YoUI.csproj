@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><Description>YoUI retained UI and host-driven Rust renderer bindings</Description><Version>0.1.0</Version></PropertyGroup>
+</Project>

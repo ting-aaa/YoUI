@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../managed/YoUI/YoUI.csproj" />
+    <ProjectReference Include="../../managed/YoUI.Platform.Windows/YoUI.Platform.Windows.csproj" />
+  </ItemGroup>
+  <PropertyGroup><NativeProfile Condition="'$(Configuration)' == 'Release'">release</NativeProfile><NativeProfile Condition="'$(NativeProfile)' == ''">debug</NativeProfile></PropertyGroup>
+  <Target Name="CopyNative" AfterTargets="Build">
+    <Error Condition="!Exists('../../target/$(NativeProfile)/youi_render.dll')" Text="Build the Rust native library first using scripts/build.ps1." />
+    <Copy SourceFiles="../../target/$(NativeProfile)/youi_render.dll" DestinationFolder="$(OutDir)" />
+  </Target>
+</Project>

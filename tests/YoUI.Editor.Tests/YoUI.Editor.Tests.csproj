@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../managed/YoUI.Editor.Core/YoUI.Editor.Core.csproj" />
+    <ProjectReference Include="../../tools/YoUI.Editor/YoUI.Editor.csproj" />
+    <ProjectReference Include="../../samples/YoUI.Exporter.Sample/YoUI.Exporter.Sample.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

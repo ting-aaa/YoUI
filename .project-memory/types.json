@@ -1,0 +1,368 @@
+{
+  "events": [],
+  "generation": 1,
+  "schema_version": 1,
+  "types": [
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "analyses",
+      "id_prefix": "ANL",
+      "name": "analysis",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "short",
+      "versions": [
+        {
+          "context_priority": 100,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Reasoning over known inputs, implications, and tradeoffs.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "low",
+          "required_sections": [],
+          "requires_sources": false,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "architecture",
+      "id_prefix": "ARCH",
+      "name": "architecture",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "long",
+      "versions": [
+        {
+          "context_priority": 120,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Durable system structure, interfaces, and constraints.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "high",
+          "required_sections": [],
+          "requires_sources": true,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "decisions",
+      "id_prefix": "DEC",
+      "name": "decision",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "long",
+      "versions": [
+        {
+          "context_priority": 110,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Accepted choices, rationale, and rejected alternatives.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "high",
+          "required_sections": [],
+          "requires_sources": true,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "handoffs",
+      "id_prefix": "HANDOFF",
+      "name": "handoff",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "short",
+      "versions": [
+        {
+          "context_priority": 90,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Session or agent transfer state and exact next actions.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "low",
+          "required_sections": [],
+          "requires_sources": false,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "inbox",
+      "id_prefix": "MEM",
+      "name": "inbox",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "temp",
+      "versions": [
+        {
+          "context_priority": 5,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Untriaged temporary memory proposals.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "low",
+          "required_sections": [],
+          "requires_sources": false,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "investigations",
+      "id_prefix": "INV",
+      "name": "investigation",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "short",
+      "versions": [
+        {
+          "context_priority": 95,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Evidence-gathering work and its supported findings.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "low",
+          "required_sections": [],
+          "requires_sources": false,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "logs",
+      "id_prefix": "LOG",
+      "name": "log",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "temp",
+      "versions": [
+        {
+          "context_priority": 20,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Temporary chronological events and observations.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "low",
+          "required_sections": [],
+          "requires_sources": false,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "pitfalls",
+      "id_prefix": "PIT",
+      "name": "pitfall",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "long",
+      "versions": [
+        {
+          "context_priority": 145,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Repeatable or costly failure modes future work must avoid.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "high",
+          "required_sections": [],
+          "requires_sources": true,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "plans",
+      "id_prefix": "PLAN",
+      "name": "plan",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "short",
+      "versions": [
+        {
+          "context_priority": 120,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Ordered implementation or investigation steps for active work.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "low",
+          "required_sections": [],
+          "requires_sources": false,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "project",
+      "id_prefix": "PROJ",
+      "name": "project",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "long",
+      "versions": [
+        {
+          "context_priority": 180,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Project purpose, boundaries, stakeholders, and durable context.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "high",
+          "required_sections": [],
+          "requires_sources": true,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "reports",
+      "id_prefix": "RPT",
+      "name": "report",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "short",
+      "versions": [
+        {
+          "context_priority": 60,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Bounded progress, verification, audit, or outcome summary.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "low",
+          "required_sections": [],
+          "requires_sources": false,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "sessions",
+      "id_prefix": "SES",
+      "name": "session",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "temp",
+      "versions": [
+        {
+          "context_priority": 25,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Temporary session-scoped notes and state.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "low",
+          "required_sections": [],
+          "requires_sources": false,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "standards",
+      "id_prefix": "STD",
+      "name": "standard",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "long",
+      "versions": [
+        {
+          "context_priority": 150,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Accepted project conventions and operating rules.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "high",
+          "required_sections": [],
+          "requires_sources": true,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "tasks",
+      "id_prefix": "TASK",
+      "name": "task",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "short",
+      "versions": [
+        {
+          "context_priority": 130,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Current work objective, status, ownership, and continuity.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "low",
+          "required_sections": [],
+          "requires_sources": false,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    },
+    {
+      "builtin": true,
+      "current_version": 1,
+      "directory": "tool-output",
+      "id_prefix": "TOOL",
+      "name": "tool-output",
+      "replaces": [],
+      "status": "active",
+      "superseded_by": "",
+      "tier": "temp",
+      "versions": [
+        {
+          "context_priority": 10,
+          "created_at": "2026-09-12T05:44:49Z",
+          "description": "Temporary excerpts or references to raw tool evidence.",
+          "event_id": "builtin-type-registry-v1",
+          "min_confidence": "low",
+          "required_sections": [],
+          "requires_sources": false,
+          "review_days": null,
+          "version": 1
+        }
+      ]
+    }
+  ],
+  "updated_at": "2026-09-12T05:44:49Z"
+}

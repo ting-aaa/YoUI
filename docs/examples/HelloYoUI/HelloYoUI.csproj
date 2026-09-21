@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <YoUIRoot>$(MSBuildThisFileDirectory)../../../</YoUIRoot>
+    <NativeProfile Condition="'$(Configuration)' == 'Release'">release</NativeProfile>
+    <NativeProfile Condition="'$(NativeProfile)' == ''">debug</NativeProfile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/YoUI/YoUI.csproj" />
+    <ProjectReference Include="../../../managed/YoUI.Platform.Windows/YoUI.Platform.Windows.csproj" />
+  </ItemGroup>
+  <Target Name="CopyNative" AfterTargets="Build">
+    <Error Condition="!Exists('$(YoUIRoot)target/$(NativeProfile)/youi_render.dll')"
+           Text="Build the matching Rust library first: cargo build --workspace [--release] --locked." />
+    <Copy SourceFiles="$(YoUIRoot)target/$(NativeProfile)/youi_render.dll"
+          DestinationFolder="$(OutDir)" />
+  </Target>
+</Project>

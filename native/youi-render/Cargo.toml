@@ -1,0 +1,15 @@
+[package]
+name = "youi-render"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+wgpu = "26.0.1"
+pollster = "0.4"
+bytemuck = { version = "1.23", features = ["derive"] }
+raw-window-handle = "0.6"
+cosmic-text = "0.14.2"
+png = "0.17"

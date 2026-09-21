@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "name": "Welcome",
+  "darkTheme": true,
+  "root": {
+    "id": "11111111111111111111111111111111",
+    "kind": "Canvas",
+    "name": "Artboard",
+    "width": 640,
+    "height": 360,
+    "fill": "#0B1019",
+    "clip": true,
+    "children": [
+      {
+        "id": "22222222222222222222222222222222",
+        "kind": "Text",
+        "name": "Heading",
+        "text": "Hello, YoUI",
+        "x": 32,
+        "y": 32,
+        "width": 560,
+        "height": 48,
+        "fontSize": 28,
+        "bold": true
+      },
+      {
+        "id": "33333333333333333333333333333333",
+        "kind": "Button",
+        "name": "Greet",
+        "text": "Say hello",
+        "x": 32,
+        "y": 104,
+        "width": 180,
+        "height": 44,
+        "primary": true,
+        "command": "app.greet"
+      }
+    ]
+  }
+}

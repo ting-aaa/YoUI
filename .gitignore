@@ -1,0 +1,5 @@
+/target/
+**/bin/
+**/obj/
+/artifacts/
+.project-memory/.runtime/

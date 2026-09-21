@@ -1,0 +1,15 @@
+{
+  "active_task_id": "TASK-20260912-CC3A20",
+  "created_at": "2026-09-12T05:44:49Z",
+  "defaults": {
+    "context_max_chars": 24000,
+    "short_review_days": 14,
+    "temp_compaction_count": 10,
+    "temp_review_days": 7
+  },
+  "generation": 35,
+  "last_reindexed_at": "2026-09-12T08:07:20Z",
+  "project_name": "YoUI",
+  "schema_version": 1,
+  "updated_at": "2026-09-12T08:07:20Z"
+}
