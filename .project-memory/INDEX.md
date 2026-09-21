@@ -5,8 +5,8 @@
 ## Project Snapshot
 
 - **Project:** YoUI
-- **Generation:** 36
-- **Generated:** 2026-09-21T14:54:03Z
+- **Generation:** 37
+- **Generated:** 2026-09-21T15:04:47Z
 - **Active task:** [TASK-20260912-CC3A20](short/tasks/task-20260912-cc3a20-build-native-rendering-engine-and-c-ui.md)
 - **Overview:** Independent native rendering engine with a C# retained UI framework; user allows C++ or Rust and requests efficient modern UI.
 
@@ -66,7 +66,8 @@ _None._
 
 | ID | Kind | Status | Summary | Updated |
 |---|---|---|---|---|
-| [RPT-20260921-C32975](short/reports/rpt-20260921-c32975-private-github-publication.md) | report | completed | YoUI was published to the private ting-aaa/YoUI GitHub repository on main. | 2026-09-21T14:54:03Z |
+| [RPT-20260921-CA3FAE](short/reports/rpt-20260921-ca3fae-public-github-repository.md) | report | completed | The ting-aaa/YoUI GitHub repository was changed from private to public at the user request. | 2026-09-21T15:04:47Z |
+| [RPT-20260921-C32975](short/reports/rpt-20260921-c32975-private-github-publication.md) | report | superseded | YoUI was published to the private ting-aaa/YoUI GitHub repository on main. | 2026-09-21T14:54:03Z |
 | [HANDOFF-20260912-1DDDD0](short/handoffs/handoff-20260912-1dddd0-backend-verification-complete-and-framework-continuation.md) | handoff | active | Required Windows backend verification complete; original framework roadmap active, ANGLE optional and not rendering-verified. | 2026-09-12T08:07:20Z |
 | [RPT-20260912-8CEEDD](short/reports/rpt-20260912-8ceedd-windows-backend-matrix-acceptance.md) | report | completed | 24 backend runs and28 comparisons passed for DX12 Vulkan nativeGL; ANGLE optional experiments did not render successfully. | 2026-09-12T08:06:49Z |
 | [HANDOFF-20260912-9E2CED](short/handoffs/handoff-20260912-9e2ced-final-basic-editor-delivery-and-continuation.md) | handoff | superseded | Editor task and plan complete; resume original broad design from current docs with advanced Editor work explicitly remaining. | 2026-09-12T07:11:57Z |
@@ -80,7 +81,7 @@ _None._
 ## Memory Map
 
 - Long-term records: 6
-- Short-term records: 15
+- Short-term records: 16
 - Temporary records: 0
 - Archived records: 0
 - Complete machine-readable inventory: [`index.json`](index.json)

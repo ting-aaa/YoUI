@@ -3,11 +3,11 @@
   "counts": {
     "archive": 0,
     "long": 6,
-    "short": 15,
+    "short": 16,
     "temp": 0
   },
-  "generated_at": "2026-09-21T14:54:03Z",
-  "generation": 36,
+  "generated_at": "2026-09-21T15:04:47Z",
+  "generation": 37,
   "project_name": "YoUI",
   "records": [
     {
@@ -583,7 +583,7 @@
       "confidence": "confirmed",
       "created_at": "2026-09-21T14:54:03Z",
       "derived_from": [],
-      "effective_status": "completed",
+      "effective_status": "superseded",
       "event_id": "publish-youi-github-private-20260921-v1",
       "expired": false,
       "id": "RPT-20260921-C32975",
@@ -619,6 +619,48 @@
       "title": "Private GitHub publication",
       "type_version": 1,
       "updated_at": "2026-09-21T14:54:03Z",
+      "valid_as_of": "2026-09-21"
+    },
+    {
+      "blockers": [],
+      "confidence": "confirmed",
+      "created_at": "2026-09-21T15:04:47Z",
+      "derived_from": [],
+      "effective_status": "completed",
+      "event_id": "publish-youi-github-public-20260921-v1",
+      "expired": false,
+      "id": "RPT-20260921-CA3FAE",
+      "kind": "report",
+      "next_actions": [
+        "Continue the product roadmap in docs/design-status.md."
+      ],
+      "path": "short/reports/rpt-20260921-ca3fae-public-github-repository.md",
+      "review_after": "2026-10-05",
+      "schema_version": 1,
+      "scope": [
+        ".project-memory"
+      ],
+      "sensitivity": "public",
+      "sha256": "34b295e1965885746cd1ed3deb97e28b38673cfac482688f748b029a6a53a620",
+      "sources": [
+        "gh repo edit ting-aaa/YoUI --visibility public --accept-visibility-change-consequences",
+        "gh api repos/ting-aaa/YoUI --jq visibility check"
+      ],
+      "status": "completed",
+      "summary": "The ting-aaa/YoUI GitHub repository was changed from private to public at the user request.",
+      "supersedes": [
+        "RPT-20260921-C32975"
+      ],
+      "tags": [
+        "github",
+        "publish",
+        "visibility"
+      ],
+      "task_id": "TASK-20260912-CC3A20",
+      "tier": "short",
+      "title": "Public GitHub repository",
+      "type_version": 1,
+      "updated_at": "2026-09-21T15:04:47Z",
       "valid_as_of": "2026-09-21"
     },
     {
