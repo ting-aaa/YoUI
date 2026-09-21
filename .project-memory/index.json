@@ -3,11 +3,11 @@
   "counts": {
     "archive": 0,
     "long": 6,
-    "short": 14,
+    "short": 15,
     "temp": 0
   },
-  "generated_at": "2026-09-12T08:07:20Z",
-  "generation": 35,
+  "generated_at": "2026-09-21T14:54:03Z",
+  "generation": 36,
   "project_name": "YoUI",
   "records": [
     {
@@ -577,6 +577,49 @@
       "type_version": 1,
       "updated_at": "2026-09-12T07:11:56Z",
       "valid_as_of": "2026-09-12"
+    },
+    {
+      "blockers": [],
+      "confidence": "confirmed",
+      "created_at": "2026-09-21T14:54:03Z",
+      "derived_from": [],
+      "effective_status": "completed",
+      "event_id": "publish-youi-github-private-20260921-v1",
+      "expired": false,
+      "id": "RPT-20260921-C32975",
+      "kind": "report",
+      "next_actions": [
+        "Continue the product roadmap in docs/design-status.md."
+      ],
+      "path": "short/reports/rpt-20260921-c32975-private-github-publication.md",
+      "review_after": "2026-10-05",
+      "schema_version": 1,
+      "scope": [
+        ".git",
+        "README.md",
+        "docs/verification.md"
+      ],
+      "sensitivity": "internal",
+      "sha256": "44d9eb9234bcc61b3b3b62dd868b82778ab8acd1faf067f2f601c6fb279d9da6",
+      "sources": [
+        "gh repo create ting-aaa/YoUI --private --source . --remote origin --push",
+        "gh repo view ting-aaa/YoUI --json nameWithOwner,isPrivate,url,defaultBranchRef",
+        "git ls-remote --heads origin"
+      ],
+      "status": "completed",
+      "summary": "YoUI was published to the private ting-aaa/YoUI GitHub repository on main.",
+      "supersedes": [],
+      "tags": [
+        "github",
+        "publish",
+        "release"
+      ],
+      "task_id": "TASK-20260912-CC3A20",
+      "tier": "short",
+      "title": "Private GitHub publication",
+      "type_version": 1,
+      "updated_at": "2026-09-21T14:54:03Z",
+      "valid_as_of": "2026-09-21"
     },
     {
       "blockers": [],
