@@ -34,7 +34,8 @@ def main():
     package = next(p for p in metadata["packages"] if p["name"] == "wgpu-hal" and p["version"] == "26.0.6")
     source = Path(package["manifest_path"]).parent
     output.mkdir(parents=True)
-    for file in ["Cargo.toml", "Cargo.lock"]:
+    # The output may be outside ROOT, so preserve rustup selection there too.
+    for file in ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml"]:
         shutil.copy2(ROOT / file, output / file)
     shutil.copytree(ROOT / "native", output / "native")
     vendor = output / "vendor/wgpu-hal"

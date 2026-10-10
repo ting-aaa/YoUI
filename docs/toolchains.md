@@ -20,6 +20,8 @@ dotnet --list-runtimes
 
 不要设置 `RUSTUP_TOOLCHAIN` 覆盖仓库版本。SDK 选择依据**当前工作目录**向上寻找 `global.json`，而非 `--project` 的路径；从仓库目录运行命令。原生复制回归有意从独立临时目录调用 .NET，因此将同一 `global.json` 复制过去。CI 直接读取仓库选择文件，不再生成独立的浮动 SDK 配置。
 
+ANGLE 实验脚本的 `--output` 可以位于仓库外；该独立构建目录会复制同一 `rust-toolchain.toml`，确保在输出目录执行 Cargo 时仍受固定版本约束。无下载、无真实 Cargo/GPU 执行的复制回归可用 `uv run scripts/test_prepare_angle.py` 运行。
+
 固定版本用于复现，不保证系统编译器、驱动或托管 runner 镜像完全相同，也不自动追踪安全更新。后续更新需显式修改选择文件，核对官方支持状态，并重跑 Debug / Release。
 
 ## 升级边界与回退
