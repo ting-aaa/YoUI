@@ -439,7 +439,7 @@ impl Renderer {
         if !size.is_finite() || !(1.0..=512.0).contains(&size) || !width.is_finite() || width < 0. {
             return Err("invalid text measurement".into());
         }
-        let l = self.text.layout(&self.queue, text, size, width, bold)?;
+        let l = self.text.layout(text, size, width, bold);
         Ok((l.width, l.height))
     }
     pub fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> Result<u32, String> {
@@ -457,7 +457,7 @@ impl Renderer {
         }
         let start = Instant::now();
         self.instances.clear();
-        self.text.hits = 0;
+        self.text.reset_hits();
         let viewport = Rect::new(0., 0., self.width as f32, self.height as f32);
         let mut clips = vec![viewport];
         let mut passes = vec![Pass::default()];
@@ -481,13 +481,7 @@ impl Renderer {
                         &text[c.text_offset as usize..(c.text_offset + c.text_length) as usize],
                     )
                     .map_err(|e| e.to_string())?;
-                    let layout = self.text.layout(
-                        &self.queue,
-                        s,
-                        c.font_size,
-                        c.rect.w,
-                        c.flags & 1 != 0,
-                    )?;
+                    let layout = self.text.layout(s, c.font_size, c.rect.w, c.flags & 1 != 0);
                     for g in layout.glyphs {
                         let rect =
                             Rect::new(g.rect.x + c.rect.x, g.rect.y + c.rect.y, g.rect.w, g.rect.h);
@@ -495,9 +489,10 @@ impl Renderer {
                         if rect.intersect(clip).w <= 0. || rect.intersect(clip).h <= 0. {
                             continue;
                         }
+                        let uv = self.text.resolve_glyph(&self.queue, &g)?;
                         passes[current].add(self.instances.len() as u32, None);
                         self.instances
-                            .push(Instance::new(rect, c.color, c.color, clip, 0., 1., g.uv));
+                            .push(Instance::new(rect, c.color, c.color, clip, 0., 1., uv));
                     }
                 }
                 2 => clips.push(clip.intersect(c.rect)),
@@ -679,7 +674,7 @@ impl Renderer {
             prepare_us,
             submit_us: submit.elapsed().as_micros() as u64,
             atlas_glyphs: self.text.glyph_count(),
-            text_cache_hits: self.text.hits,
+            text_cache_hits: self.text.hits(),
         };
         Ok(self.stats)
     }
@@ -744,5 +739,70 @@ impl Renderer {
             .map_err(|e| e.to_string())?
             .write_image_data(&self.read_pixels()?)
             .map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod text_residency_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires a GPU adapter and a font with Latin glyphs; run explicitly"]
+    fn cached_text_pixels_survive_residency_mapping_loss_with_live_image() -> Result<(), String> {
+        let mut renderer = unsafe { Renderer::new(128, 64, 0)? };
+        let measured = renderer.measure("Hello", 18., 100., false)?;
+        assert_eq!(
+            renderer.text.glyph_count(),
+            0,
+            "measurement must not upload glyphs"
+        );
+        let image = renderer.upload_image(2, 2, &[255, 0, 255, 255].repeat(4))?;
+        let image_uv = renderer.text.image_uv(image)?;
+        let commands = [
+            Command::rect(Rect::new(0., 0., 128., 64.), [0., 0., 0., 1.], 0.),
+            Command {
+                kind: 7,
+                flags: image,
+                rect: Rect::new(0., 40., 16., 16.),
+                color: [1.; 4],
+                ..Default::default()
+            },
+            Command {
+                kind: 1,
+                text_length: 5,
+                font_size: 18.,
+                rect: Rect::new(0., 0., 100., 36.),
+                color: [1.; 4],
+                ..Default::default()
+            },
+        ];
+        renderer.render(&commands, b"Hello")?;
+        let before = renderer.read_pixels()?;
+        assert!(
+            before[..128 * 36 * 4].chunks_exact(4).any(|p| p[0] > 0),
+            "text must produce visible pixels"
+        );
+        assert_eq!(
+            &before[(48 * 128 + 8) * 4..(48 * 128 + 8) * 4 + 4],
+            &[255, 0, 255, 255]
+        );
+        assert!(
+            renderer.text.glyph_count() > 0,
+            "test requires a usable Latin font"
+        );
+        let layout = renderer.text.layout("Hello", 18., 100., false);
+        let glyph = layout.glyphs[0];
+        let old_uv = renderer.text.resolve_glyph(&renderer.queue, &glyph)?;
+        renderer.text.forget_glyph_residency();
+        let stats = renderer.render(&commands, b"Hello")?;
+        assert_eq!(stats.text_cache_hits, 1);
+        assert_ne!(
+            renderer.text.resolve_glyph(&renderer.queue, &glyph)?,
+            old_uv
+        );
+        assert_eq!(renderer.text.image_uv(image)?, image_uv);
+        assert_eq!(renderer.measure("Hello", 18., 100., false)?, measured);
+        assert_eq!(renderer.read_pixels()?, before);
+        Ok(())
     }
 }
