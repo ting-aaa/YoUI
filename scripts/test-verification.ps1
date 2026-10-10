@@ -32,9 +32,10 @@ try {
         foreach ($layer in 'Logic','Gpu') {
             Run-Verification $configuration $layer
             $trace = $global:YoUIVerificationCalls -join "`n"
-            $expected = if ($layer -eq 'Logic') { 10 } else { 11 }
+            $expected = if ($layer -eq 'Logic') { 10 } else { 12 }
             Require ($global:YoUIVerificationCalls.Count -eq $expected) "Unexpected $layer command count"
             foreach ($command in $global:YoUIVerificationCalls | Where-Object { $_ -like 'cargo|*' -and $_ -notlike '*<fmt>*' }) {
+                Require ($command.Contains('<--locked>')) 'Cargo command omitted the lockfile guard'
                 Require ($command.Contains("<--target-dir><$repo/target>")) 'Cargo command has the wrong target directory'
                 Require ($command.Contains('<--release>') -eq ($configuration -eq 'Release')) 'Rust profile mismatch'
             }
@@ -50,6 +51,14 @@ try {
                 else { Require ($managed[$index].StartsWith('dotnet|<run><--project>')) 'Expected run command' }
             }
             Require ($trace.Contains('<--ignored>') -eq ($layer -eq 'Gpu')) 'GPU test invocation layer mismatch'
+            $residencyTest = 'renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image'
+            Require ($trace.Contains("<$residencyTest>") -eq ($layer -eq 'Gpu')) 'Text residency test invocation layer mismatch'
+            if ($layer -eq 'Gpu') {
+                $cargoOptions = "<--locked><--target-dir><$repo/target>"
+                if ($configuration -eq 'Release') { $cargoOptions += '<--release>' }
+                Require ($global:YoUIVerificationCalls[5] -eq "cargo|<test><-p><youi-render><--test><gpu>$cargoOptions<--><--ignored><--nocapture>") 'GPU integration test command mismatch'
+                Require ($global:YoUIVerificationCalls[6] -eq "cargo|<test><-p><youi-render><--lib><$residencyTest>$cargoOptions<--><--exact><--ignored><--nocapture>") 'Text residency GPU unit test command mismatch'
+            }
             Require (!$trace.Contains('<--smoke>')) 'A headless layer invoked native-window checks'
             Require ((Get-Location).Path -eq $unrelated) 'Working directory was not restored'
             $result = Get-ChildItem (Join-Path $repo 'artifacts/verification') -Filter result.json -Recurse |
@@ -59,7 +68,7 @@ try {
         }
     }
     foreach ($layer in 'Logic','Gpu') {
-        $count = if ($layer -eq 'Logic') { 10 } else { 11 }
+        $count = if ($layer -eq 'Logic') { 10 } else { 12 }
         for ($step = 1; $step -le $count; $step++) {
             $global:YoUIVerificationFailAt = $step
             $failed = $false
@@ -87,6 +96,8 @@ try {
             Require (!$failed) "$layer orchestration failed"
             $smoke = @($global:YoUIVerificationCalls | Where-Object { $_.Contains('<--smoke>') })
             Require ($smoke.Count -eq 2) "$layer omitted native-window checks"
+            $residency = @($global:YoUIVerificationCalls | Where-Object { $_.Contains("<$residencyTest>") })
+            Require ($residency.Count -eq $(if ($layer -eq 'All') { 1 } else { 0 })) "$layer text residency GPU test mismatch"
         } else {
             Require ($failed -and $global:YoUIVerificationCalls.Count -eq 0) "$layer failed to reject non-Windows host"
         }
@@ -94,8 +105,8 @@ try {
     $global:YoUIVerificationCalls.Clear(); $failed = $false
     try { & (Join-Path $repo 'scripts/verify.ps1') -Configuration Release } catch { $failed = $true }
     if ($windowsHost) {
-        Require (!$failed -and $global:YoUIVerificationCalls.Count -eq 18) 'Default gate is no longer full acceptance'
-        for ($step = 1; $step -le 18; $step++) {
+        Require (!$failed -and $global:YoUIVerificationCalls.Count -eq 19) 'Default gate is no longer full acceptance'
+        for ($step = 1; $step -le 19; $step++) {
             $global:YoUIVerificationFailAt = $step; $failed = $false
             try { Run-Verification Release All } catch { $failed = $true }
             Require ($failed -and $global:YoUIVerificationCalls.Count -eq $step) "Full gate accepted failure at command $step"

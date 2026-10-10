@@ -1,0 +1,52 @@
+# Text layout and atlas residency
+
+Text layout caches retain cosmic-text raster keys and positioned ink rectangles,
+not atlas coordinates. The keys include font face ID, glyph ID, size, subpixel
+bins and raster flags, including fallback-font identity. FontSystem remains
+private and immutable in membership for the cache lifetime; replacing its font
+configuration must replace the layout cache. Layout lookup still uses text,
+size bits, available-width bits and bold, with the existing 512-entry clear bound.
+Shaping, line measurement, physical glyph placement and painter order are unchanged.
+Empty/no-raster glyphs create no draw quads; missing characters still use the
+shaper's normal fallback or .notdef behavior.
+
+Measurement shapes/rasterizes for ink geometry but no longer uploads or reserves
+atlas space. Visible glyphs resolve their current residency during synchronous
+draw preparation. A layout cache hit therefore does not imply an atlas hit.
+FrameStats.AtlasGlyphs now counts glyphs resident from drawing rather than also
+measurement; fully clipped glyphs need not become resident. The existing Swash
+raster cache behavior is unchanged (this is not a new memory-budget policy).
+The public Rust Renderer, C ABI, command/stat structures and managed API are
+unchanged. Measurement no longer fails merely because the atlas is exhausted;
+drawing can still fail on exhaustion.
+
+The atlas remains one fixed 2048-square texture shared by images and glyphs.
+Allocations are append-only for glyphs, and failure leaves the cursor unchanged.
+Only explicitly released image slots of the same dimensions can be reused for
+images. No eviction/reset can occur partway through preparing a frame, so already
+prepared UVs keep their meaning. Existing synchronous owner-thread rendering and
+queue ordering are retained. There is no multi-page atlas, LRU, capacity recovery,
+resource manager, threading change or production reset API.
+
+## Regression coverage
+
+CPU tests in `native/youi-render/src/text.rs` cover raster-key separation, cached
+geometry, cache input identity/bound, empty/missing text, allocation exhaustion,
+image-slot reuse, and glyph mapping loss followed by resolution to different UVs.
+The mapping-loss test preserves occupied slots and images: it proves re-resolution
+and prepared-UV stability, **not** reclaimed capacity or a texture/device reset.
+It uses synthetic uploads and is not pixel evidence.
+
+An ignored GPU unit test in `renderer.rs` exercises actual upload,
+rendering and pixel readback across mapping loss, alongside a live image:
+
+```sh
+cargo test -p youi-render --locked --lib renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image -- --exact --ignored --nocapture
+```
+
+It requires a GPU adapter and a usable Latin font and fails explicitly without
+them. It verifies changed glyph UVs, unchanged measurement/image UVs, visible text
+and identical output pixels. Both `scripts/verify.ps1 -Layer Gpu` and `-Layer All`
+run this exact test alongside the GPU integration suite, with the selected
+Debug/Release profile and repository target directory. Any failure stops the gate.
+CPU/Logic gate success must not be represented as GPU or native-window acceptance.
