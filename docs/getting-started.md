@@ -8,10 +8,12 @@
 
 - Windows x64，支持 DirectX 12 的图形适配器及驱动。
 - Rust 的 `x86_64-pc-windows-msvc` 工具链，以及 Visual Studio C++ Build Tools / Windows SDK。
-- .NET 9 SDK：项目目标为 `net9.0`。
+- .NET SDK 9.0.318：项目目标为 `net9.0`。
 - PowerShell，用于运行仓库脚本。
 
 历史验收使用 Rust 1.96.0、.NET SDK 9.0.318，具体机器与验证边界见[验证记录](verification.md)。这些是已验证版本，仓库没有声明更早版本的最低兼容范围。
+
+仓库用 `rust-toolchain.toml` 固定 Rust 1.96.0（含 rustfmt、Clippy），用 `global.json` 固定 .NET SDK 9.0.318，禁止自动滚动至其他 SDK。请安装精确版本；在仓库目录执行命令，且不要设置 `RUSTUP_TOOLCHAIN` 覆盖它。
 
 检查本机安装：
 
@@ -20,6 +22,7 @@ rustc --version
 cargo --version
 rustup show active-toolchain
 dotnet --list-sdks
+dotnet --version
 ```
 
 首次构建需要下载 Cargo / .NET 依赖。只有使用 Python 辅助工具时才需要 `uv`；运行 YoUI 本身不需要 Python。

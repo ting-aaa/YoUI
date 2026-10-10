@@ -19,6 +19,9 @@ native="$root/target/$profile/libyoui_render.so"
 [[ -s "$native" ]] || { echo "Build the $profile Rust library first: $native" >&2; exit 1; }
 scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
+# SDK selection follows the working directory, not the project file.
+# Preserve the repository pin while exercising an unrelated directory.
+cp "$root/global.json" "$scratch/global.json"
 
 # An unrelated working directory catches project-relative source path regressions.
 cd "$scratch"

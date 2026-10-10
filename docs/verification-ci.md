@@ -15,9 +15,9 @@
 
 ## 工具链与权限
 
-- Rust 固定为仓库历史验收使用的 [1.96.0](https://github.com/rust-lang/rust/releases/tag/1.96.0)，通过托管镜像提供的 rustup 安装 rustfmt、Clippy；`RUSTUP_TOOLCHAIN` 保证后续 Cargo 命令使用该版本。
-- .NET 安装已发布的 `9.0.x` SDK。工作流按 `setup-dotnet` 返回的具体版本，在 checkout 的上级目录生成仅本次运行使用的 `global.json`，禁用向其他版本滚动，并核对 `dotnet --version`。这样既避免 runner 预装的更高版本改变验证工具链，也不会让生成的文件把 checkout 标成 dirty。具体版本会随 .NET 9 修订更新，并保存在证据中。
-- Linux 的 `TMPDIR` 通过 `GITHUB_ENV` 指向同一上级目录下的独立临时目录，位于 checkout 外部。`test-native-copy.sh` 会从 `mktemp` 目录调用 .NET；临时目录必须也在该 `global.json` 的作用范围内，不能退回不受 SDK 选择约束的 `/tmp`。这样仍能验证不相关工作目录，且不改变 checkout 状态。
+- Rust 与 .NET 版本由仓库的 [`rust-toolchain.toml`](../rust-toolchain.toml) 和 [`global.json`](../global.json) 统一选择，本地与 CI 使用相同的精确版本。Rust 为 1.96.0，包含 rustfmt、Clippy；.NET SDK 为 9.0.318，禁止 roll-forward 和预览版本。升级应显式修改这些文件，并重跑 Debug / Release 逻辑验证。
+- `setup-dotnet` 直接读取 `global.json`，工作流再核对安装版本及 `dotnet --version`，并将选择文件保存在证据中。Rust 使用 rustup 读取 checkout 中的工具链文件；不要用 `RUSTUP_TOOLCHAIN` 环境变量覆盖固定版本。
+- `test-native-copy.sh` 会把仓库的 `global.json` 复制到独立 `mktemp` 目录，再从该目录调用 .NET。这样既能验证不相关工作目录，也不会在 `/tmp` 退回其他已安装 SDK；不需要写入 checkout 上级目录或设置 CI 专用 `TMPDIR`。
 - 使用明确的 `ubuntu-24.04`、`windows-2025` runner 标签；镜像软件仍会更新，因此保存镜像版本及 `rustc`、Cargo、.NET、PowerShell 版本。
 - GitHub Actions 仅申请 `contents: read`，checkout 不保留凭据；不需要仓库 secret，不发布包、不部署、不创建 PR，也不改变合并设置。
 - 三个官方 Action 固定为完整提交 SHA，注释标注版本：checkout 7.0.1、setup-dotnet 6.0.0、upload-artifact 7.0.2。升级时需一起核对官方发布记录和 SHA。
