@@ -35,6 +35,44 @@ internal static class ShowcaseStateTests
             require(!scene.Motion.Value && scene.Opacity.Value == 0.68f && scene.PreviewOpacity == 0.68f, "state updates controls and preview");
             require(scene.PreviewTime == 3 && motionNotifications == 2, "disabled motion freezes the preview and notifies the host once per change");
         });
+        test("showcase preserves newer opacity state written by a control callback", () =>
+        {
+            var scene = new Showcase();
+            var doc = Document(scene);
+            scene.Opacity.Changed += value => { if (value > 0.5f) scene.State.Opacity = 0.5f; };
+            scene.State.Opacity = 0.9f;
+            require(scene.State.Opacity == 0.5f && scene.Opacity.Value == 0.5f && scene.PreviewOpacity == 0.5f,
+                "nested state wins in the state, slider and preview");
+            require(scene.Status.StartsWith($"Group opacity {0.5f:P0}"), "status describes the latest state");
+        });
+        test("showcase preserves newer motion state written by a control callback", () =>
+        {
+            var scene = new Showcase();
+            var doc = Document(scene);
+            bool hostMotion = false;
+            scene.MotionChanged += value => hostMotion = value;
+            scene.Motion.Changed += value => { if (value) scene.State.MotionEnabled = false; };
+            scene.State.MotionEnabled = true;
+            require(!scene.State.MotionEnabled && !scene.Motion.Value && !hostMotion,
+                "host animation follows the latest nested state");
+        });
+        test("showcase ignores stale snapshots from earlier state subscribers", () =>
+        {
+            var state = new ShowcaseState();
+            state.OpacityChanged += value => { if (value > 0.5f) state.Opacity = 0.5f; };
+            state.MotionChanged += value => { if (value) state.MotionEnabled = false; };
+            var scene = new Showcase(state);
+            var doc = Document(scene);
+            bool hostMotion = false;
+            scene.MotionChanged += value => hostMotion = value;
+            state.Opacity = 0.9f;
+            state.MotionEnabled = true;
+            require(state.Opacity == 0.5f && scene.Opacity.Value == 0.5f && scene.PreviewOpacity == 0.5f,
+                "earlier state subscribers cannot replay an obsolete opacity snapshot");
+            require(scene.Status.StartsWith($"Group opacity {0.5f:P0}"), "status describes the latest state");
+            require(!state.MotionEnabled && !scene.Motion.Value && !hostMotion,
+                "earlier state subscribers cannot replay an obsolete motion snapshot");
+        });
         test("showcase suppresses same-value state and control feedback", () =>
         {
             var scene = new Showcase();

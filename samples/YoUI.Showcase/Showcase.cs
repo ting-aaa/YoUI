@@ -112,14 +112,20 @@ public sealed class Showcase : Element
     private void OnOpacityInput(float value) => State.Opacity = value;
     private void OnMotionStateChanged(bool enabled)
     {
-        Motion.Value = enabled;
-        MotionChanged?.Invoke(enabled);
+        // Earlier subscribers may already have replaced the event's snapshot.
+        Motion.Value = State.MotionEnabled;
+        if (Document == null) return;
+        MotionChanged?.Invoke(State.MotionEnabled);
     }
     private void OnOpacityStateChanged(float value)
     {
-        Opacity.Value = value;
-        preview.GroupAlpha = value;
-        status.Text = $"Group opacity {value:P0} · composed through an offscreen layer";
+        Opacity.Value = State.Opacity;
+        // Control callbacks can synchronously change state again (or detach the view).
+        // Reconcile the latest snapshot instead of overwriting nested updates.
+        if (Document == null) return;
+        float current = State.Opacity;
+        preview.GroupAlpha = current;
+        status.Text = $"Group opacity {current:P0} · composed through an offscreen layer";
     }
     private string ItemName(int index) => names[index % names.Length];
     private void OnSelectionChanged(int index) { if (index < 0) return; int item = filtered[index]; preview.Variant = item % names.Length; selectedName.Text = ItemName(item); status.Text = $"Selected {ItemName(item)} · item {item + 1:N0}"; }
