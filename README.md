@@ -14,6 +14,7 @@
 - [API 文档](docs/api/README.md)：C# UI、渲染、Windows 宿主、资源、编辑器、Rust 与 C ABI。
 - [Editor 使用与导出](docs/editor.md)：可视化编辑、配置和 C# 导出、插件开发。
 - [常见问题](docs/troubleshooting.md)：构建、DLL、布局、资源和导出问题。
+- [Linux 开发验证](docs/linux-development.md)：原生库构建、C# 编译及无 GPU 逻辑测试；窗口宿主仍仅支持 Windows。
 - [渲染后端验证](docs/render-backends.md)：DX12、Vulkan、原生 OpenGL 的画面、窗口及复现脚本。
 
 ## 运行
