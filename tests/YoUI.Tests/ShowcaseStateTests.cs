@@ -73,6 +73,79 @@ internal static class ShowcaseStateTests
             require(!state.MotionEnabled && !scene.Motion.Value && !hostMotion,
                 "earlier state subscribers cannot replay an obsolete motion snapshot");
         });
+        test("showcase control corrections converge before and after reattachment", () =>
+        {
+            foreach (bool reattach in new[] { false, true })
+            {
+                var root = new Element();
+                var scene = root.Add(new Showcase());
+                var doc = Document(root);
+                int opacityCalls = 0, motionCalls = 0;
+                scene.Opacity.Changed += value =>
+                {
+                    require(++opacityCalls < 10, "opacity corrections converge without repeated stale input replay");
+                    if (value > 0.5f) scene.State.Opacity = 0.5f;
+                };
+                scene.Motion.Changed += value =>
+                {
+                    require(++motionCalls < 10, "motion corrections converge without repeated stale input replay");
+                    if (value) scene.State.MotionEnabled = false;
+                };
+                if (reattach) { root.Remove(scene); root.Add(scene); }
+                scene.State.Opacity = 0.9f;
+                scene.State.MotionEnabled = true;
+                scene.State.Opacity = 0.2f;
+                scene.Opacity.Value = 0.9f;
+                require(scene.State.Opacity == 0.5f && scene.Opacity.Value == 0.5f && scene.PreviewOpacity == 0.5f,
+                    "both callback orders preserve newer opacity state for state and control input");
+                require(scene.Status.StartsWith($"Group opacity {0.5f:P0}"), "status describes the converged opacity");
+                require(!scene.State.MotionEnabled && !scene.Motion.Value,
+                    "both callback orders preserve newer motion state");
+            }
+        });
+        test("showcase observes state corrections during initial and repeat attachment", () =>
+        {
+            var state = new ShowcaseState { Opacity = 0.9f, MotionEnabled = true };
+            var scene = new Showcase(state);
+            int opacityCalls = 0, motionCalls = 0;
+            scene.Opacity.Changed += value =>
+            {
+                require(++opacityCalls < 10, "attachment opacity correction converges");
+                if (value > 0.5f) state.Opacity = 0.5f;
+            };
+            scene.Motion.Changed += value =>
+            {
+                require(++motionCalls < 10, "attachment motion correction converges");
+                if (value) state.MotionEnabled = false;
+            };
+            var root = new Element();
+            var doc = Document(root);
+            for (int i = 0; i < 2; i++)
+            {
+                root.Add(scene);
+                require(state.Opacity == 0.5f && scene.Opacity.Value == 0.5f && scene.PreviewOpacity == 0.5f,
+                    "initialization observes nested state changes before connecting control input");
+                require(!state.MotionEnabled && !scene.Motion.Value, "initialization observes nested motion changes");
+                root.Remove(scene);
+                state.Opacity = 0.9f;
+                state.MotionEnabled = true;
+            }
+        });
+        test("showcase detachment during initial synchronization leaves no subscriptions", () =>
+        {
+            var state = new ShowcaseState { Opacity = 0.9f };
+            var scene = new Showcase(state);
+            var root = new Element();
+            var doc = Document(root);
+            scene.Opacity.Changed += _ => root.Remove(scene);
+            root.Add(scene);
+            require(scene.Document == null, "callback detached the scene during attachment");
+            scene.Opacity.Value = 0.2f;
+            scene.Motion.Value = true;
+            require(state.Opacity == 0.9f && !state.MotionEnabled, "interrupted attachment cannot subscribe detached controls");
+            state.Opacity = 0.7f;
+            require(scene.Opacity.Value == 0.2f, "interrupted attachment releases state listeners");
+        });
         test("showcase suppresses same-value state and control feedback", () =>
         {
             var scene = new Showcase();

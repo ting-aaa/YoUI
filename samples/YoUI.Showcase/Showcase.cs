@@ -8,6 +8,7 @@ public sealed class Showcase : Element
     private readonly Element sidebar, content, inspector, modal;
     private readonly Label title, subtitle, status, resultCount, selectedName;
     private readonly Preview preview;
+    private int attachmentVersion;
     public ShowcaseState State { get; }
     internal float PreviewOpacity => preview.GroupAlpha;
     internal float PreviewTime => preview.Time;
@@ -88,6 +89,7 @@ public sealed class Showcase : Element
     protected override void OnDocumentChanged(UiDocument? previous, UiDocument? current)
     {
         base.OnDocumentChanged(previous, current);
+        int version = ++attachmentVersion;
         if (previous != null)
         {
             Motion.Changed -= OnMotionInput;
@@ -97,21 +99,31 @@ public sealed class Showcase : Element
         }
         if (current == null) return;
 
-        // State owns the current snapshot. Apply it before listening to control changes,
-        // so values changed while detached cannot overwrite the state on reattachment.
+        // Observe nested state corrections while applying the initial snapshot. Listen
+        // to control input afterwards so detached control values cannot replace state.
+        State.MotionChanged += OnMotionStateChanged;
+        State.OpacityChanged += OnOpacityStateChanged;
         Motion.Value = State.MotionEnabled;
+        if (version != attachmentVersion) return;
         Opacity.Value = State.Opacity;
+        if (version != attachmentVersion) return;
         preview.GroupAlpha = State.Opacity;
         Motion.Changed += OnMotionInput;
         Opacity.Changed += OnOpacityInput;
-        State.MotionChanged += OnMotionStateChanged;
-        State.OpacityChanged += OnOpacityStateChanged;
         MotionChanged?.Invoke(State.MotionEnabled);
     }
-    private void OnMotionInput(bool enabled) => State.MotionEnabled = enabled;
-    private void OnOpacityInput(float value) => State.Opacity = value;
+    private void OnMotionInput(bool enabled)
+    {
+        if (Document != null) State.MotionEnabled = Motion.Value;
+    }
+    private void OnOpacityInput(float value)
+    {
+        // Reattachment can put this listener after callbacks that made a newer write.
+        if (Document != null) State.Opacity = Opacity.Value;
+    }
     private void OnMotionStateChanged(bool enabled)
     {
+        if (Document == null) return;
         // Earlier subscribers may already have replaced the event's snapshot.
         Motion.Value = State.MotionEnabled;
         if (Document == null) return;
@@ -119,6 +131,7 @@ public sealed class Showcase : Element
     }
     private void OnOpacityStateChanged(float value)
     {
+        if (Document == null) return;
         Opacity.Value = State.Opacity;
         // Control callbacks can synchronously change state again (or detach the view).
         // Reconcile the latest snapshot instead of overwriting nested updates.
