@@ -17,6 +17,8 @@ bash scripts/verify-linux.sh Release
 
 这是无 GPU 的编译/逻辑验证入口。被标记为 ignored 的 GPU 测试仍不会运行；脚本不会创建窗口、执行截图或性能验收。Windows 的完整验收入口仍是 `scripts/verify.ps1`。
 
+每次运行会在 `artifacts/verification/` 保存 SHA、配置、平台和逻辑层结果。PowerShell 的独立 `Logic` / `Gpu` / `Window` 层以及构建与逻辑 CI 见[分层验证](verification-layers.md)；默认完整入口不会自动降级。
+
 ## 原生库与配置
 
 Showcase、Editor 和 HelloYoUI 共用 `scripts/NativeLibrary.targets`，按构建宿主选择真实库文件：Windows 为 `youi_render.dll`，Linux 为 `libyoui_render.so`，macOS 为 `libyoui_render.dylib`。macOS 文件名映射并非 macOS 运行验收。
