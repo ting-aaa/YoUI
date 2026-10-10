@@ -14,6 +14,28 @@ fi
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
+sha="$(git rev-parse HEAD)"
+dirty=false
+changes="$(git status --porcelain)"
+[[ -z "$changes" ]] || dirty=true
+mkdir -p "$root/artifacts/verification"
+evidence="$(mktemp -d "$root/artifacts/verification/linux-XXXXXXXX")/result.txt"
+printf 'sha=%s\ndirty=%s\nconfiguration=%s\nplatform=%s\nlayer=Logic\nstarted_utc=%s\n' \
+    "$sha" "$dirty" "$configuration" "$(uname -srm)" "$(date -u +%FT%TZ)" > "$evidence"
+finish() {
+    local status=$?
+    trap - EXIT
+    if [[ $status -eq 0 ]]; then
+        printf 'status=passed\n' >> "$evidence"
+    else
+        printf 'status=failed\nexit_code=%s\n' "$status" >> "$evidence"
+    fi
+    printf 'completed_utc=%s\n' "$(date -u +%FT%TZ)" >> "$evidence"
+    printf 'Verification evidence: %s\n' "$evidence"
+    exit "$status"
+}
+trap finish EXIT
+printf 'BEGIN sha=%s dirty=%s configuration=%s platform=Linux layer=Logic\n' "$sha" "$dirty" "$configuration"
 cargo_profile=()
 if [[ "$configuration" == Release ]]; then cargo_profile=(--release); fi
 

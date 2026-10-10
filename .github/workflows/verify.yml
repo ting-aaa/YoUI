@@ -1,0 +1,155 @@
+name: Build and logic verification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verification-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTUP_TOOLCHAIN: '1.96.0'
+  CARGO_TERM_COLOR: never
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+
+jobs:
+  logic:
+    name: Logic (${{ matrix.os }}, ${{ matrix.configuration }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+        configuration: [Debug, Release]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare evidence directory
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+        run: |
+          New-Item -ItemType Directory -Force artifacts/ci | Out-Null
+          [ordered]@{
+            commit = $env:GITHUB_SHA
+            runId = $env:GITHUB_RUN_ID
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            runnerOs = $env:RUNNER_OS
+            runnerArch = $env:RUNNER_ARCH
+            imageVersion = $env:ImageVersion
+            configuration = $env:CONFIGURATION
+            layer = 'Logic'
+            gpuAcceptance = 'NotRun'
+            nativeWindowAcceptance = 'NotRun'
+          } | ConvertTo-Json | Set-Content artifacts/ci/run.json -Encoding utf8
+
+      - name: Set up .NET 9
+        id: dotnet
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '9.0.x'
+          dotnet-quality: ga
+
+      - name: Select the installed .NET SDK
+        env:
+          SDK_VERSION: ${{ steps.dotnet.outputs.dotnet-version }}
+        run: |
+          if ($env:SDK_VERSION -notmatch '^9\.0\.\d+$') {
+            throw "Expected a released .NET 9 SDK; setup-dotnet returned '$env:SDK_VERSION'."
+          }
+          # Hosted images also contain newer SDKs. Keep this run on .NET 9.
+          # Use the checkout's parent so generated configuration does not dirty it.
+          $workspaceParent = Split-Path $env:GITHUB_WORKSPACE -Parent
+          $sdkSelector = Join-Path $workspaceParent 'global.json'
+          @{ sdk = @{ version = $env:SDK_VERSION; rollForward = 'disable' } } |
+            ConvertTo-Json | Set-Content $sdkSelector -Encoding utf8
+          Copy-Item $sdkSelector artifacts/ci/global.json
+          $selectedSdk = dotnet --version
+          if ($LASTEXITCODE -ne 0 -or $selectedSdk -ne $env:SDK_VERSION) {
+            throw "Expected SDK $env:SDK_VERSION; dotnet selected '$selectedSdk'."
+          }
+          if ($env:RUNNER_OS -eq 'Linux') {
+            # Native-copy regression runs dotnet from an unrelated mktemp directory.
+            # Keep that directory beneath the same SDK selector, outside the checkout.
+            $scratchRoot = Join-Path $workspaceParent '.youi-verification-tmp'
+            New-Item -ItemType Directory -Force $scratchRoot | Out-Null
+            "TMPDIR=$scratchRoot" | Add-Content $env:GITHUB_ENV -Encoding utf8
+          }
+
+      - name: Set up Rust with rustfmt and Clippy
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --component rustfmt --component clippy 2>&1 |
+            Tee-Object -FilePath artifacts/ci/rust-setup.log
+          exit $LASTEXITCODE
+
+      - name: Record toolchain versions
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          rustc --version --verbose 2>&1 | Tee-Object -FilePath artifacts/ci/toolchains.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo --version 2>&1 | Tee-Object -FilePath artifacts/ci/toolchains.log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet --info 2>&1 | Tee-Object -FilePath artifacts/ci/toolchains.log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $PSVersionTable | Out-String | Tee-Object -FilePath artifacts/ci/toolchains.log -Append
+
+      - name: Test PowerShell verification orchestration
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          pwsh -NoLogo -NoProfile -File scripts/test-verification.ps1 2>&1 |
+            Tee-Object -FilePath artifacts/ci/script-tests-powershell.log
+          exit $LASTEXITCODE
+
+      - name: Test Bash verification orchestration
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/test-verification.sh 2>&1 | tee artifacts/ci/script-tests-bash.log
+
+      - name: Verify Linux build and CPU logic
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+        run: |
+          set -euo pipefail
+          bash scripts/verify-linux.sh "$CONFIGURATION" 2>&1 | tee artifacts/ci/logic.log
+
+      - name: Verify Windows build and CPU logic
+        if: runner.os == 'Windows'
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          pwsh -NoLogo -NoProfile -File scripts/verify.ps1 -Layer Logic -Configuration $env:CONFIGURATION 2>&1 |
+            Tee-Object -FilePath artifacts/ci/logic.log
+          exit $LASTEXITCODE
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: logic-${{ matrix.os }}-${{ matrix.configuration }}-${{ github.run_attempt }}
+          path: |
+            artifacts/ci/
+            artifacts/verification/
+            artifacts/editor-tests.json
+            artifacts/editor-validation/**/manifest.json
+          if-no-files-found: warn
+          retention-days: 14
