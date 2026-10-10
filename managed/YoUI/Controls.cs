@@ -68,7 +68,10 @@ public class Button : Element
 
 public sealed class Toggle : Button
 {
-    private bool value;
+    public static readonly UiProperty<Toggle, bool> ValueProperty = new(nameof(Value), false,
+        DirtyFlags.Paint | DirtyFlags.Semantics,
+        changed: (owner, _, value) => { owner.UpdateCaption(); owner.Changed?.Invoke(value); });
+    private bool value = ValueProperty.DefaultValue;
     private readonly string label;
     public Toggle(string label, bool initial = false) : base(label)
     {
@@ -76,18 +79,23 @@ public sealed class Toggle : Button
         Clicked += () => Value = !Value;
     }
     public event Action<bool>? Changed;
-    public bool Value { get => value; set { if (!Set(ref this.value, value, DirtyFlags.Paint | DirtyFlags.Semantics)) return; UpdateCaption(); Changed?.Invoke(value); } }
+    public bool Value { get => value; set => SetProperty(this, ref this.value, value, ValueProperty); }
     private void UpdateCaption() { Text = $"{label}   {(value ? "ON" : "OFF")}"; Selected = value; }
     public override string SemanticValue => Value ? "on" : "off";
 }
 
 public sealed class Slider : Element
 {
-    private float value = 0.5f;
+    public static readonly UiProperty<Slider, float> ValueProperty = new(nameof(Value), 0.5f,
+        DirtyFlags.Paint | DirtyFlags.Semantics,
+        // Preserve the existing clamp contract, including infinities and NaN.
+        normalize: value => Math.Clamp(value, 0, 1),
+        changed: (owner, _, value) => owner.Changed?.Invoke(value));
+    private float value = ValueProperty.DefaultValue;
     private bool dragging;
     public Slider() { Height = 28; HitTestVisible = Focusable = true; Role = "slider"; }
     public event Action<float>? Changed;
-    public float Value { get => value; set { var v = Math.Clamp(value, 0, 1); if (Set(ref this.value, v, DirtyFlags.Paint | DirtyFlags.Semantics)) Changed?.Invoke(v); } }
+    public float Value { get => value; set => SetProperty(this, ref this.value, value, ValueProperty); }
     public override string SemanticValue => Value.ToString("P0", CultureInfo.InvariantCulture);
     private void SetPosition(float x) => Value = (x - VisualBounds.X - 8) / Math.Max(1, Bounds.Width - 16);
     protected override void OnEvent(UiEvent e)

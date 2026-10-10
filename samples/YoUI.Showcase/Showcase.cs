@@ -8,6 +8,10 @@ public sealed class Showcase : Element
     private readonly Element sidebar, content, inspector, modal;
     private readonly Label title, subtitle, status, resultCount, selectedName;
     private readonly Preview preview;
+    private int attachmentVersion;
+    public ShowcaseState State { get; }
+    internal float PreviewOpacity => preview.GroupAlpha;
+    internal float PreviewTime => preview.Time;
     public TextBox Search { get; }
     public VirtualList Library { get; }
     public Toggle Motion { get; }
@@ -22,8 +26,9 @@ public sealed class Showcase : Element
     private string[] names = ["Aurora / Atmosphere", "Orbit / Geometry", "Solstice / Gradient", "Lumen / Composition", "Tide / Soft forms", "Nova / Typography"];
     private int[] filtered = Enumerable.Range(0, 100000).ToArray();
     public event Action<bool>? MotionChanged;
-    public Showcase()
+    public Showcase(ShowcaseState? state = null)
     {
+        State = state ?? new ShowcaseState();
         sidebar = Add(new Surface { Name = "navigation", Radius = 0 });
         sidebar.Add(new Label("y /  YoUI") { FontSize = 25, Bold = true, Transform = RectTransform.Fixed(26, 30, 164, 44) });
         sidebar.Add(new Label("THE INTERFACE LAB") { FontSize = 10, Color = Color.Hex(0x8192AA), Transform = RectTransform.Fixed(28, 78, 170, 20) });
@@ -62,10 +67,8 @@ public sealed class Showcase : Element
         inspector.Add(new Label("Tune the rendering properties.\nEvery control shares the same\nlayout, input and drawing system.") { FontSize = 12, Color = Color.Hex(0x8192AA), Transform = RectTransform.Fixed(24, 201, 224, 70) });
         inspector.Add(new Label("ISOLATED OPACITY") { FontSize = 10, Color = Color.Hex(0x8192AA), Transform = RectTransform.Fixed(24, 307, 220, 20) });
         Opacity = inspector.Add(new Slider { Value = 0.86f, AccessibleName = "Scene group opacity", Transform = RectTransform.Fixed(20, 344, 232, 28) });
-        Opacity.Changed += value => { preview.GroupAlpha = value; status.Text = $"Group opacity {value:P0} · composed through an offscreen layer"; };
         Motion = inspector.Add(new Toggle("Motion") { Transform = RectTransform.Fixed(24, 402, 224, 42) });
         Clip = inspector.Add(new Toggle("Parent clip", true) { Transform = RectTransform.Fixed(24, 458, 224, 42) });
-        Motion.Changed += enabled => MotionChanged?.Invoke(enabled);
         Clip.Changed += enabled => { preview.UseClip = enabled; status.Text = enabled ? "Parent clipping enabled" : "Parent clipping disabled"; };
         inspector.Add(new Label("ACTIVE SCENE") { FontSize = 10, Color = Color.Hex(0x8192AA), Transform = RectTransform.Fixed(24, 548, 220, 20) });
         selectedName = inspector.Add(new Label("Aurora / Atmosphere") { FontSize = 14, Bold = true, Transform = RectTransform.Fixed(24, 580, 224, 48) });
@@ -83,6 +86,60 @@ public sealed class Showcase : Element
         ConfirmButton.Clicked += () => { status.Text = $"Applied: {selectedName.Text}"; CloseModal(); };
         modal.Event += e => { if (e.Kind == EventKind.KeyDown && e.Key == 27) { CloseModal(); e.Handled = true; } };
     }
+    protected override void OnDocumentChanged(UiDocument? previous, UiDocument? current)
+    {
+        base.OnDocumentChanged(previous, current);
+        int version = ++attachmentVersion;
+        if (previous != null)
+        {
+            Motion.Changed -= OnMotionInput;
+            Opacity.Changed -= OnOpacityInput;
+            State.MotionChanged -= OnMotionStateChanged;
+            State.OpacityChanged -= OnOpacityStateChanged;
+        }
+        if (current == null) return;
+
+        // State starts synchronization; nested state or effective control corrections
+        // use the normal two-way handlers, including during the initial snapshot.
+        State.MotionChanged += OnMotionStateChanged;
+        State.OpacityChanged += OnOpacityStateChanged;
+        Motion.Changed += OnMotionInput;
+        Opacity.Changed += OnOpacityInput;
+        Motion.Value = State.MotionEnabled;
+        if (version != attachmentVersion) return;
+        Opacity.Value = State.Opacity;
+        if (version != attachmentVersion) return;
+        preview.GroupAlpha = State.Opacity;
+        MotionChanged?.Invoke(State.MotionEnabled);
+    }
+    private void OnMotionInput(bool enabled)
+    {
+        if (Document != null) State.MotionEnabled = Motion.Value;
+    }
+    private void OnOpacityInput(float value)
+    {
+        // Reattachment can put this listener after callbacks that made a newer write.
+        if (Document != null) State.Opacity = Opacity.Value;
+    }
+    private void OnMotionStateChanged(bool enabled)
+    {
+        if (Document == null) return;
+        // Earlier subscribers may already have replaced the event's snapshot.
+        Motion.Value = State.MotionEnabled;
+        if (Document == null) return;
+        MotionChanged?.Invoke(State.MotionEnabled);
+    }
+    private void OnOpacityStateChanged(float value)
+    {
+        if (Document == null) return;
+        Opacity.Value = State.Opacity;
+        // Control callbacks can synchronously change state again (or detach the view).
+        // Reconcile the latest snapshot instead of overwriting nested updates.
+        if (Document == null) return;
+        float current = State.Opacity;
+        preview.GroupAlpha = current;
+        status.Text = $"Group opacity {current:P0} · composed through an offscreen layer";
+    }
     private string ItemName(int index) => names[index % names.Length];
     private void OnSelectionChanged(int index) { if (index < 0) return; int item = filtered[index]; preview.Variant = item % names.Length; selectedName.Text = ItemName(item); status.Text = $"Selected {ItemName(item)} · item {item + 1:N0}"; }
     private string ItemText(int index) { int n = filtered[index]; return $"{n + 1:000000}    {ItemName(n)}"; }
@@ -94,7 +151,7 @@ public sealed class Showcase : Element
     }
     public void OpenModal() { modal.Visible = true; Document?.SetModal(modal); }
     public void CloseModal() { modal.Visible = false; Document?.SetModal(null); }
-    public void Step(float time) { if (Motion.Value) preview.Time = time; }
+    public void Step(float time) { if (Document != null && State.MotionEnabled) preview.Time = time; }
     protected override void ArrangeChildren(Rect b)
     {
         float side = b.Width >= 1120 ? 210 : 0;

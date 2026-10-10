@@ -87,6 +87,66 @@ Test("cycle and double attachment rejected", () =>
     var root = new Element(); var child = root.Add(new Element()); bool rejected = false; try { child.Add(root); } catch (InvalidOperationException) { rejected = true; } Require(rejected);
     rejected = false; try { root.Add(child); } catch (InvalidOperationException) { rejected = true; } Require(rejected);
 });
+Test("typed property metadata, normalization and notification", () =>
+{
+    var root = new PropertyProbe(); var doc = Doc(root); doc.BuildFrame(); int layouts = doc.LayoutPasses;
+    Require(PropertyProbe.AmountProperty.Name == "Amount" && PropertyProbe.AmountProperty.DefaultValue == .5f);
+    Require(root.Amount == .5f);
+    root.Amount = .5f; Require(root.Changes == 0 && !doc.NeedsRender);
+    root.Amount = 2; Require(root.Amount == 1 && root.Changes == 1 && root.Previous == .5f && root.SawInvalidation);
+    root.Amount = 3; Require(root.Changes == 1);
+    bool rejected = false; try { root.Amount = float.NaN; } catch (ArgumentOutOfRangeException) { rejected = true; }
+    Require(rejected && root.Amount == 1 && root.Changes == 1);
+    doc.BuildFrame(); Require(doc.LayoutPasses == layouts);
+});
+Test("layout and paint callbacks retain newly raised invalidation", () =>
+{
+    var root = new InvalidatingProbe(); var doc = Doc(root);
+    root.OnArrange = () => root.Width = 120;
+    doc.BuildFrame(); Require(doc.NeedsRender && doc.LayoutPasses == 1);
+    root.OnArrange = null; doc.BuildFrame(); Require(doc.LayoutPasses == 2 && doc.PaintPasses == 2 && !doc.NeedsRender);
+    root.OnPaint = () => root.Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics);
+    root.Invalidate(); doc.BuildFrame(); Require(doc.NeedsRender && (root.Dirty & DirtyFlags.Paint) != 0);
+    root.OnPaint = null; doc.BuildFrame(); Require(!doc.NeedsRender);
+    root.OnPaint = () => root.Width = 180;
+    root.Invalidate(); doc.BuildFrame(); Require(doc.NeedsRender);
+    root.OnPaint = null; doc.BuildFrame(); Require(doc.LayoutPasses == 3 && !doc.NeedsRender);
+});
+Test("failed layout and paint can be retried", () =>
+{
+    var root = new InvalidatingProbe(); var doc = Doc(root);
+    root.OnArrange = () => throw new InvalidOperationException("layout");
+    try { doc.BuildFrame(); } catch (InvalidOperationException) { }
+    Require(doc.NeedsRender); root.OnArrange = null;
+    root.OnPaint = () => throw new InvalidOperationException("paint");
+    try { doc.BuildFrame(); } catch (InvalidOperationException) { }
+    Require(doc.NeedsRender); root.OnPaint = null; doc.BuildFrame(); Require(!doc.NeedsRender);
+});
+Test("document attachment callbacks pair detach and reattach", () =>
+{
+    var root = new Element(); var child = root.Add(new AttachmentProbe()); var doc = Doc(root);
+    Require(child.Loads == 1 && child.Unloads == 0);
+    root.Remove(child); Require(child.Loads == 1 && child.Unloads == 1 && child.Document == null);
+    root.Add(child); Require(child.Loads == 2 && child.Unloads == 1);
+});
+Test("Toggle and Slider preserve direct access, notifications and clamp semantics", () =>
+{
+    var root = new Element(); var toggle = root.Add(new Toggle("State")); var slider = root.Add(new Slider()); var doc = Doc(root); doc.BuildFrame();
+    int toggles = 0, slides = 0, layouts = doc.LayoutPasses;
+    toggle.Changed += value => { toggles++; Require(toggle.Value == value && toggle.Selected == value && toggle.Text.EndsWith(value ? "ON" : "OFF")); };
+    slider.Changed += value => { slides++; Require(slider.Value.Equals(value)); };
+    toggle.Value = true; toggle.Value = true; slider.Value = .7f; slider.Value = .7f;
+    Require(toggles == 1 && slides == 1 && toggle.SemanticValue == "on");
+    doc.BuildFrame(); layouts = doc.LayoutPasses; // Toggle caption changes legitimately need layout.
+    slider.Value = 2; slider.Value = float.PositiveInfinity; Require(slider.Value == 1 && slides == 2);
+    slider.Value = -2; slider.Value = float.NegativeInfinity; Require(slider.Value == 0 && slides == 3);
+    slider.Value = float.NaN; slider.Value = float.NaN; Require(float.IsNaN(slider.Value) && slides == 4);
+    slider.Value = .5f; doc.BuildFrame(); Require(doc.LayoutPasses == layouts);
+    Require(Toggle.ValueProperty.DefaultValue == false && Slider.ValueProperty.DefaultValue == .5f);
+    doc.Focus(toggle); doc.Dispatch(new(EventKind.KeyDown) { Key = 32 }); Require(!toggle.Value && toggles == 2);
+    doc.Focus(slider); doc.Dispatch(new(EventKind.KeyDown) { Key = 39 }); Require(slider.Value == .55f && slides == 6);
+});
+ShowcaseStateTests.Run(Test, Require);
 Console.WriteLine($"{passed} managed tests passed");
 
 // Logic-test fixture only. Production measurement always comes from COSMIC Text.
@@ -95,3 +155,29 @@ sealed class TestMeasurer : ITextMeasurer
     public (float Width, float Height) Measure(string text, float size, float width, bool bold = false) => (Math.Min(width, text.Length * size * 0.5f), Math.Max(1, MathF.Ceiling(text.Length * size * 0.5f / Math.Max(1, width))) * size * 1.35f);
 }
 sealed class TestClipboard : IClipboard { public string Value = ""; public string GetText() => Value; public void SetText(string text) => Value = text; }
+
+sealed class PropertyProbe : Element
+{
+    public static readonly UiProperty<PropertyProbe, float> AmountProperty = new(nameof(Amount), .5f,
+        DirtyFlags.Paint | DirtyFlags.Semantics,
+        normalize: value => float.IsFinite(value) ? Math.Clamp(value, 0, 1) : throw new ArgumentOutOfRangeException(nameof(value)),
+        changed: (owner, oldValue, newValue) => { owner.Changes++; owner.Previous = oldValue; owner.SawInvalidation = owner.Document!.NeedsRender && owner.Amount == newValue; });
+    private float amount = AmountProperty.DefaultValue;
+    public float Amount { get => amount; set => SetProperty(this, ref amount, value, AmountProperty); }
+    public int Changes; public float Previous; public bool SawInvalidation;
+}
+sealed class InvalidatingProbe : Element
+{
+    public Action? OnArrange; public Action? OnPaint;
+    protected override void ArrangeChildren(Rect bounds) { base.ArrangeChildren(bounds); OnArrange?.Invoke(); }
+    protected override void Paint(DrawList list, Rect bounds, float opacity, Theme theme) => OnPaint?.Invoke();
+}
+sealed class AttachmentProbe : Element
+{
+    public int Loads, Unloads;
+    protected override void OnDocumentChanged(UiDocument? previous, UiDocument? current)
+    {
+        if (previous != null) Unloads++;
+        if (current != null) Loads++;
+    }
+}

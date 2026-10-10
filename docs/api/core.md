@@ -195,3 +195,15 @@ SetModal 要求目标属于本文档；它不改变 Visible、不创建遮罩、
 `IClipboard` 包含 `string GetText()` 和 `void SetText(string text)`。Windows 宿主自动注入内部实现；纯逻辑测试可注入内存实现。
 
 `sealed record SemanticNode(string Name, string Role, string Value, Rect Bounds, bool Enabled, bool Focused)` 是语义快照。这里的 Name 来源于 `AccessibleName`，Bounds 包含视觉偏移。当前输出为平面列表，不含父子结构或平台辅助技术桥接。
+
+## 最小字段属性描述器（A04）
+
+`UiProperty<TOwner, TValue>` 为字段提供不可变元数据：`Name`、`DefaultValue`、`Invalidation`，以及可选的规范化/验证函数和类型安全变更回调。控件继续公开普通 C# 属性；没有反射、属性字典、绑定表达式或值优先级系统。
+
+派生节点的 setter 调用 `SetProperty(this, ref field, value, descriptor)`：先规范化（验证失败时抛出且不写入），再用 `EqualityComparer<T>.Default` 比较；只有有效值变化时才写入、失效并通知。字段需显式使用描述器默认值初始化。变更回调同步执行，发生在失效之后；回调异常不回滚已经写入的值。回调可以引发后续变更，不提供批处理或重入队列。
+
+本轮仅迁移 `Toggle.Value` 和 `Slider.Value`，沿用各自的类型化 `Changed` 事件。Slider 保留原有 `Math.Clamp(value, 0, 1)` 语义：有限越界值/正负无穷钳到端点，NaN 保留且重复 NaN 不再通知。此兼容性约定不表示 NaN 可用于原生绘制；应用应提供有限绘制数据。Toggle 的字幕 ON/OFF 改变仍可通过 Label 请求布局；独立 Slider 值变化只有 Paint/Semantics。
+
+`Element.OnDocumentChanged(previous, current)` 在子树文档关联完成后调用。示例在加入文档时订阅，在移出时退订，并在重新加入时应用最新状态。它不是窗口生命周期或文档 Dispose API。
+
+文档在布局/绘制回调之前消费对应失效位，保留回调期间的新失效。每次实际布局都请求绘制，避免延后的布局复用旧绘制列表。失败的布局/绘制可在修正问题后重试。
