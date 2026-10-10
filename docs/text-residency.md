@@ -37,15 +37,16 @@ The mapping-loss test preserves occupied slots and images: it proves re-resoluti
 and prepared-UV stability, **not** reclaimed capacity or a texture/device reset.
 It uses synthetic uploads and is not pixel evidence.
 
-A supplementary ignored GPU unit test in `renderer.rs` exercises actual upload,
+An ignored GPU unit test in `renderer.rs` exercises actual upload,
 rendering and pixel readback across mapping loss, alongside a live image:
 
 ```sh
-cargo test -p youi-render --lib cached_text_pixels_survive_residency_mapping_loss_with_live_image -- --ignored --nocapture
+cargo test -p youi-render --locked --lib renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image -- --exact --ignored --nocapture
 ```
 
 It requires a GPU adapter and a usable Latin font and fails explicitly without
 them. It verifies changed glyph UVs, unchanged measurement/image UVs, visible text
-and identical output pixels. Run this explicitly in addition to the existing
-`scripts/verify.ps1 -Layer Gpu` suite (which selects integration tests only).
+and identical output pixels. Both `scripts/verify.ps1 -Layer Gpu` and `-Layer All`
+run this exact test alongside the GPU integration suite, with the selected
+Debug/Release profile and repository target directory. Any failure stops the gate.
 CPU/Logic gate success must not be represented as GPU or native-window acceptance.
