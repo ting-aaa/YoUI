@@ -68,6 +68,18 @@ public class Element
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;
         field = value; Invalidate(flags); return true;
     }
+    /// <summary>Assign a field-backed typed property; no notification for an unchanged normalized value.</summary>
+    protected static bool SetProperty<TOwner, TValue>(TOwner owner, ref TValue field, TValue value,
+        UiProperty<TOwner, TValue> property) where TOwner : Element
+    {
+        value = property.Normalize(value);
+        if (EqualityComparer<TValue>.Default.Equals(field, value)) return false;
+        var previous = field;
+        field = value;
+        owner.Invalidate(property.Invalidation);
+        property.Notify(owner, previous, value);
+        return true;
+    }
     public void Invalidate(DirtyFlags flags = DirtyFlags.Paint)
     {
         if ((flags & DirtyFlags.Layout) != 0) flags |= DirtyFlags.Paint;
@@ -85,7 +97,15 @@ public class Element
         Document?.Detached(child); child.Parent = null; child.Attach(null); Invalidate(DirtyFlags.All); return true;
     }
     public void Clear() { foreach (var child in children.ToArray()) Remove(child); }
-    internal void Attach(UiDocument? document) { Document = document; foreach (var child in children) child.Attach(document); }
+    internal void Attach(UiDocument? document)
+    {
+        if (Document == document) return;
+        var previous = Document; Document = document;
+        foreach (var child in children) child.Attach(document);
+        OnDocumentChanged(previous, document);
+    }
+    /// <summary>Pair external subscriptions with document attachment; detach releases them.</summary>
+    protected virtual void OnDocumentChanged(UiDocument? previous, UiDocument? current) { }
     internal bool IsDescendantOf(Element root) { for (Element? n = this; n != null; n = n.Parent) if (n == root) return true; return false; }
     public virtual Vector2 Measure(Vector2 available)
     {
@@ -95,7 +115,8 @@ public class Element
     }
     public virtual void Arrange(Rect bounds)
     {
-        Bounds = bounds; LayoutRevision++; ArrangeChildren(bounds.Inset(Padding)); Dirty &= ~DirtyFlags.Layout;
+        Dirty &= ~DirtyFlags.Layout;
+        Bounds = bounds; LayoutRevision++; ArrangeChildren(bounds.Inset(Padding));
     }
     protected virtual void ArrangeChildren(Rect content)
     {
@@ -108,6 +129,7 @@ public class Element
     internal void PaintTree(DrawList list, Vector2 offset, float inherited, Theme theme)
     {
         if (!Visible) return;
+        Dirty &= ~DirtyFlags.Paint;
         offset += VisualOffset; float opacity = inherited * InheritedOpacity * (Enabled ? 1 : 0.45f);
         var bounds = Bounds.Translate(offset);
         if (ClipToBounds) list.PushClip(bounds);
@@ -116,7 +138,6 @@ public class Element
         foreach (var child in children) child.PaintTree(list, offset, opacity, theme);
         if (CompositedOpacity < 1) list.EndLayer();
         if (ClipToBounds) list.PopClip();
-        Dirty &= ~DirtyFlags.Paint;
     }
     protected virtual void Paint(DrawList list, Rect bounds, float opacity, Theme theme)
     {

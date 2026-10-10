@@ -37,17 +37,26 @@ public sealed class UiDocument
     public void EnsureLayout()
     {
         if ((dirty & DirtyFlags.Layout) == 0) return;
-        Root.Measure(size); Root.Arrange(new(0, 0, size.X, size.Y)); LayoutPasses++; dirty &= ~DirtyFlags.Layout;
+        // Consume before callbacks: invalidation raised during this pass belongs to the next pass.
+        dirty &= ~DirtyFlags.Layout;
+        try { Root.Measure(size); Root.Arrange(new(0, 0, size.X, size.Y)); LayoutPasses++; }
+        catch { dirty |= DirtyFlags.Layout | DirtyFlags.Paint; throw; }
     }
     public DrawList BuildFrame()
     {
+        dirty &= ~DirtyFlags.Semantics;
         EnsureLayout();
         if ((dirty & DirtyFlags.Paint) != 0)
         {
-            frame.Clear(); frame.Rectangle(new(0, 0, size.X, size.Y), Theme.Background);
-            Root.PaintTree(frame, Vector2.Zero, 1, Theme); PaintPasses++;
+            dirty &= ~DirtyFlags.Paint;
+            try
+            {
+                frame.Clear(); frame.Rectangle(new(0, 0, size.X, size.Y), Theme.Background);
+                Root.PaintTree(frame, Vector2.Zero, 1, Theme); PaintPasses++;
+            }
+            catch { dirty |= DirtyFlags.Paint; throw; }
         }
-        dirty = DirtyFlags.None; return frame;
+        return frame;
     }
     private static IEnumerable<Element> Traverse(Element root)
     {
