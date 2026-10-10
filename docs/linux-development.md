@@ -4,7 +4,7 @@ Linux 可以参与 Rust、C# 控件、布局及编辑器逻辑的开发。当前
 
 ## 环境与命令
 
-准备 Rust 工具链（包括 rustfmt、Clippy）、.NET 9 SDK、Bash 及系统 C/C++ 编译工具。首次运行需要下载 Cargo / .NET 依赖；无需 PowerShell 或 Python。仓库的历史工具链版本见[快速开始](getting-started.md)。
+准备 `rust-toolchain.toml` 固定的 Rust 1.96.0（包括 rustfmt、Clippy）、`global.json` 固定的 .NET SDK 10.0.401、Bash 及系统 C/C++ 编译工具。首次运行需要下载 Cargo / .NET 依赖；无需 PowerShell 或 Python。仓库的历史工具链版本见[快速开始](getting-started.md)。
 
 在仓库根目录运行：
 

@@ -34,7 +34,8 @@ def main():
     package = next(p for p in metadata["packages"] if p["name"] == "wgpu-hal" and p["version"] == "26.0.6")
     source = Path(package["manifest_path"]).parent
     output.mkdir(parents=True)
-    for file in ["Cargo.toml", "Cargo.lock"]:
+    # The output may be outside ROOT, so preserve rustup selection there too.
+    for file in ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml"]:
         shutil.copy2(ROOT / file, output / file)
     shutil.copytree(ROOT / "native", output / "native")
     vendor = output / "vendor/wgpu-hal"
@@ -97,7 +98,7 @@ def main():
         and json.loads(line).get("target", {}).get("name") == "gpu" and json.loads(line).get("executable"))
     for app, path in [("editor", "tools/YoUI.Editor"), ("showcase", "samples/YoUI.Showcase")]:
         destination = output / app
-        shutil.copytree(ROOT / path / "bin/Release/net9.0", destination)
+        shutil.copytree(ROOT / path / "bin/Release/net10.0", destination)
         shutil.copy2(output / "target/release/youi_render.dll", destination / "youi_render.dll")
     for name in ["libEGL.dll", "libGLESv2.dll", "d3dcompiler_47.dll"]:
         library = args.angle_dir / name

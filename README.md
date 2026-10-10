@@ -20,7 +20,9 @@
 
 ## 运行
 
-本次已验证环境：Windows x64、Rust 1.96、.NET SDK 9.0.318；NVIDIA RTX 5060 Laptop 的 DX12/Vulkan 与 AMD 860M 的原生 OpenGL。默认使用 DX12，可通过 `YOUI_BACKEND` 选择；详见后端验证文档。Rust MSVC 工具链需要 Visual Studio C++ Build Tools；首次构建会获取 Cargo 依赖。
+当前构建固定 Rust 1.96.0、.NET SDK 10.0.401（目标 `net10.0`）；见 [工具链与升级](docs/toolchains.md)。
+
+历史 GPU/窗口已验证环境：Windows x64、Rust 1.96、.NET SDK 9.0.318；NVIDIA RTX 5060 Laptop 的 DX12/Vulkan 与 AMD 860M 的原生 OpenGL。默认使用 DX12，可通过 `YOUI_BACKEND` 选择；详见后端验证文档。Rust MSVC 工具链需要 Visual Studio C++ Build Tools；首次构建会获取 Cargo 依赖。
 
 ```powershell
 ./scripts/run.ps1
