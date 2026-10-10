@@ -99,17 +99,17 @@ public sealed class Showcase : Element
         }
         if (current == null) return;
 
-        // Observe nested state corrections while applying the initial snapshot. Listen
-        // to control input afterwards so detached control values cannot replace state.
+        // State starts synchronization; nested state or effective control corrections
+        // use the normal two-way handlers, including during the initial snapshot.
         State.MotionChanged += OnMotionStateChanged;
         State.OpacityChanged += OnOpacityStateChanged;
+        Motion.Changed += OnMotionInput;
+        Opacity.Changed += OnOpacityInput;
         Motion.Value = State.MotionEnabled;
         if (version != attachmentVersion) return;
         Opacity.Value = State.Opacity;
         if (version != attachmentVersion) return;
         preview.GroupAlpha = State.Opacity;
-        Motion.Changed += OnMotionInput;
-        Opacity.Changed += OnOpacityInput;
         MotionChanged?.Invoke(State.MotionEnabled);
     }
     private void OnMotionInput(bool enabled)

@@ -124,8 +124,40 @@ internal static class ShowcaseStateTests
             {
                 root.Add(scene);
                 require(state.Opacity == 0.5f && scene.Opacity.Value == 0.5f && scene.PreviewOpacity == 0.5f,
-                    "initialization observes nested state changes before connecting control input");
+                    "initialization observes nested state changes while applying the state snapshot");
                 require(!state.MotionEnabled && !scene.Motion.Value, "initialization observes nested motion changes");
+                root.Remove(scene);
+                state.Opacity = 0.9f;
+                state.MotionEnabled = true;
+            }
+        });
+        test("showcase accepts effective control normalization during initial and repeat attachment", () =>
+        {
+            var state = new ShowcaseState { Opacity = 0.9f, MotionEnabled = true };
+            var scene = new Showcase(state);
+            int opacityCalls = 0, motionCalls = 0;
+            scene.Opacity.Changed += value =>
+            {
+                require(++opacityCalls < 10, "initial control opacity normalization converges");
+                if (value > 0.5f) scene.Opacity.Value = 0.5f;
+            };
+            scene.Motion.Changed += value =>
+            {
+                require(++motionCalls < 10, "initial control motion normalization converges");
+                if (value) scene.Motion.Value = false;
+            };
+            bool hostMotion = true;
+            scene.MotionChanged += value => hostMotion = value;
+            var root = new Element();
+            var doc = Document(root);
+            for (int i = 0; i < 2; i++)
+            {
+                root.Add(scene);
+                require(state.Opacity == 0.5f && scene.Opacity.Value == 0.5f && scene.PreviewOpacity == 0.5f,
+                    "nested effective control opacity replaces the initial state snapshot");
+                require(scene.Status.StartsWith($"Group opacity {0.5f:P0}"), "status describes the normalized control value");
+                require(!state.MotionEnabled && !scene.Motion.Value && !hostMotion,
+                    "nested effective control motion reaches state and the host");
                 root.Remove(scene);
                 state.Opacity = 0.9f;
                 state.MotionEnabled = true;
