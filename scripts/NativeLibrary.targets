@@ -1,0 +1,18 @@
+<Project>
+  <!-- Host-native builds only. Window/input support remains Windows-only. -->
+  <PropertyGroup>
+    <NativeProfile Condition="'$(Configuration)' == 'Release'">release</NativeProfile>
+    <NativeProfile Condition="'$(NativeProfile)' == ''">debug</NativeProfile>
+    <YoUINativeLibraryName Condition="$([MSBuild]::IsOSPlatform('Windows'))">youi_render.dll</YoUINativeLibraryName>
+    <YoUINativeLibraryName Condition="$([MSBuild]::IsOSPlatform('Linux'))">libyoui_render.so</YoUINativeLibraryName>
+    <YoUINativeLibraryName Condition="$([MSBuild]::IsOSPlatform('OSX'))">libyoui_render.dylib</YoUINativeLibraryName>
+    <YoUINativeLibraryPath>$(MSBuildThisFileDirectory)../target/$(NativeProfile)/$(YoUINativeLibraryName)</YoUINativeLibraryPath>
+    <YoUINativeBuildCommand>cargo build --workspace --locked --target-dir target</YoUINativeBuildCommand>
+    <YoUINativeBuildCommand Condition="'$(NativeProfile)' == 'release'">$(YoUINativeBuildCommand) --release</YoUINativeBuildCommand>
+  </PropertyGroup>
+  <Target Name="CopyNative" AfterTargets="Build">
+    <Error Condition="'$(YoUINativeLibraryName)' == ''" Text="Unsupported native build host. YoUI recognizes Windows, Linux and macOS library filenames; window support remains Windows-only." />
+    <Error Condition="!Exists('$(YoUINativeLibraryPath)')" Text="Missing native library: $(YoUINativeLibraryPath). Build the matching Rust library from the repository root first: $(YoUINativeBuildCommand)." />
+    <Copy SourceFiles="$(YoUINativeLibraryPath)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
