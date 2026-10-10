@@ -8,6 +8,12 @@ using YoUI.Assets;
 using YoUI.Editor;
 using YoUI.Editor.App;
 
+#if DEBUG
+const string configuration = "Debug";
+#else
+const string configuration = "Release";
+#endif
+
 var results = new List<string>();
 string rootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
 string output = Path.GetFullPath(Path.Combine(rootPath, "artifacts/editor-validation", Guid.NewGuid().ToString("N"))); Directory.CreateDirectory(output);
@@ -39,6 +45,25 @@ Test("Versioned assets round-trip Unicode and reject invalid structure, colors, 
     a.Root.Children[0].Id = a.Root.Id; Reject(() => UiAssetJson.Validate(a));
     a = new(); var n = a.Root; for (int i = 0; i < 25; i++) { var c = new UiNode(); n.Children.Add(c); n = c; } Reject(() => UiAssetJson.Validate(a));
     a = new(); a.Root.Children = Enumerable.Range(0, 300).Select(_ => new UiNode { Kind = NodeKind.Text, Text = new string('x', 16000) }).ToList(); Reject(() => UiAssetJson.Serialize(a));
+});
+Test("Checked-in V1 asset preserves runtime command IR and bindings after save/reload", () =>
+{
+    var original = UiAssetJson.Load(Path.Combine(rootPath, "docs/examples/welcome.youi.json"));
+    string json = UiAssetJson.Serialize(original);
+    string saved = Path.Combine(output, "welcome-v1.youi.json"); File.WriteAllText(saved, json);
+    var reloaded = UiAssetJson.Load(saved); Require(UiAssetJson.Serialize(reloaded) == json);
+    Require(original.Version == 1 && original.Name == "Welcome" && original.Root.Children.Count == 2);
+    string firstCommand = "", secondCommand = "";
+    var first = UiAssetRuntime.Build(original, command => firstCommand = command);
+    var second = UiAssetRuntime.Build(reloaded, command => secondCommand = command);
+    var firstDoc = first.CreateDocument(new Measurer(), original.Root.Width, original.Root.Height, original.DarkTheme);
+    var secondDoc = second.CreateDocument(new Measurer(), reloaded.Root.Width, reloaded.Root.Height, reloaded.DarkTheme);
+    var firstFrame = firstDoc.BuildFrame(); var secondFrame = secondDoc.BuildFrame();
+    Require(MemoryMarshal.AsBytes(firstFrame.Commands).SequenceEqual(MemoryMarshal.AsBytes(secondFrame.Commands)) && firstFrame.TextBytes.SequenceEqual(secondFrame.TextBytes));
+    var button = original.Root.DescendantsAndSelf().Single(node => node.Command == "app.greet");
+    firstDoc.Focus(first.Nodes[button.Id]); secondDoc.Focus(second.Nodes[button.Id]);
+    firstDoc.Dispatch(new(EventKind.KeyDown) { Key = 13 }); secondDoc.Dispatch(new(EventKind.KeyDown) { Key = 13 });
+    Require(firstCommand == "app.greet" && secondCommand == firstCommand);
 });
 Test("Selection, duplicate subtree IDs, order, reparent cycles and deletion are undoable", () =>
 {
@@ -184,12 +209,7 @@ Test("Global undo during a canvas drag cancels the transaction and subsequent mo
 });
 Test("Export host loads a real plugin, rejects duplicate IDs and contains returned paths", () =>
 {
-#if DEBUG
-    const string configuration = "Debug";
-#else
-    const string configuration = "Release";
-#endif
-    var catalog = new ExportCatalog(); string plugin = Path.Combine(rootPath, $"samples/YoUI.Exporter.Sample/bin/{configuration}/net9.0/YoUI.Exporter.Sample.dll");
+    var catalog = new ExportCatalog(); string plugin = Path.Combine(rootPath, $"samples/YoUI.Exporter.Sample/bin/{configuration}/net10.0/YoUI.Exporter.Sample.dll");
     var found = catalog.LoadPlugin(plugin); Require(found.Count == 1 && found[0].Id == "sample.inventory"); Reject(() => catalog.LoadPlugin(plugin));
     string directory = Path.Combine(output, "plugin-output"); ExportCatalog.Write(found[0], EditorSession.Starter(), directory); Require(File.ReadAllText(Path.Combine(directory, "inventory.md")).Contains("project.create"));
     Reject(() => ExportCatalog.Write(found[0], EditorSession.Starter(), directory));
@@ -203,7 +223,7 @@ Test("Exported C# compiles and matches JSON runtime command IR and behavior with
     foreach (var anchor in Enum.GetValues<AnchorMode>()) a.Root.Children.Add(new() { Kind = NodeKind.Panel, Anchor = anchor, X = 8, Y = 16, Width = 30, Height = 22, PivotX = .25f, PivotY = 1, Fill = "#AACCFF" });
     string folder = Path.Combine(output, "compiled"); ExportCatalog.Write(new CSharpExporter(), a, folder);
     string runtimeProject = System.Security.SecurityElement.Escape(Path.Combine(rootPath, "managed/YoUI/YoUI.csproj"));
-    File.WriteAllText(Path.Combine(folder, "Generated.csproj"), $"<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net9.0</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include=\"{runtimeProject}\" /></ItemGroup></Project>");
+    File.WriteAllText(Path.Combine(folder, "Generated.csproj"), $"<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include=\"{runtimeProject}\" /></ItemGroup></Project>");
     File.WriteAllText(Path.Combine(folder, "Program.cs"), """
 using System;
 using System.Linq;
@@ -227,7 +247,7 @@ Console.WriteLine("Generated source compiled; full command IR, UTF-8 and command
 sealed class GeneratedMeasurer : ITextMeasurer { public (float Width, float Height) Measure(string text, float size, float width, bool bold = false) => (Math.Min(width, text.Length * size * .55f), size * 1.35f); }
 """);
     var start = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, WorkingDirectory = folder };
-    foreach (string arg in new[] { "run", "--project", Path.Combine(folder, "Generated.csproj"), "-c", "Release" }) start.ArgumentList.Add(arg);
+    foreach (string arg in new[] { "run", "--project", Path.Combine(folder, "Generated.csproj"), "-c", configuration }) start.ArgumentList.Add(arg);
     using var process = Process.Start(start)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
     if (!process.WaitForExit(60000)) { process.Kill(true); throw new Exception("Generated code validation timed out"); }
     Task.WaitAll(stdout, stderr); Require(process.ExitCode == 0, stdout.Result + stderr.Result); Console.Write(stdout.Result);

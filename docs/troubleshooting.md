@@ -9,7 +9,7 @@
 | 现象 | 检查与处理 |
 | --- | --- |
 | 找不到 cargo/rustc、链接器或 Windows SDK | 确认 Rust MSVC x64 工具链、Visual Studio C++ Build Tools 和 Windows SDK 已安装 |
-| 不支持 net9.0 / 找不到运行时 | 用 `dotnet --list-sdks` 核对 .NET 9 SDK；直接运行构建产物还需对应运行时 |
+| 不支持 net10.0 / 找不到运行时 | 用 `dotnet --list-sdks` 核对 .NET 10 SDK；直接运行构建产物还需对应运行时 |
 | `Build the Rust native library first` | 先 `cargo build --workspace --locked`；Release 加 `--release`，再构建 C# |
 | `DllNotFoundException` | 检查应用输出目录的 `youi_render.dll`，并检查其本机依赖是否可加载 |
 | `BadImageFormatException` | 确认应用与原生库位数一致；当前按 Windows x64 使用 |

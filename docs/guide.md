@@ -2,7 +2,7 @@
 
 [文档首页](README.md) · [快速开始](getting-started.md) · [API 索引](api/README.md)
 
-以下 C# 示例使用 .NET 9 的隐式 using，并通过源码引用 YoUI；窗口示例还需要 Windows 宿主和匹配的原生 DLL。各段独立展示一个用法，按说明放入自己的应用。
+以下 C# 示例使用 .NET 10 的隐式 using，并通过源码引用 YoUI；窗口示例还需要 Windows 宿主和匹配的原生 DLL。各段独立展示一个用法，按说明放入自己的应用。
 
 ## 控件树与文档
 

@@ -160,7 +160,7 @@ dotnet run --project tools/YoUI.Editor -c Release --no-build -- --open docs/exam
 
 ## 插件示例
 
-类库引用 `managed/YoUI.Editor.Core/YoUI.Editor.Core.csproj`，目标 net9.0：
+类库引用 `managed/YoUI.Editor.Core/YoUI.Editor.Core.csproj`，目标 net10.0：
 
 ```csharp
 using YoUI.Editor;
@@ -179,7 +179,7 @@ public sealed class NameExporter : IUiExporter
 
 ```powershell
 $exportPath = Join-Path 'artifacts' ('inventory-' + [guid]::NewGuid().ToString('N'))
-dotnet run --project tools/YoUI.Editor -c Release --no-build -- --open docs/examples/welcome.youi.json --plugin samples/YoUI.Exporter.Sample/bin/Release/net9.0/YoUI.Exporter.Sample.dll --exporter sample.inventory --export $exportPath
+dotnet run --project tools/YoUI.Editor -c Release --no-build -- --open docs/examples/welcome.youi.json --plugin samples/YoUI.Exporter.Sample/bin/Release/net10.0/YoUI.Exporter.Sample.dll --exporter sample.inventory --export $exportPath
 ```
 
 此插件扩展文件格式，不注册新控件类型、Inspector 面板或动画运行时。

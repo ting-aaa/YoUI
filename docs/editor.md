@@ -9,10 +9,10 @@ Editor 按“先 UI 库，再自举”的顺序实现：树视图、滚动容器
 ```powershell
 ./scripts/editor.ps1
 ./scripts/editor.ps1 -Open ./docs/examples/welcome.youi.json
-./scripts/editor.ps1 -Plugin ./samples/YoUI.Exporter.Sample/bin/Release/net9.0/YoUI.Exporter.Sample.dll
+./scripts/editor.ps1 -Plugin ./samples/YoUI.Exporter.Sample/bin/Release/net10.0/YoUI.Exporter.Sample.dll
 ```
 
-脚本构建后启动。再次构建前关闭对应配置的应用窗口，避免 Windows 锁定输出 DLL。也可以直接启动 `tools/YoUI.Editor/bin/Release/net9.0/YoUI.Editor.exe`。
+脚本构建后启动。再次构建前关闭对应配置的应用窗口，避免 Windows 锁定输出 DLL。也可以直接启动 `tools/YoUI.Editor/bin/Release/net10.0/YoUI.Editor.exe`。
 
 | 区域 | 操作 |
 | --- | --- |
@@ -89,12 +89,12 @@ window.Run();
 
 ```powershell
 dotnet run --project tools/YoUI.Editor -c Release --no-build -- --open ./docs/examples/welcome.youi.json --exporter youi.csharp --export ./artifacts/export-csharp
-dotnet run --project tools/YoUI.Editor -c Release --no-build -- --plugin ./samples/YoUI.Exporter.Sample/bin/Release/net9.0/YoUI.Exporter.Sample.dll --exporter sample.inventory --export ./artifacts/export-inventory
+dotnet run --project tools/YoUI.Editor -c Release --no-build -- --plugin ./samples/YoUI.Exporter.Sample/bin/Release/net10.0/YoUI.Exporter.Sample.dll --exporter sample.inventory --export ./artifacts/export-inventory
 ```
 
 ## 编写导出插件
 
-插件是 .NET 9 类库，引用 `managed/YoUI.Editor.Core/YoUI.Editor.Core.csproj`，包含一个公开、非抽象、具有无参构造函数的 `IUiExporter` 实现。完整可构建示例见 `samples/YoUI.Exporter.Sample`。
+插件是 .NET 10 类库，引用 `managed/YoUI.Editor.Core/YoUI.Editor.Core.csproj`，包含一个公开、非抽象、具有无参构造函数的 `IUiExporter` 实现。完整可构建示例见 `samples/YoUI.Exporter.Sample`。
 
 ```csharp
 using YoUI.Editor;

@@ -8,12 +8,12 @@
 
 - Windows x64，支持 DirectX 12 的图形适配器及驱动。
 - Rust 的 `x86_64-pc-windows-msvc` 工具链，以及 Visual Studio C++ Build Tools / Windows SDK。
-- .NET SDK 9.0.318：项目目标为 `net9.0`。
+- .NET SDK 10.0.401：项目目标为 `net10.0`。
 - PowerShell，用于运行仓库脚本。
 
 历史验收使用 Rust 1.96.0、.NET SDK 9.0.318，具体机器与验证边界见[验证记录](verification.md)。这些是已验证版本，仓库没有声明更早版本的最低兼容范围。
 
-仓库用 `rust-toolchain.toml` 固定 Rust 1.96.0（含 rustfmt、Clippy），用 `global.json` 固定 .NET SDK 9.0.318，禁止自动滚动至其他 SDK。请安装精确版本；在仓库目录执行命令，且不要设置 `RUSTUP_TOOLCHAIN` 覆盖它。
+仓库用 `rust-toolchain.toml` 固定 Rust 1.96.0（含 rustfmt、Clippy），用 `global.json` 固定 .NET SDK 10.0.401，禁止自动滚动至其他 SDK。请安装精确版本；在仓库目录执行命令，且不要设置 `RUSTUP_TOOLCHAIN` 覆盖它。
 
 检查本机安装：
 
@@ -92,7 +92,7 @@ window.Run();
 
 ## 4. 创建自己的项目
 
-可以复制 `docs/examples/HelloYoUI`，或建立 .NET 9 控制台项目，引用以下两个项目：
+可以复制 `docs/examples/HelloYoUI`，或建立 .NET 10 控制台项目，引用以下两个项目：
 
 - `managed/YoUI/YoUI.csproj`：控件、布局、资源和原生绑定。
 - `managed/YoUI.Platform.Windows/YoUI.Platform.Windows.csproj`：Windows 窗口和输入。
@@ -103,7 +103,7 @@ window.Run();
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PlatformTarget>x64</PlatformTarget>
@@ -126,7 +126,7 @@ window.Run();
 
 此目标**复制**原生 DLL，不负责构建 Rust。Debug 使用 `target/debug/youi_render.dll`；Release 使用 `target/release/youi_render.dll`。原生库与应用都使用 x64，且必须来自兼容的源码与 ABI 版本。
 
-构建产物在 `docs/examples/HelloYoUI/bin/Release/net9.0/`。直接启动此目录的 `HelloYoUI.exe` 即可，保留同目录中的运行库和 `youi_render.dll`。这仍是依赖已安装 .NET 9 运行时的构建产物，不是独立安装包。
+构建产物在 `docs/examples/HelloYoUI/bin/Release/net10.0/`。直接启动此目录的 `HelloYoUI.exe` 即可，保留同目录中的运行库和 `youi_render.dll`。这仍是依赖已安装 .NET 10 运行时的构建产物，不是独立安装包。
 
 ## 5. 生成第一张图片
 

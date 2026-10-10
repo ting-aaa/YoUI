@@ -28,7 +28,7 @@ cd "$scratch"
 for project in samples/YoUI.Showcase tools/YoUI.Editor docs/examples/HelloYoUI; do
     name="${project##*/}"
     project_file="$root/$project/$name.csproj"
-    cmp "$native" "$root/$project/bin/$configuration/net9.0/libyoui_render.so"
+    cmp "$native" "$root/$project/bin/$configuration/net10.0/libyoui_render.so"
     dotnet msbuild "$project_file" -nologo -t:CopyNative \
         -p:Configuration="$configuration" -p:OutDir="$scratch/$name/"
     cmp "$native" "$scratch/$name/libyoui_render.so"

@@ -97,7 +97,7 @@ def main():
         and json.loads(line).get("target", {}).get("name") == "gpu" and json.loads(line).get("executable"))
     for app, path in [("editor", "tools/YoUI.Editor"), ("showcase", "samples/YoUI.Showcase")]:
         destination = output / app
-        shutil.copytree(ROOT / path / "bin/Release/net9.0", destination)
+        shutil.copytree(ROOT / path / "bin/Release/net10.0", destination)
         shutil.copy2(output / "target/release/youi_render.dll", destination / "youi_render.dll")
     for name in ["libEGL.dll", "libGLESv2.dll", "d3dcompiler_47.dll"]:
         library = args.angle_dir / name

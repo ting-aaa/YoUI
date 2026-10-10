@@ -102,8 +102,8 @@ def main() -> int:
     gpu = next(json.loads(line)["executable"] for line in build.stdout.splitlines()
                if line.startswith("{") and json.loads(line).get("reason") == "compiler-artifact"
                and json.loads(line).get("target", {}).get("name") == "gpu" and json.loads(line).get("executable"))
-    editor = ROOT / "tools/YoUI.Editor/bin/Release/net9.0/YoUI.Editor.exe"
-    showcase = ROOT / "samples/YoUI.Showcase/bin/Release/net9.0/YoUI.Showcase.exe"
+    editor = ROOT / "tools/YoUI.Editor/bin/Release/net10.0/YoUI.Editor.exe"
+    showcase = ROOT / "samples/YoUI.Showcase/bin/Release/net10.0/YoUI.Showcase.exe"
     report = dict(os=platform.platform(), configuration="Release", timeoutSeconds=args.timeout,
                   tolerance=dict(meanChannelError=0.25, fractionPixelsOver4=0.001), backends=[])
     for backend in args.backends:

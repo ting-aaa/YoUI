@@ -15,7 +15,7 @@
 
 ## 工具链与权限
 
-- Rust 与 .NET 版本由仓库的 [`rust-toolchain.toml`](../rust-toolchain.toml) 和 [`global.json`](../global.json) 统一选择，本地与 CI 使用相同的精确版本。Rust 为 1.96.0，包含 rustfmt、Clippy；.NET SDK 为 9.0.318，禁止 roll-forward 和预览版本。升级应显式修改这些文件，并重跑 Debug / Release 逻辑验证。
+- Rust 与 .NET 版本由仓库的 [`rust-toolchain.toml`](../rust-toolchain.toml) 和 [`global.json`](../global.json) 统一选择，本地与 CI 使用相同的精确版本。Rust 为 1.96.0，包含 rustfmt、Clippy；.NET SDK 为 10.0.401，禁止 roll-forward 和预览版本。升级应显式修改这些文件，并重跑 Debug / Release 逻辑验证。
 - `setup-dotnet` 直接读取 `global.json`，工作流再核对安装版本及 `dotnet --version`，并将选择文件保存在证据中。Rust 使用 rustup 读取 checkout 中的工具链文件；不要用 `RUSTUP_TOOLCHAIN` 环境变量覆盖固定版本。
 - `test-native-copy.sh` 会把仓库的 `global.json` 复制到独立 `mktemp` 目录，再从该目录调用 .NET。这样既能验证不相关工作目录，也不会在 `/tmp` 退回其他已安装 SDK；不需要写入 checkout 上级目录或设置 CI 专用 `TMPDIR`。
 - 使用明确的 `ubuntu-24.04`、`windows-2025` runner 标签；镜像软件仍会更新，因此保存镜像版本及 `rustc`、Cargo、.NET、PowerShell 版本。

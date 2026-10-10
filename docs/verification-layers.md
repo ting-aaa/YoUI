@@ -4,7 +4,7 @@
 
 ## 入口与边界
 
-使用 Rust（包含 rustfmt、Clippy）、.NET 9 SDK 和 PowerShell 7。Linux 的逻辑入口只需要 Bash，不要求安装 PowerShell。
+使用 Rust（包含 rustfmt、Clippy）、.NET 10 SDK 和 PowerShell 7。Linux 的逻辑入口只需要 Bash，不要求安装 PowerShell。
 
 ```powershell
 # Windows 完整验收：构建 + 逻辑 + GPU/示例/基准 + 原生窗口
