@@ -8,6 +8,9 @@ public sealed class Showcase : Element
     private readonly Element sidebar, content, inspector, modal;
     private readonly Label title, subtitle, status, resultCount, selectedName;
     private readonly Preview preview;
+    public ShowcaseState State { get; }
+    internal float PreviewOpacity => preview.GroupAlpha;
+    internal float PreviewTime => preview.Time;
     public TextBox Search { get; }
     public VirtualList Library { get; }
     public Toggle Motion { get; }
@@ -22,8 +25,9 @@ public sealed class Showcase : Element
     private string[] names = ["Aurora / Atmosphere", "Orbit / Geometry", "Solstice / Gradient", "Lumen / Composition", "Tide / Soft forms", "Nova / Typography"];
     private int[] filtered = Enumerable.Range(0, 100000).ToArray();
     public event Action<bool>? MotionChanged;
-    public Showcase()
+    public Showcase(ShowcaseState? state = null)
     {
+        State = state ?? new ShowcaseState();
         sidebar = Add(new Surface { Name = "navigation", Radius = 0 });
         sidebar.Add(new Label("y /  YoUI") { FontSize = 25, Bold = true, Transform = RectTransform.Fixed(26, 30, 164, 44) });
         sidebar.Add(new Label("THE INTERFACE LAB") { FontSize = 10, Color = Color.Hex(0x8192AA), Transform = RectTransform.Fixed(28, 78, 170, 20) });
@@ -62,10 +66,8 @@ public sealed class Showcase : Element
         inspector.Add(new Label("Tune the rendering properties.\nEvery control shares the same\nlayout, input and drawing system.") { FontSize = 12, Color = Color.Hex(0x8192AA), Transform = RectTransform.Fixed(24, 201, 224, 70) });
         inspector.Add(new Label("ISOLATED OPACITY") { FontSize = 10, Color = Color.Hex(0x8192AA), Transform = RectTransform.Fixed(24, 307, 220, 20) });
         Opacity = inspector.Add(new Slider { Value = 0.86f, AccessibleName = "Scene group opacity", Transform = RectTransform.Fixed(20, 344, 232, 28) });
-        Opacity.Changed += value => { preview.GroupAlpha = value; status.Text = $"Group opacity {value:P0} · composed through an offscreen layer"; };
         Motion = inspector.Add(new Toggle("Motion") { Transform = RectTransform.Fixed(24, 402, 224, 42) });
         Clip = inspector.Add(new Toggle("Parent clip", true) { Transform = RectTransform.Fixed(24, 458, 224, 42) });
-        Motion.Changed += enabled => MotionChanged?.Invoke(enabled);
         Clip.Changed += enabled => { preview.UseClip = enabled; status.Text = enabled ? "Parent clipping enabled" : "Parent clipping disabled"; };
         inspector.Add(new Label("ACTIVE SCENE") { FontSize = 10, Color = Color.Hex(0x8192AA), Transform = RectTransform.Fixed(24, 548, 220, 20) });
         selectedName = inspector.Add(new Label("Aurora / Atmosphere") { FontSize = 14, Bold = true, Transform = RectTransform.Fixed(24, 580, 224, 48) });
@@ -83,6 +85,42 @@ public sealed class Showcase : Element
         ConfirmButton.Clicked += () => { status.Text = $"Applied: {selectedName.Text}"; CloseModal(); };
         modal.Event += e => { if (e.Kind == EventKind.KeyDown && e.Key == 27) { CloseModal(); e.Handled = true; } };
     }
+    protected override void OnDocumentChanged(UiDocument? previous, UiDocument? current)
+    {
+        base.OnDocumentChanged(previous, current);
+        if (previous != null)
+        {
+            Motion.Changed -= OnMotionInput;
+            Opacity.Changed -= OnOpacityInput;
+            State.MotionChanged -= OnMotionStateChanged;
+            State.OpacityChanged -= OnOpacityStateChanged;
+        }
+        if (current == null) return;
+
+        // State owns the current snapshot. Apply it before listening to control changes,
+        // so values changed while detached cannot overwrite the state on reattachment.
+        Motion.Value = State.MotionEnabled;
+        Opacity.Value = State.Opacity;
+        preview.GroupAlpha = State.Opacity;
+        Motion.Changed += OnMotionInput;
+        Opacity.Changed += OnOpacityInput;
+        State.MotionChanged += OnMotionStateChanged;
+        State.OpacityChanged += OnOpacityStateChanged;
+        MotionChanged?.Invoke(State.MotionEnabled);
+    }
+    private void OnMotionInput(bool enabled) => State.MotionEnabled = enabled;
+    private void OnOpacityInput(float value) => State.Opacity = value;
+    private void OnMotionStateChanged(bool enabled)
+    {
+        Motion.Value = enabled;
+        MotionChanged?.Invoke(enabled);
+    }
+    private void OnOpacityStateChanged(float value)
+    {
+        Opacity.Value = value;
+        preview.GroupAlpha = value;
+        status.Text = $"Group opacity {value:P0} · composed through an offscreen layer";
+    }
     private string ItemName(int index) => names[index % names.Length];
     private void OnSelectionChanged(int index) { if (index < 0) return; int item = filtered[index]; preview.Variant = item % names.Length; selectedName.Text = ItemName(item); status.Text = $"Selected {ItemName(item)} · item {item + 1:N0}"; }
     private string ItemText(int index) { int n = filtered[index]; return $"{n + 1:000000}    {ItemName(n)}"; }
@@ -94,7 +132,7 @@ public sealed class Showcase : Element
     }
     public void OpenModal() { modal.Visible = true; Document?.SetModal(modal); }
     public void CloseModal() { modal.Visible = false; Document?.SetModal(null); }
-    public void Step(float time) { if (Motion.Value) preview.Time = time; }
+    public void Step(float time) { if (Document != null && State.MotionEnabled) preview.Time = time; }
     protected override void ArrangeChildren(Rect b)
     {
         float side = b.Width >= 1120 ? 210 : 0;

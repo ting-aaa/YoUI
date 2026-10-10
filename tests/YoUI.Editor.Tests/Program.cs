@@ -194,7 +194,11 @@ Test("Virtualized TreeView selects, navigates, collapses and requests container 
 });
 Test("Editor preview is the runtime and does not mutate authored state; idle reuses its frame", () =>
 {
-    var shell = new EditorShell(); var doc = Doc(shell); doc.BuildFrame(); int paints = doc.PaintPasses; doc.BuildFrame(); Require(doc.PaintPasses == paints);
+    var shell = new EditorShell(); var doc = Doc(shell);
+    // Paint-time caption/style changes remain pending instead of being discarded.
+    for (int i = 0; i < 4 && doc.NeedsRender; i++) doc.BuildFrame();
+    Require(!doc.NeedsRender, "Editor must settle after initial layout and style updates");
+    int paints = doc.PaintPasses; doc.BuildFrame(); Require(doc.PaintPasses == paints);
     string before = UiAssetJson.Serialize(shell.Session.Asset); shell.TogglePreview(); doc.BuildFrame();
     var toggle = shell.Session.Asset.Root.DescendantsAndSelf().First(n => n.Kind == NodeKind.Toggle); var bounds = shell.Canvas.NodeBounds(toggle.Id);
     Click(doc, new(bounds.X + 20, bounds.Y + 15)); Require(((Toggle)shell.Canvas.Instance.Nodes[toggle.Id]).Value != toggle.Checked); Require(UiAssetJson.Serialize(shell.Session.Asset) == before);

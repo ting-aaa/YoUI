@@ -38,7 +38,7 @@ public sealed class UiDocument
     {
         if ((dirty & DirtyFlags.Layout) == 0) return;
         // Consume before callbacks: invalidation raised during this pass belongs to the next pass.
-        dirty &= ~DirtyFlags.Layout;
+        dirty = (dirty & ~DirtyFlags.Layout) | DirtyFlags.Paint;
         try { Root.Measure(size); Root.Arrange(new(0, 0, size.X, size.Y)); LayoutPasses++; }
         catch { dirty |= DirtyFlags.Layout | DirtyFlags.Paint; throw; }
     }

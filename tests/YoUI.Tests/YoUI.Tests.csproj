@@ -1,4 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup><ProjectReference Include="../../managed/YoUI/YoUI.csproj" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../samples/YoUI.Showcase/Showcase.cs" Link="Showcase/Showcase.cs" />
+    <Compile Include="../../samples/YoUI.Showcase/ShowcaseState.cs" Link="Showcase/ShowcaseState.cs" />
+  </ItemGroup>
 </Project>

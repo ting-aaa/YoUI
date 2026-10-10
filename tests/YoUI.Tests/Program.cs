@@ -104,7 +104,7 @@ Test("layout and paint callbacks retain newly raised invalidation", () =>
     var root = new InvalidatingProbe(); var doc = Doc(root);
     root.OnArrange = () => root.Width = 120;
     doc.BuildFrame(); Require(doc.NeedsRender && doc.LayoutPasses == 1);
-    root.OnArrange = null; doc.BuildFrame(); Require(doc.LayoutPasses == 2 && !doc.NeedsRender);
+    root.OnArrange = null; doc.BuildFrame(); Require(doc.LayoutPasses == 2 && doc.PaintPasses == 2 && !doc.NeedsRender);
     root.OnPaint = () => root.Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics);
     root.Invalidate(); doc.BuildFrame(); Require(doc.NeedsRender && (root.Dirty & DirtyFlags.Paint) != 0);
     root.OnPaint = null; doc.BuildFrame(); Require(!doc.NeedsRender);
@@ -129,6 +129,24 @@ Test("document attachment callbacks pair detach and reattach", () =>
     root.Remove(child); Require(child.Loads == 1 && child.Unloads == 1 && child.Document == null);
     root.Add(child); Require(child.Loads == 2 && child.Unloads == 1);
 });
+Test("Toggle and Slider preserve direct access, notifications and clamp semantics", () =>
+{
+    var root = new Element(); var toggle = root.Add(new Toggle("State")); var slider = root.Add(new Slider()); var doc = Doc(root); doc.BuildFrame();
+    int toggles = 0, slides = 0, layouts = doc.LayoutPasses;
+    toggle.Changed += value => { toggles++; Require(toggle.Value == value && toggle.Selected == value && toggle.Text.EndsWith(value ? "ON" : "OFF")); };
+    slider.Changed += value => { slides++; Require(slider.Value.Equals(value)); };
+    toggle.Value = true; toggle.Value = true; slider.Value = .7f; slider.Value = .7f;
+    Require(toggles == 1 && slides == 1 && toggle.SemanticValue == "on");
+    doc.BuildFrame(); layouts = doc.LayoutPasses; // Toggle caption changes legitimately need layout.
+    slider.Value = 2; slider.Value = float.PositiveInfinity; Require(slider.Value == 1 && slides == 2);
+    slider.Value = -2; slider.Value = float.NegativeInfinity; Require(slider.Value == 0 && slides == 3);
+    slider.Value = float.NaN; slider.Value = float.NaN; Require(float.IsNaN(slider.Value) && slides == 4);
+    slider.Value = .5f; doc.BuildFrame(); Require(doc.LayoutPasses == layouts);
+    Require(Toggle.ValueProperty.DefaultValue == false && Slider.ValueProperty.DefaultValue == .5f);
+    doc.Focus(toggle); doc.Dispatch(new(EventKind.KeyDown) { Key = 32 }); Require(!toggle.Value && toggles == 2);
+    doc.Focus(slider); doc.Dispatch(new(EventKind.KeyDown) { Key = 39 }); Require(slider.Value == .55f && slides == 6);
+});
+ShowcaseStateTests.Run(Test, Require);
 Console.WriteLine($"{passed} managed tests passed");
 
 // Logic-test fixture only. Production measurement always comes from COSMIC Text.
