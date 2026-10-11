@@ -84,6 +84,30 @@ Test("detachment and repeated cross-document attachment release subscriptions", 
     }
     a.Clear(); Clean(da); state.Value = 5; Require(rating.Value == 2 && da.PendingUpdates == DirtyFlags.None);
 });
+Test("synchronous model and control corrections converge on initial and repeat attachment", () =>
+{
+    var state = new RatingState { Value = 3 };
+    state.Changed += value => { if (value == 4) state.Value = 2; };
+    var rating = new RatingControl(state);
+    rating.Changed += value => { if (value == 3) rating.Value = 1; };
+    var root = new Element(); var doc = Doc(root);
+    for (int i = 0; i < 3; i++)
+    {
+        state.Value = 3; root.Add(rating); Require(state.Value == 1 && rating.Value == 1);
+        state.Value = 4; Require(state.Value == 2 && rating.Value == 2);
+        rating.Value = 3; Require(state.Value == 1 && rating.Value == 1);
+        root.Remove(rating); rating.Value = 0;
+    }
+});
+Test("detachment during initial synchronization leaves no subscriptions", () =>
+{
+    var state = new RatingState { Value = 3 }; var rating = new RatingControl(state);
+    var root = new Element(); _ = Doc(root);
+    rating.Changed += _ => root.Remove(rating);
+    root.Add(rating); Require(rating.Document == null && rating.Parent == null);
+    state.Value = 4; Require(rating.Value == 3);
+    rating.Value = 2; Require(state.Value == 4);
+});
 Test("detached view can be collected while application model survives", () =>
 {
     var state = new RatingState(); var reference = DetachedReference(state);

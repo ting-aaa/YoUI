@@ -45,13 +45,15 @@ public sealed class RatingControl : Element
         pressed = false;
         if (current != null)
         {
-            ReadState(state.Value); // The model wins after any disconnected edits.
             state.Changed += ReadState;
             Changed += WriteState;
+            ReadState(state.Value); // Seed from the model; nested corrections use the same handlers.
         }
     }
-    private void ReadState(int next) => Value = next;
-    private void WriteState(int next) => state.Value = next;
+    // Earlier event subscribers may have made a newer write or detached this view.
+    // Read the current value instead of replaying an obsolete notification argument.
+    private void ReadState(int _) { if (Document != null) Value = state.Value; }
+    private void WriteState(int _) { if (Document != null) state.Value = Value; }
 
     public override Vector2 Measure(Vector2 available)
     {
