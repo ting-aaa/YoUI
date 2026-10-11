@@ -2,6 +2,7 @@
   <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../managed/YoUI/YoUI.csproj" />
+    <ProjectReference Include="../YoUI.Components.Sample/YoUI.Components.Sample.csproj" />
     <ProjectReference Include="../../managed/YoUI.Platform.Windows/YoUI.Platform.Windows.csproj" />
   </ItemGroup>
   <Import Project="../../scripts/NativeLibrary.targets" />

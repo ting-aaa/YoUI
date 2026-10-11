@@ -28,6 +28,7 @@
 | [HelloYoUI](examples/HelloYoUI/Program.cs) | 最小交互窗口，也支持离屏输出 PNG；[项目文件](examples/HelloYoUI/HelloYoUI.csproj) |
 | [welcome.youi.json](examples/welcome.youi.json) | 可直接打开或加载的版本 1 资源 |
 | [YoUI.Showcase](../samples/YoUI.Showcase/Program.cs) | 综合控件、虚拟列表、截图、窗口检查与性能探针 |
+| [Component gallery](component-gallery.md) | Showcase 的 `--gallery` 入口：控件状态、模型、搜索选择与布局属性编辑 |
 | [InventoryExporter](../samples/YoUI.Exporter.Sample/InventoryExporter.cs) | 可构建的本地导出插件 |
 | [render_scene.rs](../native/youi-render/examples/render_scene.rs) | 绕过 C# UI，直接提交原生绘制命令 |
 | [scene_graph.rs](../native/youi-scene/examples/scene_graph.rs) | 独立场景树、变换与共享网格 |

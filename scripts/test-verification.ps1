@@ -33,7 +33,7 @@ try {
         foreach ($layer in 'Logic','Gpu') {
             Run-Verification $configuration $layer
             $trace = $global:YoUIVerificationCalls -join "`n"
-            $expected = if ($layer -eq 'Logic') { 11 } else { 15 }
+            $expected = if ($layer -eq 'Logic') { 11 } else { 16 }
             Require ($global:YoUIVerificationCalls.Count -eq $expected) "Unexpected $layer command count"
             foreach ($command in $global:YoUIVerificationCalls | Where-Object { $_ -like 'cargo|*' -and $_ -notlike '*<fmt>*' }) {
                 Require ($command.Contains('<--locked>')) 'Cargo command omitted the lockfile guard'
@@ -43,7 +43,7 @@ try {
             $managed = @($global:YoUIVerificationCalls | Where-Object { $_ -like 'dotnet|*' })
             $expectedProjects = @('samples/YoUI.Showcase/YoUI.Showcase.csproj','tools/YoUI.Editor/YoUI.Editor.csproj','samples/YoUI.Exporter.Sample/YoUI.Exporter.Sample.csproj','docs/examples/HelloYoUI/HelloYoUI.csproj')
             if ($layer -eq 'Logic') { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Editor.Tests','tests/YoUI.Component.Tests') }
-            else { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Tests','tools/YoUI.Editor','samples/YoUI.Showcase','samples/YoUI.Showcase','tests/YoUI.Component.Tests') }
+            else { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Tests','tools/YoUI.Editor','samples/YoUI.Showcase','samples/YoUI.Showcase','samples/YoUI.Showcase','tests/YoUI.Component.Tests') }
             Require ($managed.Count -eq $expectedProjects.Count) 'Managed project count mismatch'
             for ($index = 0; $index -lt $managed.Count; $index++) {
                 Require ($managed[$index].Contains("<-c><$configuration>")) 'Managed configuration mismatch'
@@ -53,6 +53,7 @@ try {
             }
             Require ($trace.Contains('<--gpu-resource-budget>') -eq ($layer -eq 'Gpu')) 'Managed resource-budget GPU invocation mismatch'
             Require ($trace.Contains('<--gpu-text-input>') -eq ($layer -eq 'Gpu')) 'Managed text-input GPU invocation mismatch'
+            Require ($trace.Contains('<--gallery><--headless>') -eq ($layer -eq 'Gpu')) 'Gallery headless invocation mismatch'
             Require ($trace.Contains('<--gpu>') -eq ($layer -eq 'Gpu')) 'External component GPU invocation mismatch'
             Require ($trace.Contains('<--ignored>') -eq ($layer -eq 'Gpu')) 'GPU test invocation layer mismatch'
             $residencyTest = 'renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image'
@@ -73,7 +74,7 @@ try {
         }
     }
     foreach ($layer in 'Logic','Gpu') {
-        $count = if ($layer -eq 'Logic') { 11 } else { 15 }
+        $count = if ($layer -eq 'Logic') { 11 } else { 16 }
         for ($step = 1; $step -le $count; $step++) {
             $global:YoUIVerificationFailAt = $step
             $failed = $false
@@ -119,7 +120,8 @@ try {
     Require (($buildCommands -join "`n") -eq (($releaseCommands.Gpu | Select-Object -First 5) -join "`n")) 'Logic and Gpu must share the same build prelude'
     $smokeCommands = @(
         'dotnet|<run><--project><tools/YoUI.Editor><-c><Release><--no-build><--><--smoke>',
-        'dotnet|<run><--project><samples/YoUI.Showcase><-c><Release><--no-build><--><--smoke>'
+        'dotnet|<run><--project><samples/YoUI.Showcase><-c><Release><--no-build><--><--smoke>',
+        'dotnet|<run><--project><samples/YoUI.Showcase><-c><Release><--no-build><--><--gallery><--smoke>'
     )
     $expectedWindow = @($buildCommands) + $smokeCommands
     $expectedAll = @($releaseCommands.Logic) + @($releaseCommands.Gpu | Select-Object -Skip $buildCommands.Count) + $smokeCommands

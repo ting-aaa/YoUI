@@ -54,6 +54,7 @@ try {
         Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image') + $cargoOptions + @('--','--exact','--ignored','--nocapture'))
         Invoke-Checked 'dotnet' @('run','--project','tools/YoUI.Editor','-c',$Configuration,'--no-build','--','--headless')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--headless')
+        Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--gallery','--headless')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--benchmark')
         Invoke-Checked 'cargo' (@('run','-p','youi-render','--example','render_scene') + $cargoOptions + @('--','artifacts/render-scene.png'))
         Invoke-Checked 'cargo' (@('run','-p','youi-scene','--example','scene_graph') + $cargoOptions + @('--','artifacts/scene-graph.png'))
@@ -62,6 +63,7 @@ try {
     if ($Layer -eq 'Window' -or $Layer -eq 'All') {
         Invoke-Checked 'dotnet' @('run','--project','tools/YoUI.Editor','-c',$Configuration,'--no-build','--','--smoke')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--smoke')
+        Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--gallery','--smoke')
     }
     $evidence.status = 'passed'
 } catch {

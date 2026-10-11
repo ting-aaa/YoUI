@@ -157,6 +157,7 @@ Test("Toggle and Slider preserve direct access, notifications and clamp semantic
     doc.Focus(slider); doc.Dispatch(new(EventKind.KeyDown) { Key = 39 }); Require(slider.Value == .55f && slides == 6);
 });
 ShowcaseStateTests.Run(Test, Require);
+ComponentGalleryTests.Run(Test, Require);
 Console.WriteLine($"{passed} managed tests passed");
 
 // Logic-test fixture only. Production measurement always comes from COSMIC Text.
