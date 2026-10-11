@@ -127,15 +127,18 @@ public sealed class UiDocument
         if (element != null && (!element.Focusable || !Active(element))) return;
         if (Focused == element) return;
         var old = Focused; Focused = element;
-        if (old != null) { old.Route(new(EventKind.Blur) { Target = old, Phase = EventPhase.Target }); old.Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics); }
-        if (element != null) { element.Route(new(EventKind.Focus) { Target = element, Phase = EventPhase.Target }); element.Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics); }
+        // Commit the update request before callbacks, which can throw after focus has changed.
+        old?.Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics);
+        element?.Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics);
+        if (old != null) old.Route(new(EventKind.Blur) { Target = old, Phase = EventPhase.Target });
+        if (element != null) element.Route(new(EventKind.Focus) { Target = element, Phase = EventPhase.Target });
     }
     public void SetModal(Element? element)
     {
         if (element != null && element.Document != this) throw new InvalidOperationException("Modal must be attached to this document.");
+        Invalidate(DirtyFlags.Semantics);
         if (element != null) { focusBeforeModal = Focused; modal = element; CancelPointer(); Focus(Traverse(element).FirstOrDefault(e => e.Focusable)); }
         else { modal = null; Focus(focusBeforeModal); focusBeforeModal = null; }
-        Invalidate(DirtyFlags.Semantics);
     }
     public void CancelPointer()
     {

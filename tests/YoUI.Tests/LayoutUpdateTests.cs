@@ -7,7 +7,13 @@ static class LayoutUpdateTests
     {
         void Check(bool condition, string message = "layout update assertion failed") => require(condition, message);
         static UiDocument Doc(Element root) => new(root, new TestMeasurer(), 320, 240);
-        static void Clean(UiDocument doc) { doc.UpdateLayout(); doc.BuildFrame(); doc.Semantics(); }
+        static void Clean(UiDocument doc)
+        {
+            doc.UpdateLayout();
+            for (int pass = 0; pass < 8 && doc.NeedsRender; pass++) doc.BuildFrame();
+            doc.Semantics();
+            if (doc.PendingUpdates != DirtyFlags.None) throw new Exception("Fixture did not become clean");
+        }
         static bool Has(Element node, DirtyFlags flags) => (node.Dirty & flags) == flags;
         static void Throws(Action action)
         {
@@ -167,6 +173,35 @@ static class LayoutUpdateTests
             root.ReadingSemantics = () => root.Invalidate(DirtyFlags.Semantics);
             doc.Semantics(); Check(doc.PendingUpdates == DirtyFlags.Semantics && Has(root, DirtyFlags.Semantics) && !doc.NeedsRender);
             root.ReadingSemantics = null; doc.Semantics(); Check(doc.PendingUpdates == DirtyFlags.None);
+        });
+        test("throwing focus callbacks preserve pending paint and semantics before same-value retry", () =>
+        {
+            foreach (bool failOnBlur in new[] { true, false })
+            {
+                var root = new Element(); var a = root.Add(new Button("A")); var b = root.Add(new Button("B")); var doc = Doc(root);
+                doc.Focus(a); Clean(doc);
+                (failOnBlur ? a : b).Event += e =>
+                {
+                    if (e.Kind == (failOnBlur ? EventKind.Blur : EventKind.Focus)) throw new InvalidOperationException("focus callback");
+                };
+                Throws(() => doc.Focus(b));
+                Check(doc.Focused == b && doc.PendingUpdates == (DirtyFlags.Paint | DirtyFlags.Semantics));
+                Check(Has(a, DirtyFlags.Paint | DirtyFlags.Semantics) && Has(b, DirtyFlags.Paint | DirtyFlags.Semantics));
+                doc.Focus(b); Check(doc.NeedsRender); // Committed focus is not rolled back or callbacks replayed.
+                doc.BuildFrame(); Check(doc.Semantics().Single(n => n.Name == "B").Focused);
+                Check(doc.PendingUpdates == DirtyFlags.None && root.Dirty == DirtyFlags.None);
+            }
+        });
+        test("throwing modal pointer cancellation preserves changed semantic scope", () =>
+        {
+            var root = new Element(); var a = root.Add(new Button("A") { Transform = RectTransform.Fixed(0, 0, 80, 40) });
+            var b = root.Add(new Button("B") { Transform = RectTransform.Fixed(100, 0, 80, 40) }); var doc = Doc(root);
+            doc.Dispatch(new(EventKind.PointerDown) { Position = new(10, 10) }); Clean(doc);
+            a.Event += e => { if (e.Kind == EventKind.PointerCancel) throw new InvalidOperationException("cancel callback"); };
+            Throws(() => doc.SetModal(b)); Check(doc.PendingUpdates == DirtyFlags.Semantics);
+            var snapshot = doc.Semantics(); Check(snapshot.Any(n => n.Name == "B") && !snapshot.Any(n => n.Name == "A"));
+            doc.SetModal(null); Check((doc.PendingUpdates & DirtyFlags.Semantics) != 0);
+            Clean(doc); Check(doc.PendingUpdates == DirtyFlags.None && doc.Semantics().Any(n => n.Name == "A"));
         });
         test("focus modal and visual geometry changes request fresh semantics", () =>
         {
