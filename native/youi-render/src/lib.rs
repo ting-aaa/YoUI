@@ -7,3 +7,5 @@ mod text;
 pub use ir::*;
 pub use renderer::Renderer;
 pub use resource::{ResourceBudget, ResourceUsage};
+
+pub use text::{TextCell, TEXT_CELL_RTL};

@@ -244,3 +244,200 @@ fn resource_budget_resize_exact_limit_and_retained_layers() -> Result<(), String
     assert_eq!(renderer.resource_usage().layer_bytes, 4);
     Ok(())
 }
+
+#[test]
+#[ignore = "requires a GPU adapter; run explicitly in the quality gate"]
+fn text_geometry_shares_cached_draw_layout_and_abi_contract() -> Result<(), String> {
+    use youi_render::{ffi::*, TextCell};
+    let mut renderer = unsafe { Renderer::new(256, 96, 0)? };
+    let text = "office אבג لا";
+    let cells = renderer.text_cells(text, 22., 120., false, false)?;
+    assert!(!cells.is_empty());
+    assert!(cells.iter().all(|cell| cell.line == 0));
+    assert_eq!(renderer.render(&[], b"")?.atlas_glyphs, 0);
+    let command = Command {
+        flags: 2,
+        ..Command::text(
+            Rect::new(8., 8., 120., 72.),
+            [1.; 4],
+            22.,
+            0,
+            text.len() as u32,
+        )
+    };
+    let stats = renderer.render(&[command], text.as_bytes())?;
+    assert_eq!(
+        stats.text_cache_hits, 1,
+        "painting must reuse the queried no-wrap layout"
+    );
+    assert!(
+        stats.atlas_glyphs > 0,
+        "a usable font is required for this GPU test"
+    );
+    assert!(renderer
+        .read_pixels()?
+        .chunks_exact(4)
+        .any(|pixel| pixel[3] > 0));
+    assert_eq!(cells, renderer.text_cells(text, 22., 120., false, false)?);
+    // A scrolling caller can opt out of the command rectangle's clip, while
+    // its explicit viewport clip must still be enforced at every pixel.
+    let overflow_text = b"mmmmmmmmmmmmmmmm";
+    let overflow = Command {
+        flags: 6,
+        ..Command::text(
+            Rect::new(-20., 0., 60., 48.),
+            [1.; 4],
+            24.,
+            0,
+            overflow_text.len() as u32,
+        )
+    };
+    let viewport = Command {
+        kind: 2,
+        rect: Rect::new(0., 0., 100., 48.),
+        ..Command::default()
+    };
+    let pop = Command {
+        kind: 3,
+        ..Command::default()
+    };
+    renderer.render(&[viewport, overflow, pop], overflow_text)?;
+    let unclipped = renderer.read_pixels()?;
+    assert!(unclipped
+        .chunks_exact(4)
+        .enumerate()
+        .any(|(i, px)| i % 256 > 60 && px[3] > 0));
+    assert!(unclipped
+        .chunks_exact(4)
+        .enumerate()
+        .all(|(i, px)| (i % 256 < 100 && i / 256 < 48) || px[3] == 0));
+    renderer.render(
+        &[
+            viewport,
+            Command {
+                flags: 2,
+                ..overflow
+            },
+            pop,
+        ],
+        overflow_text,
+    )?;
+    let clipped = renderer.read_pixels()?;
+    assert!(clipped
+        .chunks_exact(4)
+        .enumerate()
+        .all(|(i, px)| i % 256 < 40 || px[3] == 0));
+    for (size, width) in [
+        (0., 10.),
+        (513., 10.),
+        (f32::NAN, 10.),
+        (f32::INFINITY, 10.),
+        (16., -1.),
+        (16., f32::NAN),
+        (16., f32::INFINITY),
+    ] {
+        assert!(renderer.text_cells(text, size, width, false, true).is_err());
+    }
+    assert!(renderer
+        .text_cells(&"x".repeat(16 * 1024 * 1024 + 1), 16., 10., false, true)
+        .is_err());
+    // Exercise the exported two-call protocol using a real checked renderer ID.
+    let mut id = 0;
+    let mut count = 999;
+    unsafe {
+        assert_eq!(youi_create(256, 96, 0, &mut id), 0);
+        assert_eq!(
+            youi_text_cells(
+                id,
+                text.as_ptr(),
+                text.len() as u32,
+                22.,
+                120.,
+                2,
+                std::ptr::null_mut(),
+                0,
+                &mut count
+            ),
+            0
+        );
+        assert_eq!(count as usize, cells.len());
+        let sentinel = TextCell {
+            start: u32::MAX,
+            ..TextCell::default()
+        };
+        let mut output = vec![sentinel; count as usize + 1];
+        let required = count;
+        assert_eq!(
+            youi_text_cells(
+                id,
+                text.as_ptr(),
+                text.len() as u32,
+                22.,
+                120.,
+                2,
+                output.as_mut_ptr(),
+                required - 1,
+                &mut count
+            ),
+            -1
+        );
+        assert_eq!(count, required);
+        assert!(output.iter().all(|cell| *cell == sentinel));
+        assert_eq!(
+            youi_text_cells(
+                id,
+                text.as_ptr(),
+                text.len() as u32,
+                22.,
+                120.,
+                2,
+                output.as_mut_ptr(),
+                required,
+                &mut count
+            ),
+            0
+        );
+        assert_eq!(&output[..count as usize], &cells);
+        assert_eq!(output[count as usize], sentinel);
+        for (size, width, flags) in [(0., 10., 0), (16., f32::NAN, 0), (16., 10., 4)] {
+            count = 999;
+            assert_eq!(
+                youi_text_cells(
+                    id,
+                    text.as_ptr(),
+                    text.len() as u32,
+                    size,
+                    width,
+                    flags,
+                    output.as_mut_ptr(),
+                    required,
+                    &mut count
+                ),
+                -1
+            );
+            assert_eq!(count, 999);
+            assert_eq!(&output[..required as usize], &cells);
+        }
+        assert_eq!(
+            youi_text_cells(
+                id,
+                std::ptr::null(),
+                0,
+                16.,
+                0.,
+                0,
+                std::ptr::null_mut(),
+                0,
+                &mut count
+            ),
+            0
+        );
+        assert_eq!(count, 1);
+        assert_eq!(youi_destroy(id), 0);
+    }
+    println!(
+        "Text geometry/paint cache and C ABI verified on {}",
+        renderer.adapter_name
+    );
+    Ok(())
+}

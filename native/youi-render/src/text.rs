@@ -1,9 +1,37 @@
 use crate::Rect;
 use cosmic_text::{
-    Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, SwashCache, SwashContent, Weight,
+    Attrs, AttrsList, Buffer, BufferLine, CacheKey, Family, FontSystem, LayoutRun, LineEnding,
+    Metrics, Shaping, SwashCache, SwashContent, Weight, Wrap,
 };
 use std::collections::HashMap;
+use unicode_segmentation::UnicodeSegmentation;
 pub const ATLAS_SIZE: u32 = 2048;
+/// The cell's logical start is its right edge, and its logical end its left edge.
+pub const TEXT_CELL_RTL: u32 = 1;
+/// A grapheme advance box from the same cached shaping used by the painter.
+///
+/// Offsets are absolute UTF-8 byte boundaries. `line` is the zero-based visual
+/// line (including wrapped/empty lines). Coordinates are physical pixels from
+/// the text layout origin. Flags currently contain only [`TEXT_CELL_RTL`].
+/// Cells are ordered by visual line, then x. Empty lines have one start == end,
+/// zero-width cell. Hard line endings have no cell; their bytes remain reflected
+/// in subsequent offsets. Whitespace suppressed by wrapping has a zero-width
+/// cell at its adjacent shaped caret. Ligature advances are equally subdivided
+/// at extended-grapheme boundaries, in the cluster's logical direction; this is
+/// not font GDEF caret extraction. No atlas coordinates or font handles escape.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TextCell {
+    pub start: u32,
+    pub end: u32,
+    pub line: u32,
+    pub flags: u32,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
 #[derive(Clone, Copy)]
 pub struct Glyph {
     pub rect: Rect,
@@ -13,6 +41,7 @@ pub struct Glyph {
 #[derive(Clone)]
 pub struct TextLayout {
     pub glyphs: Vec<Glyph>,
+    pub cells: Vec<TextCell>,
     pub width: f32,
     pub height: f32,
 }
@@ -28,7 +57,7 @@ struct AtlasEntry {
 struct LayoutCache {
     fonts: FontSystem,
     swash: SwashCache,
-    layouts: HashMap<(String, u32, u32, bool), TextLayout>,
+    layouts: HashMap<(String, u32, u32, bool, bool), TextLayout>,
     hits: u32,
 }
 #[derive(Default)]
@@ -212,6 +241,16 @@ impl TextSystem {
     pub fn layout(&mut self, text: &str, size: f32, width: f32, bold: bool) -> TextLayout {
         self.layout.layout(text, size, width, bold)
     }
+    pub fn layout_with_wrap(
+        &mut self,
+        text: &str,
+        size: f32,
+        width: f32,
+        bold: bool,
+        wrap: bool,
+    ) -> TextLayout {
+        self.layout.layout_with_wrap(text, size, width, bold, wrap)
+    }
     // Called only during draw preparation. Cached layouts contain no atlas UVs.
     pub fn resolve_glyph(
         &mut self,
@@ -280,32 +319,56 @@ impl LayoutCache {
         }
     }
     pub fn layout(&mut self, text: &str, size: f32, width: f32, bold: bool) -> TextLayout {
-        let key = (text.to_owned(), size.to_bits(), width.to_bits(), bold);
+        self.layout_with_wrap(text, size, width, bold, true)
+    }
+    pub fn layout_with_wrap(
+        &mut self,
+        text: &str,
+        size: f32,
+        width: f32,
+        bold: bool,
+        wrap: bool,
+    ) -> TextLayout {
+        let key = (text.to_owned(), size.to_bits(), width.to_bits(), bold, wrap);
         if let Some(v) = self.layouts.get(&key) {
             self.hits += 1;
             return v.clone();
         }
-        let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(size, size * 1.35));
-        buffer.set_size(&mut self.fonts, Some(width.max(1.)), None);
-        buffer.set_text(
-            &mut self.fonts,
-            text,
-            &Attrs::new().family(Family::SansSerif).weight(if bold {
-                Weight::BOLD
-            } else {
-                Weight::NORMAL
-            }),
-            Shaping::Advanced,
-        );
-        buffer.shape_until_scroll(&mut self.fonts, false);
+        let buffer = self.shape(text, size, width, bold, wrap);
         let mut layout = TextLayout {
             glyphs: Vec::new(),
+            cells: Vec::new(),
             width: 0.,
             height: 0.,
         };
-        for run in buffer.layout_runs() {
+        // BufferLine preserves line ending lengths, including CRLF/LFCR.
+        let mut offset = 0;
+        let lines = buffer
+            .lines
+            .iter()
+            .map(|line| {
+                let start = offset;
+                offset += line.text().len() + line.ending().as_str().len();
+                let mut boundaries = line
+                    .text()
+                    .grapheme_indices(true)
+                    .map(|(i, _)| i)
+                    .collect::<Vec<_>>();
+                boundaries.push(line.text().len());
+                (start, boundaries)
+            })
+            .collect::<Vec<_>>();
+        let mut paragraph_cells = vec![Vec::new(); lines.len()];
+        for (visual_line, run) in buffer.layout_runs().enumerate() {
             layout.width = layout.width.max(run.line_w);
             layout.height = layout.height.max(run.line_top + run.line_height);
+            append_run_cells(
+                &run,
+                &lines[run.line_i].1,
+                lines[run.line_i].0,
+                visual_line as u32,
+                &mut paragraph_cells[run.line_i],
+            );
             for glyph in run.glyphs {
                 let p = glyph.physical((0., 0.), 1.);
                 let Some(img) = self.swash.get_image(&mut self.fonts, p.cache_key) else {
@@ -326,11 +389,183 @@ impl LayoutCache {
                 });
             }
         }
+        for ((offset, boundaries), mut cells) in lines.into_iter().zip(paragraph_cells) {
+            complete_paragraph_cells(offset, &boundaries, &mut cells);
+            layout.cells.extend(cells);
+        }
+        layout.cells.sort_by(|a, b| {
+            a.line
+                .cmp(&b.line)
+                .then_with(|| a.x.total_cmp(&b.x))
+                .then(a.start.cmp(&b.start))
+        });
         if self.layouts.len() >= 512 {
             self.layouts.clear();
         }
         self.layouts.insert(key, layout.clone());
         layout
+    }
+    fn shape(&mut self, text: &str, size: f32, width: f32, bold: bool, wrap: bool) -> Buffer {
+        let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(size, size * 1.35));
+        buffer.set_size(&mut self.fonts, Some(width.max(1.)), None);
+        if !wrap {
+            buffer.set_wrap(&mut self.fonts, Wrap::None);
+        }
+        let attrs = Attrs::new().family(Family::SansSerif).weight(if bold {
+            Weight::BOLD
+        } else {
+            Weight::NORMAL
+        });
+        buffer.set_text(&mut self.fonts, text, &attrs, Shaping::Advanced);
+        // cosmic-text's set_text intentionally omits a final empty paragraph.
+        // Preserve it in the shared buffer, so painting, measurement and editing
+        // geometry all agree about the final caret's line and text height.
+        if text.ends_with(['\r', '\n']) {
+            buffer.lines.push(BufferLine::new(
+                "",
+                LineEnding::None,
+                AttrsList::new(&attrs),
+                Shaping::Advanced,
+            ));
+        }
+        buffer.shape_until_scroll(&mut self.fonts, false);
+        buffer
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Cluster {
+    start: usize,
+    end: usize,
+    left: f32,
+    right: f32,
+    rtl: bool,
+}
+fn append_run_cells(
+    run: &LayoutRun<'_>,
+    boundaries: &[usize],
+    offset: usize,
+    line: u32,
+    cells: &mut Vec<TextCell>,
+) {
+    let clusters = run
+        .glyphs
+        .iter()
+        .map(|glyph| {
+            // Font fallback/combining glyphs can have scalar-level cluster bounds.
+            // Expand them to the paragraph's EGC bounds before combining advances.
+            let start = boundaries
+                .partition_point(|&i| i <= glyph.start)
+                .saturating_sub(1);
+            let end = boundaries.partition_point(|&i| i < glyph.end);
+            Cluster {
+                start,
+                end,
+                left: glyph.x.min(glyph.x + glyph.w),
+                right: glyph.x.max(glyph.x + glyph.w),
+                rtl: glyph.level.is_rtl(),
+            }
+        })
+        .collect::<Vec<_>>();
+    let merged = merge_clusters(clusters);
+    let template = TextCell {
+        line,
+        y: run.line_top,
+        height: run.line_height,
+        ..TextCell::default()
+    };
+    let before = cells.len();
+    for cluster in merged {
+        append_cluster_cells(cluster, boundaries, offset, template, cells);
+    }
+    if cells.len() == before {
+        cells.push(TextCell {
+            start: offset as u32,
+            end: offset as u32,
+            flags: if run.rtl { TEXT_CELL_RTL } else { 0 },
+            ..template
+        });
+    }
+}
+fn merge_clusters(mut clusters: Vec<Cluster>) -> Vec<Cluster> {
+    clusters.sort_by_key(|cluster| (cluster.start, cluster.end));
+    let mut merged: Vec<Cluster> = Vec::new();
+    for cluster in clusters {
+        if let Some(previous) = merged.last_mut() {
+            if cluster.start < previous.end
+                || (cluster.start == previous.start && cluster.end == previous.end)
+            {
+                previous.end = previous.end.max(cluster.end);
+                previous.left = previous.left.min(cluster.left);
+                previous.right = previous.right.max(cluster.right);
+                continue;
+            }
+        }
+        merged.push(cluster);
+    }
+    merged
+}
+fn append_cluster_cells(
+    cluster: Cluster,
+    boundaries: &[usize],
+    offset: usize,
+    template: TextCell,
+    cells: &mut Vec<TextCell>,
+) {
+    let count = cluster.end - cluster.start;
+    if count == 0 {
+        return;
+    }
+    let width = (cluster.right - cluster.left) / count as f32;
+    for i in 0..count {
+        let visual = if cluster.rtl { count - 1 - i } else { i };
+        cells.push(TextCell {
+            start: (offset + boundaries[cluster.start + i]) as u32,
+            end: (offset + boundaries[cluster.start + i + 1]) as u32,
+            flags: if cluster.rtl { TEXT_CELL_RTL } else { 0 },
+            x: cluster.left + width * visual as f32,
+            width,
+            ..template
+        });
+    }
+}
+fn complete_paragraph_cells(offset: usize, boundaries: &[usize], cells: &mut Vec<TextCell>) {
+    // Word wrapping may omit separating whitespace from LayoutRun::glyphs.
+    // Preserve its logical range at the adjacent shaped edge without inventing
+    // an advance, re-measuring a prefix, or moving any painted glyph.
+    cells.sort_by_key(|cell| (cell.start, cell.line));
+    let shaped = cells.clone();
+    let mut cursor = 0;
+    for pair in boundaries.windows(2) {
+        let start = (offset + pair[0]) as u32;
+        let end = (offset + pair[1]) as u32;
+        while cursor < shaped.len() && shaped[cursor].end <= start {
+            cursor += 1;
+        }
+        if shaped
+            .get(cursor)
+            .is_some_and(|cell| cell.start == start && cell.end == end)
+        {
+            continue;
+        }
+        let (anchor, at_end) = if cursor > 0 {
+            (shaped[cursor - 1], true)
+        } else if let Some(first) = shaped.first() {
+            (*first, false)
+        } else {
+            continue;
+        };
+        let rtl = anchor.flags & TEXT_CELL_RTL != 0;
+        cells.push(TextCell {
+            start,
+            end,
+            x: anchor.x + if at_end != rtl { anchor.width } else { 0. },
+            width: 0.,
+            ..anchor
+        });
+    }
+    if boundaries.len() > 1 {
+        cells.retain(|cell| cell.start != cell.end);
     }
 }
 
@@ -371,6 +606,7 @@ mod tests {
         };
         let layout = TextLayout {
             glyphs: vec![glyph],
+            cells: Vec::new(),
             width: 9.,
             height: 12.,
         };
@@ -501,5 +737,243 @@ mod tests {
             cache.layout(&format!("{n}"), 16., 200., false);
         }
         assert!(cache.layouts.len() <= 512);
+    }
+
+    fn assert_close(left: f32, right: f32) {
+        assert!((left - right).abs() < 0.001, "{left} != {right}");
+    }
+
+    #[test]
+    fn cells_preserve_graphemes_spaces_newlines_and_empty_trailing_lines() {
+        let mut cache = LayoutCache::new();
+        for (text, starts) in [
+            ("", vec![0]),
+            ("\n", vec![0, 1]),
+            ("\r\n", vec![0, 2]),
+            ("a\r\n\r\nb\n", vec![0, 3, 5, 7]),
+            ("a\rb\n\rc", vec![0, 2, 5]),
+        ] {
+            let layout = cache.layout(text, 20., 400., false);
+            assert_close(layout.height, starts.len() as f32 * 27.);
+            for (line, start) in starts.into_iter().enumerate() {
+                let first = layout
+                    .cells
+                    .iter()
+                    .find(|cell| cell.line == line as u32)
+                    .unwrap();
+                assert_eq!(first.start, start);
+                assert_close(first.y, line as f32 * 27.);
+                assert_close(first.height, 27.);
+            }
+        }
+        for text in [
+            "office",
+            "A\u{301}e\u{308}",
+            "😀👩‍👩‍👧‍👦🇺🇸👍🏽",
+            "क्षि",
+            "   ",
+            "abc אבג لا العربية 123",
+            "a\u{200b}b\u{2060}c",
+        ] {
+            for width in [24., 400.] {
+                let layout = cache.layout(text, 18., width, false);
+                let mut boundaries = text
+                    .grapheme_indices(true)
+                    .map(|(i, _)| i as u32)
+                    .collect::<Vec<_>>();
+                boundaries.push(text.len() as u32);
+                for cell in &layout.cells {
+                    assert!(boundaries.contains(&cell.start), "{text:?}: {cell:?}");
+                    assert!(boundaries.contains(&cell.end), "{text:?}: {cell:?}");
+                    assert!(cell.start <= cell.end && cell.flags & !TEXT_CELL_RTL == 0);
+                    assert!(cell.x.is_finite() && cell.y.is_finite());
+                    assert!(cell.width.is_finite() && cell.width >= 0.);
+                    assert_close(cell.height, 18. * 1.35);
+                }
+                for pair in boundaries.windows(2) {
+                    assert!(
+                        layout
+                            .cells
+                            .iter()
+                            .any(|cell| cell.start == pair[0] && cell.end == pair[1]),
+                        "lost grapheme {pair:?} in {text:?}: {:?}",
+                        layout.cells
+                    );
+                }
+            }
+        }
+        let spaces = cache.layout("   ", 18., 400., false);
+        assert!(spaces.glyphs.is_empty());
+        assert_eq!(spaces.cells.len(), 3);
+        assert!(spaces.cells.iter().all(|cell| cell.width > 0.));
+    }
+
+    #[test]
+    fn cluster_geometry_merges_advances_and_subdivides_rtl_ligatures() {
+        let clusters = merge_clusters(vec![
+            Cluster {
+                start: 0,
+                end: 2,
+                left: 10.,
+                right: 20.,
+                rtl: true,
+            },
+            Cluster {
+                start: 0,
+                end: 2,
+                left: 20.,
+                right: 30.,
+                rtl: true,
+            },
+            // A zero-advance combining glyph must not create another cell.
+            Cluster {
+                start: 1,
+                end: 2,
+                left: 30.,
+                right: 30.,
+                rtl: true,
+            },
+        ]);
+        assert_eq!(clusters.len(), 1);
+        let mut cells = Vec::new();
+        append_cluster_cells(
+            clusters[0],
+            &[0, 2, 4],
+            5,
+            TextCell {
+                height: 20.,
+                ..TextCell::default()
+            },
+            &mut cells,
+        );
+        assert_eq!(cells.len(), 2);
+        assert_eq!(
+            (cells[0].start, cells[0].end, cells[0].x, cells[0].width),
+            (5, 7, 20., 10.)
+        );
+        assert_eq!(
+            (cells[1].start, cells[1].end, cells[1].x, cells[1].width),
+            (7, 9, 10., 10.)
+        );
+        assert!(cells.iter().all(|cell| cell.flags == TEXT_CELL_RTL));
+    }
+
+    #[test]
+    fn cached_cells_follow_painted_shaping_including_bidi_and_ligatures() {
+        let mut cache = LayoutCache::new();
+        let text = "office A\u{301} abc אבג لا العربية 123";
+        let size = 22.;
+        let width = 400.;
+        let buffer = cache.shape(text, size, width, false, true);
+        let layout = cache.layout(text, size, width, false);
+        let cached = cache.layout(text, size, width, false);
+        assert_eq!(layout.cells, cached.cells);
+        assert_eq!(cache.hits, 1);
+        assert!(layout.cells.iter().any(|cell| cell.flags == TEXT_CELL_RTL));
+        assert!(layout.cells.iter().any(|cell| cell.flags == 0));
+        let mut painted = Vec::new();
+        for (line, run) in buffer.layout_runs().enumerate() {
+            for glyph in run.glyphs {
+                let covered = layout
+                    .cells
+                    .iter()
+                    .filter(|cell| {
+                        cell.line == line as u32
+                            && cell.start < glyph.end as u32
+                            && cell.end > glyph.start as u32
+                    })
+                    .collect::<Vec<_>>();
+                assert!(!covered.is_empty());
+                let left = covered
+                    .iter()
+                    .map(|cell| cell.x)
+                    .fold(f32::INFINITY, f32::min);
+                let right = covered
+                    .iter()
+                    .map(|cell| cell.x + cell.width)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                assert!(left <= glyph.x + 0.001);
+                assert!(right >= glyph.x + glyph.w - 0.001);
+                for cell in covered {
+                    assert_close(cell.y, run.line_top);
+                    assert_close(cell.height, run.line_height);
+                }
+                let physical = glyph.physical((0., 0.), 1.);
+                if let Some(image) = cache.swash.get_image(&mut cache.fonts, physical.cache_key) {
+                    let p = image.placement;
+                    if p.width != 0 && p.height != 0 {
+                        painted.push((
+                            physical.cache_key,
+                            [
+                                (physical.x + p.left) as f32,
+                                run.line_y + physical.y as f32 - p.top as f32,
+                                p.width as f32,
+                                p.height as f32,
+                            ],
+                        ));
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            layout
+                .glyphs
+                .iter()
+                .map(|g| (g.key, rect(g.rect)))
+                .collect::<Vec<_>>(),
+            painted
+        );
+        // Shape an RTL ligature when the selected font supplies one. The pure
+        // cluster test above also covers this convention without font assumptions.
+        let buffer = cache.shape("لا", size, width, false, true);
+        let lam_alef = cache.layout("لا", size, width, false);
+        for run in buffer.layout_runs() {
+            if run
+                .glyphs
+                .iter()
+                .any(|g| g.start == 0 && g.end == "لا".len())
+            {
+                let lam = lam_alef.cells.iter().find(|cell| cell.start == 0).unwrap();
+                let alef = lam_alef.cells.iter().find(|cell| cell.start == 2).unwrap();
+                assert!(lam.x > alef.x);
+                assert_close(lam.width, alef.width);
+            }
+        }
+    }
+
+    #[test]
+    fn wrapping_keeps_dropped_spaces_and_nowrap_is_a_distinct_cache_entry() {
+        let mut cache = LayoutCache::new();
+        let text = "hello   world again";
+        let wrapped = cache.layout_with_wrap(text, 20., 70., false, true);
+        let nowrap = cache.layout_with_wrap(text, 20., 70., false, false);
+        assert!(wrapped.cells.iter().any(|cell| cell.line > 0));
+        assert!(nowrap.cells.iter().all(|cell| cell.line == 0));
+        assert!(nowrap.width > 70.);
+        assert_eq!(cache.layouts.len(), 2);
+        assert_eq!(
+            nowrap.cells,
+            cache.layout_with_wrap(text, 20., 70., false, false).cells
+        );
+        for (i, grapheme) in text.grapheme_indices(true) {
+            assert!(wrapped
+                .cells
+                .iter()
+                .any(|cell| cell.start == i as u32 && cell.end == (i + grapheme.len()) as u32));
+        }
+        assert!(wrapped
+            .cells
+            .iter()
+            .any(|cell| cell.width == 0. && &text[cell.start as usize..cell.end as usize] == " "));
+        // Right-aligned RTL cells use the actual finite layout width, not a
+        // giant sentinel width. Rendering reads this same cached entry.
+        let rtl = cache.layout_with_wrap("אבג", 20., 100., false, false);
+        assert_close(
+            rtl.cells
+                .iter()
+                .map(|cell| cell.x + cell.width)
+                .fold(0., f32::max),
+            100.,
+        );
     }
 }

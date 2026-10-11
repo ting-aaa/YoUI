@@ -65,6 +65,8 @@
 | `string Placeholder { get; init; }` | 默认 `"Search…"`，空文本时显示 |
 | `string Text` | 默认空串；程序设置不同文本将光标移到末尾、清除预编辑和撤销/重做历史 |
 | `string SelectedText { get; }` | 当前选择范围文字 |
+| `int CaretIndex / SelectionStart / SelectionLength { get; }` | UTF-16 索引与长度 |
+| `void Select(int start, int length)` | 支持负长度反选，钳制并吸附至字素边界 |
 | `event Action<string>? Changed` | 编辑、撤销、重做或程序赋不同文本时触发 |
 | `SemanticValue` | Text |
 
@@ -76,9 +78,9 @@
 | Ctrl+A/C/X/V | 全选、复制、剪切、粘贴；后三者依赖 Document.Clipboard |
 | Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z | 撤销 / 重做，最多 100 个编辑历史 |
 | TextInput / Composition | 已提交文字 / 临时预编辑文字 |
-| PointerDown | 光标和选择锚点移到文本末尾 |
+| PointerDown / Shift 点击 / 拖动 | shaped cell 命中、扩展选择、捕获拖选；要求 ITextLayoutProvider |
 
-输入事件拒绝控制字符，粘贴会过滤控制字符；Text setter 本身不会过滤换行，应用仍应传单行文本。没有公开光标位置、密码、多行、鼠标拖选 API；字体大小目前固定在内部绘制中。真实 IME 候选定位的验收边界见[验证记录](../verification.md)。
+setter、粘贴和输入一致过滤控制字符/换行，拒绝非法 UTF-16。箭头按逻辑字素顺序移动，不承诺视觉 bidi 导航。字体大小固定 14；没有密码或多行模式。预编辑保持临时状态，真实 IME 候选行为未验收。精确 API、缩放与降级边界见 [A08 文字输入](../text-input.md)。
 
 ## VirtualList
 

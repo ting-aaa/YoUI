@@ -42,9 +42,14 @@ public sealed class DesktopWindow : IDisposable
         Document = new(root, new LogicalTextMeasurer(Renderer, () => Scale), client.Right / Scale, client.Bottom / Scale);
         Document.Clipboard = new WindowsClipboard(() => handle);
     }
-    private sealed class LogicalTextMeasurer(NativeRenderer renderer, Func<float> scale) : ITextMeasurer
+    private sealed class LogicalTextMeasurer(NativeRenderer renderer, Func<float> scale) : ITextLayoutProvider
     {
         public (float Width, float Height) Measure(string text, float size, float width, bool bold = false) { float s = scale(); var m = renderer.Measure(text, size * s, width * s, bold); return (m.Width / s, m.Height / s); }
+        public TextLayout Layout(string text, float size, float width, bool bold = false, bool wrap = true)
+        {
+            float s = scale(); var layout = renderer.Layout(text, size * s, width * s, bold, wrap);
+            return new(text, layout.Cells.Select(c => c with { Bounds = new(c.Bounds.X / s, c.Bounds.Y / s, c.Bounds.Width / s, c.Bounds.Height / s) }));
+        }
     }
     private readonly DrawList scaled = new();
     public void RenderNow()
@@ -110,10 +115,11 @@ public sealed class DesktopWindow : IDisposable
                 return 0;
             case 0x02E0:
                 Scale = (float)(wParam & 0xffff) / 96;
+                Document.Root.Invalidate(DirtyFlags.All);
                 var suggested = Marshal.PtrToStructure<NativeRect>(lParam);
                 SetWindowPos(hwnd, 0, suggested.Left, suggested.Top, suggested.Right - suggested.Left, suggested.Bottom - suggested.Top, 0x0014); return 0;
             case 0x0200: Document.Dispatch(new(EventKind.PointerMove) { Position = point }); return 0;
-            case 0x0201: SetCapture(hwnd); Document.Dispatch(new(EventKind.PointerDown) { Position = point }); UpdateIme(hwnd); return 0;
+            case 0x0201: SetCapture(hwnd); Document.Dispatch(new(EventKind.PointerDown) { Position = point, Shift = shift, Control = control }); UpdateIme(hwnd); return 0;
             case 0x0202:
                 // A Clicked handler can enter a modal file dialog. Release OS capture before that
                 // nested message loop, while preserving the logical target for this PointerUp.

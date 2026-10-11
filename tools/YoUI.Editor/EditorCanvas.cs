@@ -9,7 +9,7 @@ public sealed class EditorCanvas : Element
     private UiInstance? instance;
     private UiDocument? runtime;
     private bool fit = true, dragging, resizing, panning;
-    private float zoom = 1;
+    private float zoom = 1, layoutZoom = float.NaN;
     private Vector2 pan, origin, down, startPan;
     private Rect start;
     public bool Snap { get; set; } = true;
@@ -28,12 +28,32 @@ public sealed class EditorCanvas : Element
     {
         if (instance != null || Document == null) return;
         instance = UiAssetRuntime.Build(session.Asset, name => Status?.Invoke("Preview command: " + name));
-        runtime = instance.CreateDocument(Document.TextMeasurer, session.Asset.Root.Width, session.Asset.Root.Height, session.Asset.DarkTheme);
+        ITextMeasurer measurer = Document.TextMeasurer is ITextLayoutProvider provider ? new PreviewTextMeasurer(provider, () => zoom) : Document.TextMeasurer;
+        runtime = instance.CreateDocument(measurer, session.Asset.Root.Width, session.Asset.Root.Height, session.Asset.DarkTheme);
         runtime.Clipboard = Document.Clipboard; runtime.EnsureLayout();
+    }
+    // Preview draw commands are scaled again at composition time. Shape at that
+    // final scale too, then return geometry in runtime-document coordinates.
+    private sealed class PreviewTextMeasurer(ITextLayoutProvider parent, Func<float> scale) : ITextLayoutProvider
+    {
+        public (float Width, float Height) Measure(string text, float size, float width, bool bold = false)
+        {
+            float s = scale(); var measured = parent.Measure(text, size * s, width * s, bold); return (measured.Width / s, measured.Height / s);
+        }
+        public TextLayout Layout(string text, float size, float width, bool bold = false, bool wrap = true)
+        {
+            float s = scale(); var layout = parent.Layout(text, size * s, width * s, bold, wrap);
+            return new(text, layout.Cells.Select(c => c with { Bounds = new(c.Bounds.X / s, c.Bounds.Y / s, c.Bounds.Width / s, c.Bounds.Height / s) }));
+        }
+    }
+    public override void Arrange(Rect bounds)
+    {
+        base.Arrange(bounds); runtime?.Root.Invalidate(DirtyFlags.All);
     }
     private void Viewport()
     {
         if (fit) zoom = Math.Clamp(Math.Min((Bounds.Width - 80) / session.Asset.Root.Width, (Bounds.Height - 96) / session.Asset.Root.Height), .1f, 1);
+        if (layoutZoom != zoom) { runtime?.Root.Invalidate(DirtyFlags.All); layoutZoom = zoom; }
         origin = new(Bounds.X + (Bounds.Width - session.Asset.Root.Width * zoom) / 2 + pan.X, Bounds.Y + (Bounds.Height - session.Asset.Root.Height * zoom) / 2 + pan.Y);
     }
     public void Fit() { fit = true; pan = Vector2.Zero; Invalidate(); }

@@ -1,4 +1,4 @@
-use crate::{ir::validate, text::TextSystem, Command, FrameStats, Rect};
+use crate::{ir::validate, text::TextSystem, Command, FrameStats, Rect, TextCell};
 use crate::{
     resource::{INITIAL_CAPACITY, INSTANCE_BYTES},
     ResourceBudget, ResourceUsage,
@@ -484,6 +484,29 @@ impl Renderer {
         let l = self.text.layout(text, size, width, bold);
         Ok((l.width, l.height))
     }
+    /// Returns grapheme advance cells from the same cached layout used to paint.
+    /// Text offsets are UTF-8 bytes; see [`TextCell`] for wrap/bidi conventions.
+    pub fn text_cells(
+        &mut self,
+        text: &str,
+        size: f32,
+        width: f32,
+        bold: bool,
+        wrap: bool,
+    ) -> Result<Vec<TextCell>, String> {
+        if text.len() > 16 * 1024 * 1024
+            || !size.is_finite()
+            || !(1.0..=512.0).contains(&size)
+            || !width.is_finite()
+            || width < 0.
+        {
+            return Err("invalid text geometry input".into());
+        }
+        Ok(self
+            .text
+            .layout_with_wrap(text, size, width, bold, wrap)
+            .cells)
+    }
     pub fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> Result<u32, String> {
         self.text.upload_image(&self.queue, width, height, rgba)
     }
@@ -535,11 +558,21 @@ impl Renderer {
                         &text[c.text_offset as usize..(c.text_offset + c.text_length) as usize],
                     )
                     .map_err(|e| e.to_string())?;
-                    let layout = self.text.layout(s, c.font_size, c.rect.w, c.flags & 1 != 0);
+                    let layout = self.text.layout_with_wrap(
+                        s,
+                        c.font_size,
+                        c.rect.w,
+                        c.flags & 1 != 0,
+                        c.flags & 2 == 0,
+                    );
                     for g in layout.glyphs {
                         let rect =
                             Rect::new(g.rect.x + c.rect.x, g.rect.y + c.rect.y, g.rect.w, g.rect.h);
-                        let clip = clip.intersect(c.rect);
+                        let clip = if c.flags & 4 != 0 {
+                            clip
+                        } else {
+                            clip.intersect(c.rect)
+                        };
                         if rect.intersect(clip).w <= 0. || rect.intersect(clip).h <= 0. {
                             continue;
                         }
