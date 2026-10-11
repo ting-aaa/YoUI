@@ -32,7 +32,7 @@ try {
         foreach ($layer in 'Logic','Gpu') {
             Run-Verification $configuration $layer
             $trace = $global:YoUIVerificationCalls -join "`n"
-            $expected = if ($layer -eq 'Logic') { 10 } else { 14 }
+            $expected = if ($layer -eq 'Logic') { 11 } else { 15 }
             Require ($global:YoUIVerificationCalls.Count -eq $expected) "Unexpected $layer command count"
             foreach ($command in $global:YoUIVerificationCalls | Where-Object { $_ -like 'cargo|*' -and $_ -notlike '*<fmt>*' }) {
                 Require ($command.Contains('<--locked>')) 'Cargo command omitted the lockfile guard'
@@ -41,8 +41,8 @@ try {
             }
             $managed = @($global:YoUIVerificationCalls | Where-Object { $_ -like 'dotnet|*' })
             $expectedProjects = @('samples/YoUI.Showcase/YoUI.Showcase.csproj','tools/YoUI.Editor/YoUI.Editor.csproj','samples/YoUI.Exporter.Sample/YoUI.Exporter.Sample.csproj','docs/examples/HelloYoUI/HelloYoUI.csproj')
-            if ($layer -eq 'Logic') { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Editor.Tests') }
-            else { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Tests','tools/YoUI.Editor','samples/YoUI.Showcase','samples/YoUI.Showcase') }
+            if ($layer -eq 'Logic') { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Editor.Tests','tests/YoUI.Component.Tests') }
+            else { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Tests','tools/YoUI.Editor','samples/YoUI.Showcase','samples/YoUI.Showcase','tests/YoUI.Component.Tests') }
             Require ($managed.Count -eq $expectedProjects.Count) 'Managed project count mismatch'
             for ($index = 0; $index -lt $managed.Count; $index++) {
                 Require ($managed[$index].Contains("<-c><$configuration>")) 'Managed configuration mismatch'
@@ -70,7 +70,7 @@ try {
         }
     }
     foreach ($layer in 'Logic','Gpu') {
-        $count = if ($layer -eq 'Logic') { 10 } else { 14 }
+        $count = if ($layer -eq 'Logic') { 11 } else { 15 }
         for ($step = 1; $step -le $count; $step++) {
             $global:YoUIVerificationFailAt = $step
             $failed = $false

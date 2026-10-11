@@ -47,6 +47,7 @@ cargo test --workspace --locked --target-dir "$root/target" "${cargo_profile[@]}
 
 dotnet run --project tests/YoUI.Tests -c "$configuration" -p:BuildInParallel=false
 dotnet run --project tests/YoUI.Editor.Tests -c "$configuration" -p:BuildInParallel=false
+dotnet run --project tests/YoUI.Component.Tests -c "$configuration" -p:BuildInParallel=false
 dotnet build samples/YoUI.Showcase/YoUI.Showcase.csproj -c "$configuration" -m:1
 dotnet build docs/examples/HelloYoUI/HelloYoUI.csproj -c "$configuration" -m:1
 bash scripts/test-native-copy.sh "$configuration"

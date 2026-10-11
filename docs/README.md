@@ -51,3 +51,5 @@ cargo doc --workspace --no-deps --locked
 - [A08 文字命中与单行输入](text-input.md)：共源塑形几何、Unicode 边界、拖选和平台限制。
 
 [A09 布局失效与更新边界](layout-updates.md)：待处理阶段、有限次收敛、重入拒绝与失败重试；保留整棵可见树布局。
+
+- [A10 外部自定义控件契约与独立程序集示例](custom-components.md)

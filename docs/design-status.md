@@ -39,3 +39,5 @@ Spine/Cubism 的运行时、素材版本与再分发条件需在实际引入时�
 文字命中、UTF-8/UTF-16 边界、caret affinity 与单行输入范围见 [A08 文字输入](text-input.md)。
 
 [A09 布局失效与更新边界](layout-updates.md)：待处理阶段、有限次收敛、重入拒绝与失败重试；保留整棵可见树布局。
+
+[A10 外部自定义控件](custom-components.md)：独立程序集评分控件、公共 API 消费者契约测试、文档附着订阅和绘制 IR；不含动态控件插件加载或通用 Dispose 生命周期。

@@ -119,7 +119,7 @@ public sealed class UiDocument
     {
         if (Focused?.IsDescendantOf(root) == true) Focus(null);
         if (captured?.IsDescendantOf(root) == true) CancelPointer();
-        if (hovered?.IsDescendantOf(root) == true) hovered = null;
+        if (hovered?.IsDescendantOf(root) == true) { hovered.IsHovered = false; hovered.Invalidate(); hovered = null; }
         if (modal?.IsDescendantOf(root) == true) SetModal(null);
     }
     public void Focus(Element? element)
