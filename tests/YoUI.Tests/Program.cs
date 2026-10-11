@@ -18,6 +18,7 @@ void Click(UiDocument doc, float x, float y) { doc.Dispatch(new(EventKind.Pointe
 Test("ABI sizes and offsets", () => { Require(Marshal.SizeOf<DrawCommand>() == 80); Require(Marshal.OffsetOf<DrawCommand>(nameof(DrawCommand.Rect)).ToInt32() == 16); Require(Marshal.SizeOf<FrameStats>() == 48); });
 ResourceBudgetTests.RunLogic(Test, Require);
 TextInputTests.RunLogic(Test, Require);
+LayoutUpdateTests.Run(Test, Require);
 Test("stretched and centered RectTransform", () =>
 {
     Require(RectTransform.Stretch(10, 20, 30, 40).Resolve(new(0, 0, 200, 100)) == new Rect(10, 20, 160, 40));

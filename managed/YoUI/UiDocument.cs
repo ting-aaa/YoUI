@@ -13,14 +13,19 @@ public sealed class UiDocument
     private Element? hovered, captured, modal, focusBeforeModal;
     private Theme theme = Theme.Dark;
     private readonly DrawList frame = new();
+    private bool updating;
+    private readonly List<Element.DirtyState> consumedDirty = [];
     public Element Root { get; }
     public Element? Focused { get; private set; }
     public ITextMeasurer TextMeasurer { get; }
     public IClipboard? Clipboard { get; set; }
     /// <summary>Host-level shortcuts and embedded documents can intercept input before focus routing.</summary>
     public event Action<UiEvent>? PreviewInput;
-    public Theme Theme { get => theme; set { theme = value; Invalidate(DirtyFlags.Paint); } }
-    public bool NeedsRender => dirty != DirtyFlags.None;
+    public Theme Theme { get => theme; set { if (theme == value) return; theme = value; Invalidate(DirtyFlags.Paint); } }
+    /// <summary>Unconsumed document stages. Layout also requests paint and semantics.</summary>
+    public DirtyFlags PendingUpdates => dirty;
+    /// <summary>Whether layout or paint is pending; semantic-only changes do not rebuild a frame.</summary>
+    public bool NeedsRender => (dirty & (DirtyFlags.Layout | DirtyFlags.Paint)) != 0;
     public int LayoutPasses { get; private set; }
     public int PaintPasses { get; private set; }
     public UiDocument(Element root, ITextMeasurer textMeasurer, float width, float height)
@@ -33,30 +38,76 @@ public sealed class UiDocument
         if (!float.IsFinite(width) || !float.IsFinite(height) || width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width));
         if (size == new Vector2(width, height)) return; size = new(width, height); Invalidate(DirtyFlags.All);
     }
-    internal void Invalidate(DirtyFlags flags) => dirty |= flags;
+    internal void Invalidate(DirtyFlags flags) => dirty |= Element.ExpandInvalidation(flags);
+    private void BeginUpdate()
+    {
+        if (updating) throw new InvalidOperationException("Document updates cannot be nested inside layout, paint or semantic callbacks.");
+        updating = true;
+    }
+    private List<Element.DirtyState> Consume(DirtyFlags flags)
+    {
+        var consumed = consumedDirty;
+        consumed.Clear();
+        Root.ConsumeDirty(flags, consumed);
+        dirty &= ~flags;
+        return consumed;
+    }
+    private void Restore(DirtyFlags flags, List<Element.DirtyState> consumed)
+    {
+        Invalidate(flags);
+        // A callback may have detached or reparented a node. Restore through its current owner.
+        foreach (var state in consumed) state.Node.Invalidate(state.Flags);
+        Root.Invalidate(flags);
+    }
+    /// <summary>Run at most one layout pass. Callback invalidations remain pending for a later pass.</summary>
     public void EnsureLayout()
     {
+        BeginUpdate();
+        try { EnsureLayoutCore(); }
+        finally { updating = false; }
+    }
+    /// <summary>Run up to maxPasses layout passes; false means layout is still pending. Never paints.</summary>
+    public bool UpdateLayout(int maxPasses = 8)
+    {
+        if (maxPasses <= 0) throw new ArgumentOutOfRangeException(nameof(maxPasses));
+        BeginUpdate();
+        try
+        {
+            for (int pass = 0; pass < maxPasses && (dirty & DirtyFlags.Layout) != 0; pass++) EnsureLayoutCore();
+            return (dirty & DirtyFlags.Layout) == 0;
+        }
+        finally { updating = false; }
+    }
+    private void EnsureLayoutCore()
+    {
         if ((dirty & DirtyFlags.Layout) == 0) return;
-        // Consume before callbacks: invalidation raised during this pass belongs to the next pass.
-        dirty = (dirty & ~DirtyFlags.Layout) | DirtyFlags.Paint;
+        // Consume the entire stage before any callback, including Measure and custom Arrange overrides.
+        var consumed = Consume(DirtyFlags.Layout);
+        Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics);
         try { Root.Measure(size); Root.Arrange(new(0, 0, size.X, size.Y)); LayoutPasses++; }
-        catch { dirty |= DirtyFlags.Layout | DirtyFlags.Paint; throw; }
+        catch { Restore(DirtyFlags.Layout, consumed); throw; }
+        finally { consumed.Clear(); }
     }
     public DrawList BuildFrame()
     {
-        dirty &= ~DirtyFlags.Semantics;
-        EnsureLayout();
-        if ((dirty & DirtyFlags.Paint) != 0)
+        BeginUpdate();
+        try
         {
-            dirty &= ~DirtyFlags.Paint;
-            try
+            EnsureLayoutCore();
+            if ((dirty & DirtyFlags.Paint) != 0)
             {
-                frame.Clear(); frame.Rectangle(new(0, 0, size.X, size.Y), Theme.Background);
-                Root.PaintTree(frame, Vector2.Zero, 1, Theme); PaintPasses++;
+                var consumed = Consume(DirtyFlags.Paint);
+                try
+                {
+                    frame.Clear(); frame.Rectangle(new(0, 0, size.X, size.Y), Theme.Background);
+                    Root.PaintTree(frame, Vector2.Zero, 1, Theme); PaintPasses++;
+                }
+                catch { Restore(DirtyFlags.Paint, consumed); throw; }
+                finally { consumed.Clear(); }
             }
-            catch { dirty |= DirtyFlags.Paint; throw; }
+            return frame;
         }
-        return frame;
+        finally { updating = false; }
     }
     private static IEnumerable<Element> Traverse(Element root)
     {
@@ -76,12 +127,16 @@ public sealed class UiDocument
         if (element != null && (!element.Focusable || !Active(element))) return;
         if (Focused == element) return;
         var old = Focused; Focused = element;
-        if (old != null) { old.Route(new(EventKind.Blur) { Target = old, Phase = EventPhase.Target }); old.Invalidate(); }
-        if (element != null) { element.Route(new(EventKind.Focus) { Target = element, Phase = EventPhase.Target }); element.Invalidate(); }
+        // Commit the update request before callbacks, which can throw after focus has changed.
+        old?.Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics);
+        element?.Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics);
+        if (old != null) old.Route(new(EventKind.Blur) { Target = old, Phase = EventPhase.Target });
+        if (element != null) element.Route(new(EventKind.Focus) { Target = element, Phase = EventPhase.Target });
     }
     public void SetModal(Element? element)
     {
         if (element != null && element.Document != this) throw new InvalidOperationException("Modal must be attached to this document.");
+        Invalidate(DirtyFlags.Semantics);
         if (element != null) { focusBeforeModal = Focused; modal = element; CancelPointer(); Focus(Traverse(element).FirstOrDefault(e => e.Focusable)); }
         else { modal = null; Focus(focusBeforeModal); focusBeforeModal = null; }
     }
@@ -130,7 +185,18 @@ public sealed class UiDocument
     }
     public IReadOnlyList<SemanticNode> Semantics()
     {
-        EnsureLayout();
-        return Traverse(modal ?? Root).Where(e => e.Focusable || e.Role == "text").Select(e => new SemanticNode(e.AccessibleName, e.Role, e.SemanticValue, e.Bounds.Translate(AncestorOffset(e) + e.VisualOffset), e.Enabled, e.IsFocused)).ToArray();
+        BeginUpdate();
+        try
+        {
+            EnsureLayoutCore();
+            var consumed = Consume(DirtyFlags.Semantics);
+            try
+            {
+                return Traverse(modal ?? Root).Where(e => e.Focusable || e.Role == "text").Select(e => new SemanticNode(e.AccessibleName, e.Role, e.SemanticValue, e.Bounds.Translate(AncestorOffset(e) + e.VisualOffset), e.Enabled, e.IsFocused)).ToArray();
+            }
+            catch { Restore(DirtyFlags.Semantics, consumed); throw; }
+            finally { consumed.Clear(); }
+        }
+        finally { updating = false; }
     }
 }

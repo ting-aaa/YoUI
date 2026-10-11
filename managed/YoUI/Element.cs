@@ -30,6 +30,7 @@ public class Element
     private float width = float.NaN, height = float.NaN, grow, padding, radius, opacity = 1, groupOpacity = 1;
     private Color background;
     private Vector2 visualOffset;
+    private string accessibleName = "";
     public Element() => readOnlyChildren = children.AsReadOnly();
     public string Name { get; init; } = "";
     public Element? Parent { get; private set; }
@@ -37,12 +38,13 @@ public class Element
     public IReadOnlyList<Element> Children => readOnlyChildren;
     public Rect Bounds { get; private set; }
     public Vector2 DesiredSize { get; protected set; }
+    /// <summary>Pending work from this node or its descendants; consumed at document stage boundaries.</summary>
     public DirtyFlags Dirty { get; private set; } = DirtyFlags.All;
     public long LayoutRevision { get; private set; }
     public bool Focusable { get; protected set; }
     public bool HitTestVisible { get; set; }
     public string Role { get; protected set; } = "group";
-    public string AccessibleName { get; set; } = "";
+    public string AccessibleName { get => accessibleName; set => Set(ref accessibleName, value, DirtyFlags.Semantics); }
     public bool IsHovered { get; internal set; }
     public bool IsFocused => Document?.Focused == this;
     public bool Visible { get => visible; set => Set(ref visible, value, DirtyFlags.All); }
@@ -57,7 +59,7 @@ public class Element
     public Color Background { get => background; set => Set(ref background, value, DirtyFlags.Paint); }
     public float InheritedOpacity { get => opacity; set => Set(ref opacity, Unit(value), DirtyFlags.Paint); }
     public float CompositedOpacity { get => groupOpacity; set => Set(ref groupOpacity, Unit(value), DirtyFlags.Paint); }
-    public Vector2 VisualOffset { get => visualOffset; set => Set(ref visualOffset, value, DirtyFlags.Paint); }
+    public Vector2 VisualOffset { get => visualOffset; set => Set(ref visualOffset, value, DirtyFlags.Paint | DirtyFlags.Semantics); }
     public Rect VisualBounds { get { var offset = Vector2.Zero; for (Element? p = this; p != null; p = p.Parent) offset += p.VisualOffset; return Bounds.Translate(offset); } }
     public event Action<UiEvent>? Event;
     protected static float NonNegative(float value) => float.IsFinite(value) && value >= 0 ? value : throw new ArgumentOutOfRangeException(nameof(value));
@@ -82,8 +84,20 @@ public class Element
     }
     public void Invalidate(DirtyFlags flags = DirtyFlags.Paint)
     {
-        if ((flags & DirtyFlags.Layout) != 0) flags |= DirtyFlags.Paint;
-        Dirty |= flags; Document?.Invalidate(flags); Parent?.Invalidate(flags);
+        flags = ExpandInvalidation(flags);
+        // Notify the owning document once; ancestors aggregate pending work without recursion.
+        for (Element? node = this; node != null; node = node.Parent) node.Dirty |= flags;
+        Document?.Invalidate(flags);
+    }
+    internal static DirtyFlags ExpandInvalidation(DirtyFlags flags) =>
+        (flags & DirtyFlags.Layout) != 0 ? flags | DirtyFlags.Paint | DirtyFlags.Semantics : flags;
+    internal readonly record struct DirtyState(Element Node, DirtyFlags Flags);
+    internal void ConsumeDirty(DirtyFlags flags, List<DirtyState> consumed)
+    {
+        var pending = Dirty & flags;
+        if (pending != DirtyFlags.None) { consumed.Add(new(this, pending)); Dirty &= ~flags; }
+        // Hidden nodes are acknowledged too. Showing or reattaching them requests fresh layout.
+        foreach (var child in children) child.ConsumeDirty(flags, consumed);
     }
     public T Add<T>(T child) where T : Element
     {
@@ -115,7 +129,6 @@ public class Element
     }
     public virtual void Arrange(Rect bounds)
     {
-        Dirty &= ~DirtyFlags.Layout;
         Bounds = bounds; LayoutRevision++; ArrangeChildren(bounds.Inset(Padding));
     }
     protected virtual void ArrangeChildren(Rect content)
@@ -129,7 +142,6 @@ public class Element
     internal void PaintTree(DrawList list, Vector2 offset, float inherited, Theme theme)
     {
         if (!Visible) return;
-        Dirty &= ~DirtyFlags.Paint;
         offset += VisualOffset; float opacity = inherited * InheritedOpacity * (Enabled ? 1 : 0.45f);
         var bounds = Bounds.Translate(offset);
         if (ClipToBounds) list.PushClip(bounds);
