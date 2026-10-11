@@ -54,3 +54,5 @@ cargo doc --workspace --no-deps --locked
 [A09 布局失效与更新边界](layout-updates.md)：待处理阶段、有限次收敛、重入拒绝与失败重试；保留整棵可见树布局。
 
 - [A10 外部自定义控件契约与独立程序集示例](custom-components.md)
+
+- [A12 CPU 帧分析与导出](profiling.md)、[离屏平台验收流程](platform-acceptance.md)
