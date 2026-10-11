@@ -3,3 +3,6 @@
 **/obj/
 /artifacts/
 .project-memory/.runtime/
+
+# Python acceptance harness test caches
+**/__pycache__/

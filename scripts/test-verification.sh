@@ -36,16 +36,17 @@ run() {
 export FAIL_AT=0
 for configuration in Debug Release; do
     run "$configuration"
-    [[ "$(cat "$COUNT")" == 10 ]]
-    [[ "$(grep -cF "$scratch/repo with spaces|" "$TRACE")" == 10 ]]
+    [[ "$(cat "$COUNT")" == 11 ]]
+    [[ "$(grep -cF "$scratch/repo with spaces|" "$TRACE")" == 11 ]]
     grep -F '<test><--workspace><--locked><--target-dir>' "$TRACE" > /dev/null
     [[ "$(grep -cF "<--target-dir><$scratch/repo with spaces/target>" "$TRACE")" == 3 ]]
-    [[ "$(grep -cF "<-c><$configuration>" "$TRACE")" == 5 ]]
+    [[ "$(grep -cF "<-c><$configuration>" "$TRACE")" == 6 ]]
     sed -n 's/^.*|dotnet|//p' "$TRACE" > "$scratch/managed-actual"
     printf '%s\n' \
         "<run><--project><tests/YoUI.Tests><-c><$configuration><-p:BuildInParallel=false>" \
         "<run><--project><tests/YoUI.Editor.Tests><-c><$configuration><-p:BuildInParallel=false>" \
         "<run><--project><tests/YoUI.Component.Tests><-c><$configuration><-p:BuildInParallel=false>" \
+        "<run><--project><tests/YoUI.Profiling.Tests><-c><$configuration><-p:BuildInParallel=false>" \
         "<build><samples/YoUI.Showcase/YoUI.Showcase.csproj><-c><$configuration><-m:1>" \
         "<build><docs/examples/HelloYoUI/HelloYoUI.csproj><-c><$configuration><-m:1>" > "$scratch/managed-expected"
     cmp "$scratch/managed-expected" "$scratch/managed-actual"
@@ -59,7 +60,7 @@ for configuration in Debug Release; do
     grep -F 'layer=Logic' "$scratch/output" > /dev/null
     echo "PASS Linux $configuration commands, profile, layer and independent working directory"
 done
-for step in {1..10}; do
+for step in {1..11}; do
     export FAIL_AT="$step"
     code=0; run Release || code=$?
     [[ "$code" == 23 ]]

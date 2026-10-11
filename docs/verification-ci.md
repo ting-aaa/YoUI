@@ -52,3 +52,5 @@ pwsh -NoProfile -File scripts/verify.ps1 -Layer Logic -Configuration Release
 ```
 
 本工作流定义不等于托管 runner 已执行成功；是否通过须以对应提交的 Actions 运行结果为准。历史真实 GPU/窗口记录见[验证记录](verification.md)和[渲染后端验证](render-backends.md)。
+
+A12 的纯 CPU 参数、统计和适配器身份测试 `tests/YoUI.Profiling.Tests` 随上述 Logic 入口执行。新的[离屏平台验收流程](platform-acceptance.md)由调用者在真实目标环境显式运行；本 CI 不自动取得 GPU、窗口或第二平台验收结论。
