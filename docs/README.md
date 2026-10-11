@@ -49,3 +49,5 @@ cargo doc --workspace --no-deps --locked
 - [A07 渲染器资源预算](resource-budgets.md)：创建时上限、保留分配快照与失败边界。
 
 - [A08 文字命中与单行输入](text-input.md)：共源塑形几何、Unicode 边界、拖选和平台限制。
+
+[A09 布局失效与更新边界](layout-updates.md)：待处理阶段、有限次收敛、重入拒绝与失败重试；保留整棵可见树布局。

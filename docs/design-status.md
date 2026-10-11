@@ -37,3 +37,5 @@ Spine/Cubism 的运行时、素材版本与再分发条件需在实际引入时�
 渲染器 GPU payload 分配准入与保留容量快照见 [A07 资源预算](resource-budgets.md)；它不等同于总显存预算或自动回收。
 
 文字命中、UTF-8/UTF-16 边界、caret affinity 与单行输入范围见 [A08 文字输入](text-input.md)。
+
+[A09 布局失效与更新边界](layout-updates.md)：待处理阶段、有限次收敛、重入拒绝与失败重试；保留整棵可见树布局。
