@@ -32,6 +32,7 @@ def benchmark(configuration="Release", backend="vulkan", kind="Cpu"):
                   backend=accept.BACKENDS[backend], adapter=f'Fake "GPU" \\ unit ({accept.BACKENDS[backend]}; {kind}; driver fake 1)',
                   adapterKind=accept.ADAPTER_KINDS[kind], warmupFrames=30, measuredFrames=240,
                   runtime=".NET fixture", os=OS, processArchitecture="X64", samples=samples,
+                  resolution="1280x820", dataItems=100000, realizedRows=6, simulationStepSeconds=1.0 / 60, processorCount=4,
                   managedBuildMedianMs=1.25, managedBuildP95Ms=1.25, nativePrepareMedianMs=.5,
                   nativePrepareP95Ms=.5, nativeSubmitMedianMs=.25, nativeSubmitP95Ms=.25,
                   managedAllocatedBytes=24000, managedAllocatedBytesPerFrame=100,
@@ -368,6 +369,31 @@ class BenchmarkValidationTests(unittest.TestCase):
                 del report[field]
                 with self.assertRaises(ValueError):
                     self.validate(report)
+
+    def test_workload_metadata_missing_wrong_and_invalid_values_fail(self):
+        invalid = {
+            "resolution": ("1x1", "", 1280820, True, None),
+            "dataItems": (0, -1, 99999, 100000.0, True, "100000", None, float("nan"), float("inf")),
+            "realizedRows": (0, -1, 100001, 1.5, 6.0, True, "6", None, float("nan"), float("inf")),
+            "simulationStepSeconds": (0, -1, 1.0 / 30, True, "1/60", None, float("nan"), float("inf")),
+            "processorCount": (0, -1, 1.5, 4.0, True, "4", None, float("nan"), float("inf")),
+        }
+        for field, values in invalid.items():
+            report = benchmark()
+            del report[field]
+            with self.subTest(field=field, missing=True), self.assertRaises(ValueError):
+                self.validate(report)
+            for value in values:
+                report = benchmark()
+                report[field] = value
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    self.validate(report)
+
+    def test_workload_bounds_do_not_invent_a_virtualization_or_cpu_target(self):
+        for rows in (1, 6, 100000):
+            report = benchmark()
+            report.update(realizedRows=rows, processorCount=1)
+            self.assertEqual(self.validate(report)["classification"], "software")
 
     def test_samples_require_all_finite_nonnegative_values_and_integer_counts(self):
         for field in (*accept.TIMINGS, *accept.COUNTERS):

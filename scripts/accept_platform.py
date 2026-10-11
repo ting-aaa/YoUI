@@ -167,6 +167,22 @@ def validate_benchmark(path: Path, configuration: str, backend: str,
             raise ValueError(f"benchmark {field} does not match {expected!r}")
     for field in ("warmupFrames", "measuredFrames"):
         number(benchmark.get(field), field, integer=True)
+    # Workload identity is part of evidence, not an optional descriptive label.
+    # Keep fixed scene inputs exact, while checking realized virtualization output
+    # by its meaningful bounds rather than imposing a performance threshold.
+    if benchmark.get("resolution") != "1280x820":
+        raise ValueError("benchmark resolution must be 1280x820")
+    for field in ("dataItems", "realizedRows", "processorCount"):
+        number(benchmark.get(field), field, integer=True)
+        if benchmark[field] < 1:
+            raise ValueError(f"benchmark {field} must be positive")
+    if benchmark["dataItems"] != 100000:
+        raise ValueError("benchmark dataItems must be 100000")
+    if benchmark["realizedRows"] > benchmark["dataItems"]:
+        raise ValueError("benchmark realizedRows exceeds dataItems")
+    number(benchmark.get("simulationStepSeconds"), "simulationStepSeconds")
+    if benchmark["simulationStepSeconds"] != 1.0 / 60:
+        raise ValueError("benchmark simulationStepSeconds must be 1/60")
     adapter = benchmark.get("adapter")
     if not isinstance(adapter, str) or not adapter.strip():
         raise ValueError("benchmark adapter identity is missing")
