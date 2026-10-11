@@ -32,7 +32,7 @@ try {
         foreach ($layer in 'Logic','Gpu') {
             Run-Verification $configuration $layer
             $trace = $global:YoUIVerificationCalls -join "`n"
-            $expected = if ($layer -eq 'Logic') { 10 } else { 12 }
+            $expected = if ($layer -eq 'Logic') { 10 } else { 13 }
             Require ($global:YoUIVerificationCalls.Count -eq $expected) "Unexpected $layer command count"
             foreach ($command in $global:YoUIVerificationCalls | Where-Object { $_ -like 'cargo|*' -and $_ -notlike '*<fmt>*' }) {
                 Require ($command.Contains('<--locked>')) 'Cargo command omitted the lockfile guard'
@@ -42,7 +42,7 @@ try {
             $managed = @($global:YoUIVerificationCalls | Where-Object { $_ -like 'dotnet|*' })
             $expectedProjects = @('samples/YoUI.Showcase/YoUI.Showcase.csproj','tools/YoUI.Editor/YoUI.Editor.csproj','samples/YoUI.Exporter.Sample/YoUI.Exporter.Sample.csproj','docs/examples/HelloYoUI/HelloYoUI.csproj')
             if ($layer -eq 'Logic') { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Editor.Tests') }
-            else { $expectedProjects += @('tools/YoUI.Editor','samples/YoUI.Showcase','samples/YoUI.Showcase') }
+            else { $expectedProjects += @('tests/YoUI.Tests','tools/YoUI.Editor','samples/YoUI.Showcase','samples/YoUI.Showcase') }
             Require ($managed.Count -eq $expectedProjects.Count) 'Managed project count mismatch'
             for ($index = 0; $index -lt $managed.Count; $index++) {
                 Require ($managed[$index].Contains("<-c><$configuration>")) 'Managed configuration mismatch'
@@ -50,14 +50,15 @@ try {
                 if ($index -lt 4) { Require ($managed[$index].StartsWith('dotnet|<build>')) 'Expected build command' }
                 else { Require ($managed[$index].StartsWith('dotnet|<run><--project>')) 'Expected run command' }
             }
+            Require ($trace.Contains('<--gpu-resource-budget>') -eq ($layer -eq 'Gpu')) 'Managed resource-budget GPU invocation mismatch'
             Require ($trace.Contains('<--ignored>') -eq ($layer -eq 'Gpu')) 'GPU test invocation layer mismatch'
             $residencyTest = 'renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image'
             Require ($trace.Contains("<$residencyTest>") -eq ($layer -eq 'Gpu')) 'Text residency test invocation layer mismatch'
             if ($layer -eq 'Gpu') {
                 $cargoOptions = "<--locked><--target-dir><$repo/target>"
                 if ($configuration -eq 'Release') { $cargoOptions += '<--release>' }
-                Require ($global:YoUIVerificationCalls[5] -eq "cargo|<test><-p><youi-render><--test><gpu>$cargoOptions<--><--ignored><--nocapture>") 'GPU integration test command mismatch'
-                Require ($global:YoUIVerificationCalls[6] -eq "cargo|<test><-p><youi-render><--lib><$residencyTest>$cargoOptions<--><--exact><--ignored><--nocapture>") 'Text residency GPU unit test command mismatch'
+                Require ($global:YoUIVerificationCalls[6] -eq "cargo|<test><-p><youi-render><--test><gpu>$cargoOptions<--><--ignored><--nocapture>") 'GPU integration test command mismatch'
+                Require ($global:YoUIVerificationCalls[7] -eq "cargo|<test><-p><youi-render><--lib><$residencyTest>$cargoOptions<--><--exact><--ignored><--nocapture>") 'Text residency GPU unit test command mismatch'
             }
             Require (!$trace.Contains('<--smoke>')) 'A headless layer invoked native-window checks'
             Require ((Get-Location).Path -eq $unrelated) 'Working directory was not restored'
@@ -68,7 +69,7 @@ try {
         }
     }
     foreach ($layer in 'Logic','Gpu') {
-        $count = if ($layer -eq 'Logic') { 10 } else { 12 }
+        $count = if ($layer -eq 'Logic') { 10 } else { 13 }
         for ($step = 1; $step -le $count; $step++) {
             $global:YoUIVerificationFailAt = $step
             $failed = $false
@@ -105,8 +106,8 @@ try {
     $global:YoUIVerificationCalls.Clear(); $failed = $false
     try { & (Join-Path $repo 'scripts/verify.ps1') -Configuration Release } catch { $failed = $true }
     if ($windowsHost) {
-        Require (!$failed -and $global:YoUIVerificationCalls.Count -eq 19) 'Default gate is no longer full acceptance'
-        for ($step = 1; $step -le 19; $step++) {
+        Require (!$failed -and $global:YoUIVerificationCalls.Count -eq 20) 'Default gate is no longer full acceptance'
+        for ($step = 1; $step -le 20; $step++) {
             $global:YoUIVerificationFailAt = $step; $failed = $false
             try { Run-Verification Release All } catch { $failed = $true }
             Require ($failed -and $global:YoUIVerificationCalls.Count -eq $step) "Full gate accepted failure at command $step"

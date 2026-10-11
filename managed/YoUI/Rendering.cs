@@ -21,6 +21,31 @@ public readonly struct FrameStats
     public override string ToString() => $"{Commands} commands · {Instances} quads · {DrawCalls} draws · CPU prepare {PrepareMicroseconds / 1000.0:F2} ms";
 }
 
+/// <summary>Byte ceilings for retained GPU allocations. Device limits also apply.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct ResourceBudget
+{
+    public readonly ulong MaxTextureBytes, MaxInstanceBufferBytes;
+    public ResourceBudget(ulong maxTextureBytes, ulong maxInstanceBufferBytes)
+    {
+        MaxTextureBytes = maxTextureBytes;
+        MaxInstanceBufferBytes = maxInstanceBufferBytes;
+    }
+    /// <summary>The limits used by the original NativeRenderer constructor: 528 MiB and 256 MiB.</summary>
+    public static ResourceBudget Default => new(528UL * 1024 * 1024, 256UL * 1024 * 1024);
+}
+
+/// <summary>
+/// Payload sizes of retained GPU objects, including unused pooled layers.
+/// Excludes driver overhead, swapchains, staging and in-flight old allocations.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct ResourceUsage
+{
+    public readonly ulong AtlasBytes, OutputBytes, LayerBytes, InstanceBufferBytes;
+    public readonly uint LayerCount, Reserved;
+}
+
 /// <summary>Reusable command and UTF-8 arenas, pinned only during synchronous submission.</summary>
 public sealed class DrawList
 {
@@ -80,14 +105,70 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextMeasurer
     private ulong handle;
     private readonly int ownerThread = Environment.CurrentManagedThreadId;
     public string Adapter { get; }
-    public NativeRenderer(uint width, uint height, nint window = 0)
+    public NativeRenderer(uint width, uint height, nint window = 0) : this(width, height, window, null) { }
+    /// <summary>
+    /// Creates a renderer with explicit resource ceilings; use window = 0 for offscreen rendering.
+    /// Requires a native library exporting the additive v1 resource-budget API.
+    /// </summary>
+    public NativeRenderer(uint width, uint height, nint window, ResourceBudget budget) : this(width, height, window, (ResourceBudget?)budget) { }
+    private NativeRenderer(uint width, uint height, nint window, ResourceBudget? budget)
     {
+        if (budget is { } configured) ValidateResourceBudget(width, height, configured);
         if (Native.AbiVersion() != 0x00010000 || Native.CommandSize() != Marshal.SizeOf<DrawCommand>()) throw new InvalidOperationException("Incompatible YoUI native ABI.");
-        Check(Native.Create(width, height, window, out handle));
-        byte[] name = new byte[512];
-        fixed (byte* ptr = name) { Check(Native.AdapterName(handle, ptr, 512, out uint length)); Adapter = Encoding.UTF8.GetString(name, 0, (int)length); }
+        if (budget is { } requested)
+        {
+            VerifyResourceAbi();
+            try { Check(Native.CreateWithBudget(width, height, window, in requested, out handle)); }
+            catch (EntryPointNotFoundException ex) { throw MissingResourceApi(ex); }
+        }
+        else Check(Native.Create(width, height, window, out handle));
+        try
+        {
+            byte[] name = new byte[512];
+            fixed (byte* ptr = name) { Check(Native.AdapterName(handle, ptr, 512, out uint length)); Adapter = Encoding.UTF8.GetString(name, 0, (int)length); }
+        }
+        catch { Native.Destroy(handle); handle = 0; throw; }
     }
+    private static void ValidateResourceBudget(uint width, uint height, ResourceBudget budget)
+    {
+        if (width is 0 or > 8192) throw new ArgumentOutOfRangeException(nameof(width), "Target dimensions must be in 1..8192.");
+        if (height is 0 or > 8192) throw new ArgumentOutOfRangeException(nameof(height), "Target dimensions must be in 1..8192.");
+        const ulong atlasBytes = 2048UL * 2048 * 4;
+        if (budget.MaxTextureBytes < atlasBytes + (ulong)width * height * 4)
+            throw new ArgumentOutOfRangeException(nameof(budget), "Texture budget must cover the 16 MiB atlas and initial RGBA8 output.");
+        if (budget.MaxInstanceBufferBytes < 1024UL * 96)
+            throw new ArgumentOutOfRangeException(nameof(budget), "Instance-buffer budget must cover the initial 1024 instances (98304 bytes).");
+    }
+    private static void VerifyResourceAbi()
+    {
+        try
+        {
+            if (Native.ResourceBudgetSize() != Marshal.SizeOf<ResourceBudget>() || Native.ResourceUsageSize() != Marshal.SizeOf<ResourceUsage>())
+                throw new InvalidOperationException("Incompatible YoUI native resource-budget layouts.");
+        }
+        catch (EntryPointNotFoundException ex) { throw MissingResourceApi(ex); }
+    }
+    private static InvalidOperationException MissingResourceApi(EntryPointNotFoundException inner) => new(
+        "This YoUI native library does not export the resource-budget API. ABI v1 alone does not guarantee these additive symbols; rebuild or deploy the matching native library.", inner);
     private void Verify() { ObjectDisposedException.ThrowIf(handle == 0, this); if (ownerThread != Environment.CurrentManagedThreadId) throw new InvalidOperationException("Renderer calls must stay on the creating thread."); }
+    public ResourceBudget ResourceBudget
+    {
+        get
+        {
+            Verify(); VerifyResourceAbi();
+            try { Check(Native.ResourceBudget(handle, out var budget)); return budget; }
+            catch (EntryPointNotFoundException ex) { throw MissingResourceApi(ex); }
+        }
+    }
+    public ResourceUsage ResourceUsage
+    {
+        get
+        {
+            Verify(); VerifyResourceAbi();
+            try { Check(Native.ResourceUsage(handle, out var usage)); return usage; }
+            catch (EntryPointNotFoundException ex) { throw MissingResourceApi(ex); }
+        }
+    }
     public FrameStats Render(DrawList list)
     {
         Verify();
@@ -119,7 +200,12 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextMeasurer
         private const string Dll = "youi_render";
         [DllImport(Dll, EntryPoint = "youi_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint AbiVersion();
         [DllImport(Dll, EntryPoint = "youi_command_size", CallingConvention = CallingConvention.Cdecl)] internal static extern uint CommandSize();
+        [DllImport(Dll, EntryPoint = "youi_resource_budget_size", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ResourceBudgetSize();
+        [DllImport(Dll, EntryPoint = "youi_resource_usage_size", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ResourceUsageSize();
         [DllImport(Dll, EntryPoint = "youi_create", CallingConvention = CallingConvention.Cdecl)] internal static extern int Create(uint w, uint h, nint window, out ulong handle);
+        [DllImport(Dll, EntryPoint = "youi_create_with_budget", CallingConvention = CallingConvention.Cdecl)] internal static extern int CreateWithBudget(uint w, uint h, nint window, in ResourceBudget budget, out ulong handle);
+        [DllImport(Dll, EntryPoint = "youi_resource_budget", CallingConvention = CallingConvention.Cdecl)] internal static extern int ResourceBudget(ulong handle, out ResourceBudget budget);
+        [DllImport(Dll, EntryPoint = "youi_resource_usage", CallingConvention = CallingConvention.Cdecl)] internal static extern int ResourceUsage(ulong handle, out ResourceUsage usage);
         [DllImport(Dll, EntryPoint = "youi_destroy", CallingConvention = CallingConvention.Cdecl)] internal static extern int Destroy(ulong handle);
         [DllImport(Dll, EntryPoint = "youi_resize", CallingConvention = CallingConvention.Cdecl)] internal static extern int Resize(ulong handle, uint w, uint h);
         [DllImport(Dll, EntryPoint = "youi_upload_image", CallingConvention = CallingConvention.Cdecl)] internal static extern int UploadImage(ulong handle, uint w, uint h, byte* data, uint length, out uint image);

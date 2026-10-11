@@ -2,6 +2,8 @@
 pub mod ffi;
 pub mod ir;
 pub mod renderer;
+mod resource;
 mod text;
 pub use ir::*;
 pub use renderer::Renderer;
+pub use resource::{ResourceBudget, ResourceUsage};

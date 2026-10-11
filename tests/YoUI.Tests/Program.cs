@@ -2,6 +2,12 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using YoUI;
 
+if (args.Length != 0)
+{
+    if (args.Length == 1 && args[0] == "--gpu-resource-budget") { ResourceBudgetTests.RunGpu(); return; }
+    throw new ArgumentException("Supported optional argument: --gpu-resource-budget");
+}
+
 int passed = 0;
 void Test(string name, Action run) { run(); Console.WriteLine("PASS " + name); passed++; }
 void Require(bool condition, string message = "assertion failed") { if (!condition) throw new Exception(message); }
@@ -9,6 +15,7 @@ UiDocument Doc(Element root, float w = 640, float h = 480) => new(root, new Test
 void Click(UiDocument doc, float x, float y) { doc.Dispatch(new(EventKind.PointerDown) { Position = new(x, y) }); doc.Dispatch(new(EventKind.PointerUp) { Position = new(x, y) }); }
 
 Test("ABI sizes and offsets", () => { Require(Marshal.SizeOf<DrawCommand>() == 80); Require(Marshal.OffsetOf<DrawCommand>(nameof(DrawCommand.Rect)).ToInt32() == 16); Require(Marshal.SizeOf<FrameStats>() == 48); });
+ResourceBudgetTests.RunLogic(Test, Require);
 Test("stretched and centered RectTransform", () =>
 {
     Require(RectTransform.Stretch(10, 20, 30, 40).Resolve(new(0, 0, 200, 100)) == new Rect(10, 20, 160, 40));
