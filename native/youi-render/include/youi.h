@@ -1,5 +1,6 @@
 #ifndef YOUI_H
 #define YOUI_H
+#include <stddef.h>
 #include <stdint.h>
 #if defined(_WIN32)
 #define YOUI_CALL __cdecl
@@ -27,14 +28,40 @@ typedef struct {
     uint64_t upload_bytes, prepare_us, submit_us;
     uint32_t atlas_glyphs, text_cache_hits;
 } youi_frame_stats;
+/* Retained GPU allocation ceilings. Defaults used by youi_create are 528 MiB
+   for textures and 256 MiB for the instance buffer. Device limits also apply. */
+typedef struct {
+    uint64_t max_texture_bytes, max_instance_buffer_bytes;
+} youi_resource_budget_t;
+/* Logical sizes of retained GPU allocations, not driver or process memory.
+   Excludes transient replacement overlap and resources still in flight.
+   All retained layer targets count, including ones unused by the latest frame.
+   reserved is zero. */
+typedef struct {
+    uint64_t atlas_bytes, output_bytes, layer_bytes, instance_buffer_bytes;
+    uint32_t layer_count, reserved;
+} youi_resource_usage_t;
 /* ABI 0x00010000. Status functions return 0, -1 (error), or -2 (contained panic).
    Read youi_last_error on the failing thread. Panic recovery is not guaranteed.
    See docs/api/native.md for ownership, frame budgets and full contracts. */
 uint32_t YOUI_CALL youi_abi_version(void);
 uint32_t YOUI_CALL youi_command_size(void);
+/* Additive v1 symbols: older v1 libraries may not export these functions.
+   Check symbol availability and both sizes before using the resource API. */
+uint32_t YOUI_CALL youi_resource_budget_size(void);
+uint32_t YOUI_CALL youi_resource_usage_size(void);
 /* Dimensions: 1..8192 physical pixels. hwnd=0 selects offscreen GPU rendering.
    result must be writable; it is set to zero before creation. */
 int32_t YOUI_CALL youi_create(uint32_t width, uint32_t height, intptr_t hwnd, uint64_t* result);
+/* budget must be non-NULL, readable and naturally aligned. result must be
+   non-NULL, writable and naturally aligned; a valid result is zeroed on error.
+   The budget must cover the initial atlas, output and instance-buffer capacity.
+   The budget is copied; the caller may release it immediately after the call. */
+int32_t YOUI_CALL youi_create_with_budget(uint32_t width, uint32_t height, intptr_t hwnd, const youi_resource_budget_t* budget, uint64_t* result);
+/* Outputs must be non-NULL, writable and naturally aligned. Invalid pointers
+   or handles return an error; outputs remain unchanged on error. */
+int32_t YOUI_CALL youi_resource_usage(uint64_t renderer, youi_resource_usage_t* result);
+int32_t YOUI_CALL youi_resource_budget(uint64_t renderer, youi_resource_budget_t* result);
 /* Destroy before the borrowed HWND; a second destroy is an error. */
 int32_t YOUI_CALL youi_destroy(uint64_t renderer);
 int32_t YOUI_CALL youi_resize(uint64_t renderer, uint32_t width, uint32_t height);
@@ -61,5 +88,11 @@ int32_t YOUI_CALL youi_adapter_name(uint64_t renderer, uint8_t* output, uint32_t
 }
 static_assert(sizeof(youi_command) == 80, "YoUI command ABI mismatch");
 static_assert(sizeof(youi_frame_stats) == 48, "YoUI stats ABI mismatch");
+static_assert(sizeof(youi_resource_budget_t) == 16, "YoUI resource budget ABI mismatch");
+static_assert(offsetof(youi_resource_budget_t, max_instance_buffer_bytes) == 8, "YoUI resource budget offset mismatch");
+static_assert(sizeof(youi_resource_usage_t) == 40, "YoUI resource usage ABI mismatch");
+static_assert(offsetof(youi_resource_usage_t, instance_buffer_bytes) == 24, "YoUI resource usage offset mismatch");
+static_assert(offsetof(youi_resource_usage_t, layer_count) == 32, "YoUI resource usage count offset mismatch");
+static_assert(offsetof(youi_resource_usage_t, reserved) == 36, "YoUI resource usage reserved offset mismatch");
 #endif
 #endif

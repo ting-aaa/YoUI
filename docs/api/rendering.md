@@ -130,3 +130,18 @@ renderer.SavePng("artifacts/direct-render.png");
 ```
 
 PNG 导出目前直接保存 sRGB 渲染目标中的预乘内容，没有反预乘处理。对透明背景截图，不要假定它能作为非预乘 RGBA 图片直接回传 UploadImage；需要普通截图时先绘制不透明背景，如本例。
+
+## A07 资源预算与快照
+
+`new NativeRenderer(width, height, window, budget)` 接受 `ResourceBudget`；原构造函数保持不变。
+`ResourceBudget.Default` 的 `MaxTextureBytes` 为 528 MiB，`MaxInstanceBufferBytes` 为 256 MiB。
+`ResourceBudget` 属性返回创建配置，`ResourceUsage` 属性返回 `AtlasBytes`、`OutputBytes`、`LayerBytes`、`InstanceBufferBytes`、`LayerCount`（及为 0 的 `Reserved`）。查询遵循原有 owner-thread / disposed 检查。
+
+```csharp
+var budget = new ResourceBudget(32UL * 1024 * 1024, 4UL * 1024 * 1024);
+using var renderer = new NativeRenderer(640, 480, 0, budget);
+Console.WriteLine(renderer.ResourceUsage.AtlasBytes); // 16777216
+```
+
+快照按 GPU 对象保留容量计数，不是 live image 大小、FrameStats.UploadBytes 或驱动实际显存；释放图像不缩小 atlas，空帧不回收高水位层/缓冲。新属性/构造函数需要匹配的新 native binary；旧 ABI v1 缺少新增符号时明确报错。
+创建、resize、帧增长的拒绝行为与排除项见 [资源预算](../resource-budgets.md)。

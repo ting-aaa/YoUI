@@ -311,3 +311,16 @@ Copy-Item -LiteralPath target/release/youi_render.dll -Destination artifacts/you
 ```
 
 `cl` 需要 MSVC 环境，普通终端未必已配置。Rust MSVC cdylib 生成 `youi_render.dll.lib` 供链接，运行时 DLL 必须可被 exe 找到。此示例只使用离屏 GPU，不创建原生窗口。
+
+## A07 owned-payload resource budgets (additive ABI v1 symbols)
+
+`youi_resource_budget_t` 预算结构为两个连续 `uint64_t`：`max_texture_bytes`、`max_instance_buffer_bytes`，共 16 字节。
+`youi_resource_usage_t` 结构依次为四个 `uint64_t`：`atlas_bytes`、`output_bytes`、`layer_bytes`、`instance_buffer_bytes`，再加 `uint32_t layer_count, reserved`，共 40 字节；reserved 返回 0。
+
+- `youi_resource_budget_size()` / `youi_resource_usage_size()` 返回结构字节数。
+- `youi_create_with_budget(width, height, hwnd, const budget*, uint64_t* result)` 使用创建时固定的上限；失败时有效 result 清零。
+- `youi_resource_budget(renderer, budget*)` / `youi_resource_usage(renderer, usage*)` 查询配置与保留分配快照；失败不写输出。
+- 所有结构/result 指针要求非 NULL、自然对齐且完整可读/写。无效句柄按现有错误返回规则处理。
+
+原有 `youi_create` 使用默认 528 MiB texture / 256 MiB instance-buffer 上限。尺寸、层数/像素与设备限制仍然生效。仅检查 ABI v1 不能判断旧 DLL 是否含这些新增符号；新调用方需要匹配的 native library。
+完整范围、排除项、错误与高水位语义见 [资源预算](../resource-budgets.md)。这不是总 VRAM 或物理峰值上限。

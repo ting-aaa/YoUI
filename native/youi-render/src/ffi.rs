@@ -1,6 +1,6 @@
 //! Versioned C ABI. Never retain caller memory. Handles are checked registry IDs.
 //! Calls are serialized, and errors/panics are contained at this boundary.
-use crate::{Command, FrameStats, Renderer};
+use crate::{Command, FrameStats, Renderer, ResourceBudget, ResourceUsage};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -31,6 +31,12 @@ fn with_engine(id: u64, f: impl FnOnce(&mut Renderer) -> Result<(), String>) -> 
         .get_mut(&id)
         .ok_or("invalid or disposed renderer handle")?)
 }
+fn checked_pointer<T>(ptr: *const T, name: &str) -> Result<(), String> {
+    if ptr.is_null() || !(ptr as usize).is_multiple_of(std::mem::align_of::<T>()) {
+        return Err(format!("null or misaligned {name} pointer"));
+    }
+    Ok(())
+}
 unsafe fn bytes<'a>(ptr: *const u8, len: u32) -> Result<&'a [u8], String> {
     if len == 0 {
         return Ok(&[]);
@@ -48,16 +54,37 @@ pub extern "C" fn youi_abi_version() -> u32 {
 pub extern "C" fn youi_command_size() -> u32 {
     std::mem::size_of::<Command>() as u32
 }
+#[no_mangle]
+pub extern "C" fn youi_resource_budget_size() -> u32 {
+    std::mem::size_of::<ResourceBudget>() as u32
+}
+#[no_mangle]
+pub extern "C" fn youi_resource_usage_size() -> u32 {
+    std::mem::size_of::<ResourceUsage>() as u32
+}
 /// # Safety
 /// out must be writable; a nonzero window handle must outlive the renderer.
 #[no_mangle]
 pub unsafe extern "C" fn youi_create(w: u32, h: u32, hwnd: isize, out: *mut u64) -> i32 {
+    youi_create_with_budget(w, h, hwnd, &ResourceBudget::default(), out)
+}
+/// Creates a renderer using explicit retained-resource ceilings, in bytes.
+/// # Safety
+/// budget must be readable and aligned; out must be writable and aligned.
+/// A nonzero window handle must outlive the renderer. No caller memory is retained.
+#[no_mangle]
+pub unsafe extern "C" fn youi_create_with_budget(
+    w: u32,
+    h: u32,
+    hwnd: isize,
+    budget: *const ResourceBudget,
+    out: *mut u64,
+) -> i32 {
     guard(|| {
-        if out.is_null() {
-            return Err("null result pointer".into());
-        }
+        checked_pointer(out, "result")?;
         *out = 0;
-        let renderer = Renderer::new(w, h, hwnd)?;
+        checked_pointer(budget, "resource budget")?;
+        let renderer = Renderer::new_with_budget(w, h, hwnd, *budget)?;
         let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         ENGINES
             .get_or_init(Default::default)
@@ -66,6 +93,30 @@ pub unsafe extern "C" fn youi_create(w: u32, h: u32, hwnd: isize, out: *mut u64)
             .insert(id, renderer);
         *out = id;
         Ok(())
+    })
+}
+/// # Safety
+/// out must reference a writable, aligned ResourceUsage. It is unchanged on error.
+#[no_mangle]
+pub unsafe extern "C" fn youi_resource_usage(id: u64, out: *mut ResourceUsage) -> i32 {
+    guard(|| {
+        checked_pointer(out, "resource usage output")?;
+        with_engine(id, |e| {
+            *out = e.resource_usage();
+            Ok(())
+        })
+    })
+}
+/// # Safety
+/// out must reference a writable, aligned ResourceBudget. It is unchanged on error.
+#[no_mangle]
+pub unsafe extern "C" fn youi_resource_budget(id: u64, out: *mut ResourceBudget) -> i32 {
+    guard(|| {
+        checked_pointer(out, "resource budget output")?;
+        with_engine(id, |e| {
+            *out = e.resource_budget();
+            Ok(())
+        })
     })
 }
 #[no_mangle]
@@ -214,6 +265,92 @@ pub unsafe extern "C" fn youi_adapter_name(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn resource_struct_layout_is_stable() {
+        assert_eq!(youi_abi_version(), 0x0001_0000);
+        assert_eq!(youi_resource_budget_size(), 16);
+        assert_eq!(youi_resource_usage_size(), 40);
+        assert_eq!(std::mem::offset_of!(ResourceBudget, max_texture_bytes), 0);
+        assert_eq!(
+            std::mem::offset_of!(ResourceBudget, max_instance_buffer_bytes),
+            8
+        );
+        assert_eq!(std::mem::offset_of!(ResourceUsage, atlas_bytes), 0);
+        assert_eq!(std::mem::offset_of!(ResourceUsage, output_bytes), 8);
+        assert_eq!(std::mem::offset_of!(ResourceUsage, layer_bytes), 16);
+        assert_eq!(
+            std::mem::offset_of!(ResourceUsage, instance_buffer_bytes),
+            24
+        );
+        assert_eq!(std::mem::offset_of!(ResourceUsage, layer_count), 32);
+        assert_eq!(std::mem::offset_of!(ResourceUsage, reserved), 36);
+    }
+    #[test]
+    fn resource_outputs_are_unchanged_for_invalid_handles() {
+        let mut budget = ResourceBudget::default();
+        let expected_budget = budget;
+        let mut usage = ResourceUsage {
+            atlas_bytes: 1,
+            output_bytes: 2,
+            layer_bytes: 3,
+            instance_buffer_bytes: 4,
+            layer_count: 5,
+            reserved: 6,
+        };
+        let expected_usage = usage;
+        unsafe {
+            assert_eq!(youi_resource_budget(u64::MAX, &mut budget), -1);
+            assert_eq!(youi_resource_usage(u64::MAX, &mut usage), -1);
+        }
+        assert_eq!(budget, expected_budget);
+        assert_eq!(usage, expected_usage);
+    }
+    #[test]
+    fn resource_pointers_are_checked_before_dereferencing() {
+        let budget = ResourceBudget::default();
+        let mut handle = u64::MAX;
+        let mut storage = [0_u64; 8];
+        let misaligned = unsafe { storage.as_mut_ptr().cast::<u8>().add(1) };
+        unsafe {
+            assert_eq!(
+                youi_create_with_budget(10, 10, 0, std::ptr::null(), &mut handle),
+                -1
+            );
+            assert_eq!(handle, 0);
+            handle = u64::MAX;
+            assert_eq!(
+                youi_create_with_budget(10, 10, 0, misaligned.cast(), &mut handle),
+                -1
+            );
+            assert_eq!(handle, 0);
+            assert_eq!(
+                youi_create_with_budget(10, 10, 0, &budget, std::ptr::null_mut()),
+                -1
+            );
+            assert_eq!(
+                youi_create_with_budget(10, 10, 0, &budget, misaligned.cast()),
+                -1
+            );
+            assert_eq!(youi_create(10, 10, 0, misaligned.cast()), -1);
+            assert_eq!(youi_resource_budget(0, std::ptr::null_mut()), -1);
+            assert_eq!(youi_resource_budget(0, misaligned.cast()), -1);
+            assert_eq!(youi_resource_usage(0, std::ptr::null_mut()), -1);
+            assert_eq!(youi_resource_usage(0, misaligned.cast()), -1);
+        }
+        assert_eq!(storage, [0; 8]);
+    }
+    #[test]
+    fn invalid_budget_resets_handle_without_creating_a_gpu_device() {
+        let mut handle = u64::MAX;
+        let budget = ResourceBudget {
+            max_texture_bytes: 0,
+            max_instance_buffer_bytes: 0,
+        };
+        unsafe {
+            assert_eq!(youi_create_with_budget(10, 10, 0, &budget, &mut handle), -1);
+        }
+        assert_eq!(handle, 0);
+    }
     #[test]
     fn invalid_handle_is_error() {
         assert_eq!(youi_resize(u64::MAX, 10, 10), -1);

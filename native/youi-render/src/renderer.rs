@@ -1,4 +1,8 @@
 use crate::{ir::validate, text::TextSystem, Command, FrameStats, Rect};
+use crate::{
+    resource::{INITIAL_CAPACITY, INSTANCE_BYTES},
+    ResourceBudget, ResourceUsage,
+};
 use bytemuck::{Pod, Zeroable};
 use std::{ops::Range, time::Instant};
 use wgpu::util::DeviceExt;
@@ -114,6 +118,7 @@ pub struct Renderer {
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
     capacity: usize,
+    budget: ResourceBudget,
     text: TextSystem,
     atlas_bind: wgpu::BindGroup,
     output: Target,
@@ -127,9 +132,19 @@ impl Renderer {
     /// # Safety
     /// A nonzero HWND must be valid, owned by this process, and outlive Self.
     pub unsafe fn new(width: u32, height: u32, hwnd: isize) -> Result<Self, String> {
-        if width == 0 || height == 0 || width > 8192 || height > 8192 {
-            return Err("target size outside 1..8192".into());
-        }
+        Self::new_with_budget(width, height, hwnd, ResourceBudget::default())
+    }
+    /// Create with immutable owned-payload admission limits. See `ResourceBudget` exclusions.
+    /// # Safety
+    /// A nonzero HWND must be valid, owned by this process, and outlive Self.
+    pub unsafe fn new_with_budget(
+        width: u32,
+        height: u32,
+        hwnd: isize,
+        budget: ResourceBudget,
+    ) -> Result<Self, String> {
+        budget.textures(width, height, 0)?;
+        budget.capacity(INITIAL_CAPACITY, 0, wgpu::Limits::default().max_buffer_size)?;
         let trace = |stage: &str| {
             if std::env::var_os("YOUI_TRACE").is_some() {
                 eprintln!("YoUI init: {stage}");
@@ -292,7 +307,8 @@ impl Renderer {
             &text.texture.create_view(&Default::default()),
         );
         let output = Self::target(&device, &layout, &uniform, &sampler, width, height);
-        let capacity = 1024;
+        let capacity = INITIAL_CAPACITY;
+        debug_assert_eq!(std::mem::size_of::<Instance>() as u64, INSTANCE_BYTES);
         let instance_buffer = Self::buffer(&device, capacity);
         Ok(Self {
             device,
@@ -307,6 +323,7 @@ impl Renderer {
             instances: Vec::with_capacity(capacity),
             instance_buffer,
             capacity,
+            budget,
             text,
             atlas_bind,
             output,
@@ -399,6 +416,30 @@ impl Renderer {
         });
         d.create_render_pipeline(&wgpu::RenderPipelineDescriptor{label:Some("ordered premultiplied 2D"),layout:Some(&layout),vertex:wgpu::VertexState{module:&shader,entry_point:Some("vs"),compilation_options:Default::default(),buffers:&[wgpu::VertexBufferLayout{array_stride:96,step_mode:wgpu::VertexStepMode::Instance,attributes:&wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4]}]},primitive:Default::default(),depth_stencil:None,multisample:Default::default(),fragment:Some(wgpu::FragmentState{module:&shader,entry_point:Some("fs"),compilation_options:Default::default(),targets:&[Some(wgpu::ColorTargetState{format,blend:Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),write_mask:wgpu::ColorWrites::ALL})]}),multiview:None,cache:None})
     }
+    pub fn resource_budget(&self) -> ResourceBudget {
+        self.budget
+    }
+    pub fn resource_usage(&self) -> ResourceUsage {
+        let mut usage = self
+            .budget
+            .textures(self.width, self.height, self.layers.len())
+            .expect("retained textures were admitted by the budget");
+        usage.instance_buffer_bytes = self.capacity as u64 * INSTANCE_BYTES;
+        usage
+    }
+    // Include the final presentation instance in admission before growing the CPU arena.
+    fn push_instance(&mut self, instance: Instance) -> Result<(), String> {
+        self.budget.capacity(
+            self.instances
+                .len()
+                .checked_add(2)
+                .ok_or("instance count overflow")?,
+            self.capacity,
+            self.device.limits().max_buffer_size,
+        )?;
+        self.instances.push(instance);
+        Ok(())
+    }
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), String> {
         if width == 0 || height == 0 || width > 8192 || height > 8192 {
             return Err("target size outside 1..8192".into());
@@ -406,6 +447,7 @@ impl Renderer {
         if (width, height) == (self.width, self.height) {
             return Ok(());
         }
+        self.budget.textures(width, height, 0)?;
         self.width = width;
         self.height = height;
         self.layers.clear();
@@ -455,6 +497,18 @@ impl Renderer {
                 self.text.image_uv(c.flags)?;
             }
         }
+        let required_layers = commands.iter().filter(|c| c.kind == 4).count();
+        if required_layers > 16
+            || required_layers as u64 * u64::from(self.width) * u64::from(self.height)
+                > 64 * 1024 * 1024
+        {
+            return Err("offscreen layer budget exceeded".into());
+        }
+        self.budget.textures(
+            self.width,
+            self.height,
+            required_layers.max(self.layers.len()),
+        )?;
         let start = Instant::now();
         self.instances.clear();
         self.text.reset_hits();
@@ -472,9 +526,9 @@ impl Renderer {
                         continue;
                     }
                     passes[current].add(self.instances.len() as u32, None);
-                    self.instances.push(Instance::new(
+                    self.push_instance(Instance::new(
                         c.rect, c.color, c.color2, clip, c.radius, 0., [0.; 4],
-                    ));
+                    ))?;
                 }
                 1 => {
                     let s = std::str::from_utf8(
@@ -491,8 +545,9 @@ impl Renderer {
                         }
                         let uv = self.text.resolve_glyph(&self.queue, &g)?;
                         passes[current].add(self.instances.len() as u32, None);
-                        self.instances
-                            .push(Instance::new(rect, c.color, c.color, clip, 0., 1., uv));
+                        self.push_instance(Instance::new(
+                            rect, c.color, c.color, clip, 0., 1., uv,
+                        ))?;
                     }
                 }
                 2 => clips.push(clip.intersect(c.rect)),
@@ -500,13 +555,6 @@ impl Renderer {
                     clips.pop();
                 }
                 4 => {
-                    // Bound total memory, not only nesting depth: 64 Mi pixels across layers.
-                    if passes.len() > 16
-                        || passes.len() as u64 * self.width as u64 * self.height as u64
-                            > 64 * 1024 * 1024
-                    {
-                        return Err("offscreen layer budget exceeded".into());
-                    }
                     stack.push(passes.len());
                     passes.push(Pass::default());
                     opacities.push((c.color[3], clip));
@@ -516,7 +564,7 @@ impl Renderer {
                     let parent = *stack.last().unwrap();
                     let (alpha, layer_clip) = opacities.pop().unwrap();
                     passes[parent].add(self.instances.len() as u32, Some(child - 1));
-                    self.instances.push(Instance::new(
+                    self.push_instance(Instance::new(
                         viewport,
                         [1., 1., 1., alpha],
                         [1.; 4],
@@ -524,18 +572,18 @@ impl Renderer {
                         0.,
                         2.,
                         [0., 0., 1., 1.],
-                    ));
+                    ))?;
                 }
                 6 => {
                     passes[current].add(self.instances.len() as u32, None);
                     let mut item =
                         Instance::new(c.rect, c.color, c.color, clip, c.reserved[0], 3., [0.; 4]);
                     item.params[2] = c.reserved[1];
-                    self.instances.push(item);
+                    self.push_instance(item)?;
                 }
                 7 => {
                     passes[current].add(self.instances.len() as u32, None);
-                    self.instances.push(Instance::new(
+                    self.push_instance(Instance::new(
                         c.rect,
                         c.color,
                         c.color,
@@ -543,11 +591,16 @@ impl Renderer {
                         0.,
                         1.,
                         self.text.image_uv(c.flags)?,
-                    ));
+                    ))?;
                 }
                 _ => unreachable!(),
             }
         }
+        let capacity = self.budget.capacity(
+            self.instances.len() + 1,
+            self.capacity,
+            self.device.limits().max_buffer_size,
+        )?;
         while self.layers.len() + 1 < passes.len() {
             self.layers.push(Self::target(
                 &self.device,
@@ -569,7 +622,7 @@ impl Renderer {
             [0., 0., 1., 1.],
         ));
         if self.instances.len() > self.capacity {
-            self.capacity = self.instances.len().next_power_of_two();
+            self.capacity = capacity;
             self.instance_buffer = Self::buffer(&self.device, self.capacity);
         }
         let bytes = bytemuck::cast_slice(&self.instances);
