@@ -26,13 +26,14 @@ function Run-Verification([string]$Configuration, [string]$Layer) {
     $global:YoUIVerificationCalls.Clear()
     & (Join-Path $repo 'scripts/verify.ps1') -Configuration $Configuration -Layer $Layer
 }
+$releaseCommands = @{}
 Push-Location $unrelated
 try {
     foreach ($configuration in 'Debug','Release') {
         foreach ($layer in 'Logic','Gpu') {
             Run-Verification $configuration $layer
             $trace = $global:YoUIVerificationCalls -join "`n"
-            $expected = if ($layer -eq 'Logic') { 10 } else { 14 }
+            $expected = if ($layer -eq 'Logic') { 11 } else { 15 }
             Require ($global:YoUIVerificationCalls.Count -eq $expected) "Unexpected $layer command count"
             foreach ($command in $global:YoUIVerificationCalls | Where-Object { $_ -like 'cargo|*' -and $_ -notlike '*<fmt>*' }) {
                 Require ($command.Contains('<--locked>')) 'Cargo command omitted the lockfile guard'
@@ -41,8 +42,8 @@ try {
             }
             $managed = @($global:YoUIVerificationCalls | Where-Object { $_ -like 'dotnet|*' })
             $expectedProjects = @('samples/YoUI.Showcase/YoUI.Showcase.csproj','tools/YoUI.Editor/YoUI.Editor.csproj','samples/YoUI.Exporter.Sample/YoUI.Exporter.Sample.csproj','docs/examples/HelloYoUI/HelloYoUI.csproj')
-            if ($layer -eq 'Logic') { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Editor.Tests') }
-            else { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Tests','tools/YoUI.Editor','samples/YoUI.Showcase','samples/YoUI.Showcase') }
+            if ($layer -eq 'Logic') { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Editor.Tests','tests/YoUI.Component.Tests') }
+            else { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Tests','tools/YoUI.Editor','samples/YoUI.Showcase','samples/YoUI.Showcase','tests/YoUI.Component.Tests') }
             Require ($managed.Count -eq $expectedProjects.Count) 'Managed project count mismatch'
             for ($index = 0; $index -lt $managed.Count; $index++) {
                 Require ($managed[$index].Contains("<-c><$configuration>")) 'Managed configuration mismatch'
@@ -52,6 +53,7 @@ try {
             }
             Require ($trace.Contains('<--gpu-resource-budget>') -eq ($layer -eq 'Gpu')) 'Managed resource-budget GPU invocation mismatch'
             Require ($trace.Contains('<--gpu-text-input>') -eq ($layer -eq 'Gpu')) 'Managed text-input GPU invocation mismatch'
+            Require ($trace.Contains('<--gpu>') -eq ($layer -eq 'Gpu')) 'External component GPU invocation mismatch'
             Require ($trace.Contains('<--ignored>') -eq ($layer -eq 'Gpu')) 'GPU test invocation layer mismatch'
             $residencyTest = 'renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image'
             Require ($trace.Contains("<$residencyTest>") -eq ($layer -eq 'Gpu')) 'Text residency test invocation layer mismatch'
@@ -66,11 +68,12 @@ try {
             $result = Get-ChildItem (Join-Path $repo 'artifacts/verification') -Filter result.json -Recurse |
                 Sort-Object LastWriteTimeUtc | Select-Object -Last 1 | Get-Content -Raw | ConvertFrom-Json
             Require ($result.status -eq 'passed' -and $result.layer -eq $layer -and $result.configuration -eq $configuration) 'Incorrect evidence'
+            if ($configuration -eq 'Release') { $releaseCommands[$layer] = @($global:YoUIVerificationCalls) }
             Write-Host "PASS $configuration $layer commands, profile, evidence and independent working directory"
         }
     }
     foreach ($layer in 'Logic','Gpu') {
-        $count = if ($layer -eq 'Logic') { 10 } else { 14 }
+        $count = if ($layer -eq 'Logic') { 11 } else { 15 }
         for ($step = 1; $step -le $count; $step++) {
             $global:YoUIVerificationFailAt = $step
             $failed = $false
@@ -91,30 +94,56 @@ try {
         Require ($failed -and $global:YoUIVerificationCalls.Count -eq 0) 'Invalid arguments started verification'
     }
     $windowsHost = [Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Windows)
-    foreach ($layer in 'Window','All') {
-        $failed = $false
-        try { Run-Verification 'Release' $layer } catch { $failed = $true }
-        if ($windowsHost) {
-            Require (!$failed) "$layer orchestration failed"
-            $smoke = @($global:YoUIVerificationCalls | Where-Object { $_.Contains('<--smoke>') })
-            Require ($smoke.Count -eq 2) "$layer omitted native-window checks"
-            $residency = @($global:YoUIVerificationCalls | Where-Object { $_.Contains("<$residencyTest>") })
-            Require ($residency.Count -eq $(if ($layer -eq 'All') { 1 } else { 0 })) "$layer text residency GPU test mismatch"
-        } else {
+    if (!$windowsHost) {
+        foreach ($layer in 'Window','All') {
+            $failed = $false
+            try { Run-Verification 'Release' $layer } catch { $failed = $true }
             Require ($failed -and $global:YoUIVerificationCalls.Count -eq 0) "$layer failed to reject non-Windows host"
         }
-    }
-    $global:YoUIVerificationCalls.Clear(); $failed = $false
-    try { & (Join-Path $repo 'scripts/verify.ps1') -Configuration Release } catch { $failed = $true }
-    if ($windowsHost) {
-        Require (!$failed -and $global:YoUIVerificationCalls.Count -eq 21) 'Default gate is no longer full acceptance'
-        for ($step = 1; $step -le 21; $step++) {
-            $global:YoUIVerificationFailAt = $step; $failed = $false
-            try { Run-Verification Release All } catch { $failed = $true }
-            Require ($failed -and $global:YoUIVerificationCalls.Count -eq $step) "Full gate accepted failure at command $step"
-        }
-    } else {
+        $global:YoUIVerificationCalls.Clear(); $failed = $false
+        try { & (Join-Path $repo 'scripts/verify.ps1') -Configuration Release } catch { $failed = $true }
         Require ($failed -and $global:YoUIVerificationCalls.Count -eq 0) 'Default gate silently became a partial check'
+
+        # Exercise Windows orchestration on every host, only in the disposable mocked copy.
+        # The real verifier and its non-Windows rejection above remain untouched.
+        $copy = Join-Path $repo 'scripts/verify.ps1'
+        $contents = Get-Content -Raw $copy
+        $platformLine = '$onWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)'
+        Require ($contents.Split(@($platformLine), [StringSplitOptions]::None).Count -eq 2) 'Cannot locate the unique platform probe for simulation'
+        $contents.Replace($platformLine, '$onWindows = $true # Test-only Windows orchestration simulation') | Set-Content $copy
+        Write-Host 'Testing simulated Windows orchestration with mocked commands; not native-window evidence.'
+    }
+
+    # Derive full acceptance from independently checked phases, not another stale total.
+    $buildCommands = @($releaseCommands.Logic | Select-Object -First 5)
+    Require (($buildCommands -join "`n") -eq (($releaseCommands.Gpu | Select-Object -First 5) -join "`n")) 'Logic and Gpu must share the same build prelude'
+    $smokeCommands = @(
+        'dotnet|<run><--project><tools/YoUI.Editor><-c><Release><--no-build><--><--smoke>',
+        'dotnet|<run><--project><samples/YoUI.Showcase><-c><Release><--no-build><--><--smoke>'
+    )
+    $expectedWindow = @($buildCommands) + $smokeCommands
+    $expectedAll = @($releaseCommands.Logic) + @($releaseCommands.Gpu | Select-Object -Skip $buildCommands.Count) + $smokeCommands
+    foreach ($layer in 'Window','All') {
+        Run-Verification Release $layer
+        $expectedCommands = if ($layer -eq 'All') { $expectedAll } else { $expectedWindow }
+        Require (($global:YoUIVerificationCalls -join "`n") -eq ($expectedCommands -join "`n")) "$layer command sequence differs from the verified phases"
+        Require ((Get-Location).Path -eq $unrelated) "$layer leaked working directory"
+    }
+    $global:YoUIVerificationCalls.Clear()
+    & (Join-Path $repo 'scripts/verify.ps1') -Configuration Release
+    Require (($global:YoUIVerificationCalls -join "`n") -eq ($expectedAll -join "`n")) 'Default gate is no longer full acceptance'
+    foreach ($layer in 'Window','All') {
+        $count = if ($layer -eq 'All') { $expectedAll.Count } else { $expectedWindow.Count }
+        for ($step = 1; $step -le $count; $step++) {
+            $global:YoUIVerificationFailAt = $step; $failed = $false
+            try { Run-Verification Release $layer } catch { $failed = $true }
+            Require ($failed -and $global:YoUIVerificationCalls.Count -eq $step) "$layer gate accepted failure at command $step"
+            Require ((Get-Location).Path -eq $unrelated) "$layer failure leaked working directory"
+            $result = Get-ChildItem (Join-Path $repo 'artifacts/verification') -Filter result.json -Recurse |
+                Sort-Object LastWriteTimeUtc | Select-Object -Last 1 | Get-Content -Raw | ConvertFrom-Json
+            Require ($result.status -eq 'failed' -and $result.error -and $result.layer -eq $layer) "$layer failure evidence was not recorded"
+            Write-Host "PASS $layer propagates failure at command $step of $count"
+        }
     }
     Write-Host 'PASS argument rejection and Windows-only layer guards'
 } finally {

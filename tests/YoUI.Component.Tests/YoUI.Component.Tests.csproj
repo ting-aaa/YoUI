@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../samples/YoUI.Components.Sample/YoUI.Components.Sample.csproj" /></ItemGroup>
+  <Import Project="../../scripts/NativeLibrary.targets" />
+</Project>

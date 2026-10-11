@@ -45,6 +45,7 @@ try {
         Invoke-Checked 'cargo' (@('test','--workspace') + $cargoOptions)
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Editor.Tests','-c',$Configuration,'-p:BuildInParallel=false')
+        Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Component.Tests','-c',$Configuration,'-p:BuildInParallel=false')
     }
     if ($Layer -eq 'Gpu' -or $Layer -eq 'All') {
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-resource-budget')
@@ -56,6 +57,7 @@ try {
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--benchmark')
         Invoke-Checked 'cargo' (@('run','-p','youi-render','--example','render_scene') + $cargoOptions + @('--','artifacts/render-scene.png'))
         Invoke-Checked 'cargo' (@('run','-p','youi-scene','--example','scene_graph') + $cargoOptions + @('--','artifacts/scene-graph.png'))
+        Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Component.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu')
     }
     if ($Layer -eq 'Window' -or $Layer -eq 'All') {
         Invoke-Checked 'dotnet' @('run','--project','tools/YoUI.Editor','-c',$Configuration,'--no-build','--','--smoke')
