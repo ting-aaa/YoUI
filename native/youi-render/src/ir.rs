@@ -37,7 +37,9 @@ use std::ops::Sub;
 /// Fixed-width draw packet. text_offset/text_length address the frame's UTF-8 arena.
 /// kind: 0 rounded rectangle, 1 text, 2 push clip, 3 pop clip,
 /// 4 begin isolated layer (`color[3]` opacity), 5 end layer,
-/// 6 triangle (rect.xy=p0, rect.wh=p1, reserved=p2), 7 atlas image (flags=resource ID).
+/// 6 triangle (rect.xy=p0, rect.wh=p1, reserved=p2), 7 atlas image (flags=resource ID), 8 textured triangle.
+/// Kind 8: triangle positions, flags=image, color=tint, color2=(u0,v0,u1,v1),
+/// radius=u2, font_size=v2. UVs are finite normalized image-local [0,1].
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
 pub struct Command {
@@ -74,6 +76,21 @@ impl Command {
             ..Default::default()
         }
     }
+    pub fn textured_triangle(
+        points: [[f32; 2]; 3],
+        uvs: [[f32; 2]; 3],
+        image: u32,
+        tint: [f32; 4],
+    ) -> Self {
+        Self {
+            kind: 8,
+            flags: image,
+            color2: [uvs[0][0], uvs[0][1], uvs[1][0], uvs[1][1]],
+            radius: uvs[2][0],
+            font_size: uvs[2][1],
+            ..Self::triangle(points, tint)
+        }
+    }
     pub fn triangle(points: [[f32; 2]; 3], color: [f32; 4]) -> Self {
         Self {
             kind: 6,
@@ -93,7 +110,7 @@ pub fn validate(commands: &[Command], text: &[u8]) -> Result<(), String> {
     let mut clips = 0;
     let mut layers = 0;
     for c in commands {
-        let geometry_ok = if c.kind == 6 {
+        let geometry_ok = if matches!(c.kind, 6 | 8) {
             [
                 c.rect.x,
                 c.rect.y,
@@ -167,9 +184,16 @@ pub fn validate(commands: &[Command], text: &[u8]) -> Result<(), String> {
                 layers -= 1;
             }
             6 => {}
-            7 => {
+            7 | 8 => {
                 if c.flags == 0 {
                     return Err("null image handle".into());
+                }
+                if c.kind == 8
+                    && [c.radius, c.font_size]
+                        .iter()
+                        .any(|v| !(0.0..=1.0).contains(v))
+                {
+                    return Err("UV outside [0,1]".into());
                 }
             }
             _ => return Err(format!("unsupported command {}", c.kind)),
@@ -202,6 +226,35 @@ mod tests {
     fn abi_layout() {
         assert_eq!(std::mem::size_of::<Command>(), 80);
         assert_eq!(std::mem::size_of::<FrameStats>(), 48);
+    }
+    #[test]
+    fn textured_triangle_payload_and_validation() {
+        let points = [[-1., 2.], [3., -4.], [5., 6.]];
+        let uvs = [[0., 0.], [1., 0.], [0.5, 1.]];
+        let c = Command::textured_triangle(points, uvs, 7, [0.2, 0.3, 0.4, 0.5]);
+        assert_eq!(c.kind, 8);
+        assert_eq!(c.flags, 7);
+        assert_eq!(c.color2, [0., 0., 1., 0.]);
+        assert_eq!([c.radius, c.font_size], uvs[2]);
+        assert_eq!(c.reserved, points[2]);
+        assert!(validate(&[c], b"").is_ok());
+        let mut bad = c;
+        bad.flags = 0;
+        assert!(validate(&[bad], b"").is_err());
+        for value in [f32::NAN, f32::INFINITY, -0.01, 1.01] {
+            for component in 0..6 {
+                let mut bad = c;
+                match component {
+                    0..=3 => bad.color2[component] = value,
+                    4 => bad.radius = value,
+                    _ => bad.font_size = value,
+                }
+                assert!(validate(&[bad], b"").is_err(), "UV {component} = {value}");
+            }
+        }
+        let mut bad = c;
+        bad.reserved[1] = f32::NAN;
+        assert!(validate(&[bad], b"").is_err());
     }
     #[test]
     fn intersection_is_empty_outside() {

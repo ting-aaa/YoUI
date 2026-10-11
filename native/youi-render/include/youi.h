@@ -22,6 +22,17 @@ typedef struct {
     youi_rect rect;
     float color[4], color2[4], radius, font_size, reserved[2];
 } youi_command;
+/* kind 8: textured triangle (requires a native library supporting A06).
+   The 80-byte layout and ABI 0x00010000 are unchanged; version/size checks
+   alone do not prove kind 8 support in an older native library.
+   Positions: rect.x/y = p0, rect.w/h = p1, reserved[0/1] = p2 (as kind 6).
+   flags = live image ID; color = uniform straight-alpha sRGB tint.
+   color2 = {u0,v0,u1,v1}; radius = u2; font_size = v2.
+   UVs must be finite in [0,1], image-local with top-left origin.
+   Sampling is linear, affine, clamped to the source image texel centers
+   at its boundary. RGB tint multiplies in linear space; alpha is applied
+   once. No texture repeat, perspective correction or per-vertex colors.
+   Image ownership/lifetime requirements are identical to kind 7. */
 typedef struct {
     uint32_t commands, instances, draw_calls, layers;
     uint64_t upload_bytes, prepare_us, submit_us;

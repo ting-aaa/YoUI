@@ -39,6 +39,7 @@ radius: f32, font_size: f32, reserved: [f32; 2]
 | 4 / 5 | 开始 / 结束隔离层 | color[3] 为整层透明度；rect 不定义局部层范围 |
 | 6 | 任意平色三角形 | rect.xy=p0，rect.wh=p1，reserved=p2；此时 w/h 是坐标，不是尺寸 |
 | 7 | 图像 | flags=图像 ID，rect=目标矩形，color=tint |
+| 8 | 纹理三角形 | 位置同 kind 6；flags=图像 ID，color=tint，color2=(u0,v0,u1,v1)，radius=u2，font_size=v2 |
 
 辅助构造器：
 
@@ -47,12 +48,14 @@ Command::rect(rect: Rect, color: [f32; 4], radius: f32) -> Self
 Command::text(rect: Rect, color: [f32; 4], font_size: f32,
               offset: u32, length: u32) -> Self
 Command::triangle(points: [[f32; 2]; 3], color: [f32; 4]) -> Self
+Command::textured_triangle(points: [[f32; 2]; 3], uvs: [[f32; 2]; 3],
+                           image: u32, tint: [f32; 4]) -> Self
 validate(commands: &[Command], text: &[u8]) -> Result<(), String>
 ```
 
 其他命令用字段和 `..Default::default()` 构造。默认颜色为透明黑；手工图像命令需要显式设置白色 tint `[1.; 4]`。Text 的 offset/length 是 UTF-8 **字节**，rect.w 控制换行且 rect 同时裁剪文字。
 
-输入坐标为物理像素、左上原点、Y 向下。两套输入颜色都须为 0..1 的非预乘 sRGB RGBA。
+输入坐标为物理像素、左上原点、Y 向下。颜色须为 0..1 的非预乘 sRGB RGBA；kind 8 的 color2、radius、font_size 是 UV，不是颜色、圆角或字号。UV 必须有限且在 [0,1]，图像局部坐标、左上原点，仿射插值与线性采样，源图像边界钳制到边缘 texel 中心。纹理 RGB 与 tint RGB 在线性空间相乘，alpha 只应用一次；无 repeat、透视校正或逐顶点颜色。详见 [A06 合约](../a06-textured-mesh.md)。
 
 ### 帧与资源限制
 
@@ -137,6 +140,7 @@ fn main() -> Result<(), String> {
 New-Item -ItemType Directory -Force artifacts
 cargo run -p youi-render --example render_scene --locked -- artifacts/render-scene.png
 cargo run -p youi-scene --example scene_graph --locked -- artifacts/scene-graph.png
+cargo run -p youi-scene --example textured_mesh --locked -- artifacts/textured-mesh.png
 ```
 
 ## Scene
@@ -159,8 +163,10 @@ cargo run -p youi-scene --example scene_graph --locked -- artifacts/scene-graph.
 | --- | --- |
 | `Mesh::new(vertices: Vec<[f32;2]>, indices: Vec<u32>) -> Result<Self,String>` | 顶点有限、索引有效、索引数量为 3 的倍数 |
 | `Mesh::rectangle(width: f32, height: f32) -> Result<Self,String>` | 创建四顶点两三角形；调用者通常提供正尺寸，当前不单独拒绝有限负尺寸 |
+| `Mesh::textured(vertices: Vec<[f32;2]>, indices: Vec<u32>, uvs: Vec<[f32;2]>) -> Result<Self,String>` | 顶点有限、每个顶点对应一个有限 [0,1] UV、索引有效且数量为 3 的倍数 |
+| `Mesh::nine_slice(width: f32, height: f32, source_width: f32, source_height: f32, borders: [f32;4]) -> Result<Self,String>` | 生成带 UV 的九宫格；边距顺序为左、上、右、下，单位为源像素 |
 
-网格没有 UV/纹理或逐顶点色。颜色在节点 set_mesh 时指定。用 `Arc<Mesh>` 在多个节点共享。
+用 `Arc<Mesh>` 共享网格；不支持逐顶点色。源尺寸有限正值，目标尺寸有限非负；边距有限非负、左右和不超过源宽、上下和不超过源高。目标尺寸小于相对边距和时按比例缩小该轴边距。源或目标面积为零的格子省略。变换仅影响位置，UV 不变。
 
 ### Scene 方法
 
@@ -170,7 +176,8 @@ cargo run -p youi-scene --example scene_graph --locked -- artifacts/scene-graph.
 | --- | --- |
 | `create(&mut self, parent: Option<NodeId>) -> Result<NodeId,String>` | None 创建根，否则追加到父节点 |
 | `set_transform(&mut self, id: NodeId, t: Transform2D) -> Result<(),String>` | 设置有限的局部变换 |
-| `set_mesh(&mut self, id: NodeId, mesh: Arc<Mesh>, color: [f32;4]) -> Result<(),String>` | 设置共享网格和 0..1 颜色 |
+| `set_mesh(&mut self, id: NodeId, mesh: Arc<Mesh>, color: [f32;4]) -> Result<(),String>` | 设置共享平色网格和 0..1 颜色；拒绝带 UV 网格 |
+| `set_textured_mesh(&mut self, id: NodeId, mesh: Arc<Mesh>, image: u32, tint: [f32;4]) -> Result<(),String>` | 设置带 UV 的共享网格、非零图像 ID 和统一 0..1 tint；资源须在实际 renderer 中有效 |
 | `set_visible(&mut self, id: NodeId, visible: bool) -> Result<(),String>` | 隐藏时跳过整个子树 |
 | `set_opacity(&mut self, id: NodeId, opacity: f32) -> Result<(),String>` | 有限 0..1，累乘到后代图元 alpha |
 | `reparent(&mut self, id: NodeId, parent: Option<NodeId>) -> Result<(),String>` | 保留局部变换，追加到新父/根序列末尾；拒绝环和过深层级 |
@@ -179,7 +186,7 @@ cargo run -p youi-scene --example scene_graph --locked -- artifacts/scene-graph.
 
 深度上限按父子链接计数为 128，根深度为 0。即使 reparent 到同一父级，也会移到末尾。顺序为根/兄弟插入顺序，深度优先，先节点自身 mesh 再子节点。
 
-set_opacity 是逐图元继承，**不产生隔离层**，不能用作重叠子节点的整体透明度。Scene 当前不提供文字/图片节点、裁剪、动画调度、组件生命周期、公开节点查询接口或 C ABI。
+set_opacity 是逐图元继承，**不产生隔离层**，不能用作重叠子节点的整体透明度。Scene 支持纹理网格但不提供专用文字/图片节点、裁剪、动画调度、组件生命周期、公开节点查询接口或 C ABI。
 
 场景接入示例（可作为完整程序）：
 
@@ -204,6 +211,8 @@ fn main() -> Result<(), String> {
 ## C ABI
 
 包含 [youi.h](../../native/youi-render/include/youi.h)。Windows 使用 `__cdecl`，renderer ID 是 uint64_t，图像 ID 是 uint32_t，HWND 参数是 intptr_t。ABI 版本为 `0x00010000`，command=80 字节，stats=48 字节，使用自然对齐，不要启用改变结构布局的 packing。
+
+A06 新增 kind 8，但不改变结构布局或 ABI 版本。使用它必须搭配包含 A06 的原生库；旧库即使通过版本/大小检查也不支持新命令。
 
 `youi_rect`、`youi_command`、`youi_frame_stats` 的字段名和顺序对应上面的 Rust Rect / Command / FrameStats；完整声明以头文件为准。
 

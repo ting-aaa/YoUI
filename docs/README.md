@@ -14,6 +14,7 @@
 | 查询类型、成员、参数、返回值和限制 | [API 索引](api/README.md) |
 | 加载 `.youi.json`，根据节点 ID 连接业务逻辑 | [资源 API 与文件格式](api/assets.md) |
 | 编写导出插件或无窗口批量导出 | [编辑器与导出 API](api/editor.md) |
+| 使用纹理网格和九宫格 | [A06：纹理网格与九宫格](a06-textured-mesh.md) |
 | 只用 Rust 或 C/C++ 渲染 | [原生 API](api/native.md) |
 | 排查 DLL、布局、图集或导出错误 | [常见问题](troubleshooting.md) |
 | 理解分层、颜色、绘制顺序与性能边界 | [架构约定](architecture.md) |
@@ -31,6 +32,7 @@
 | [InventoryExporter](../samples/YoUI.Exporter.Sample/InventoryExporter.cs) | 可构建的本地导出插件 |
 | [render_scene.rs](../native/youi-render/examples/render_scene.rs) | 绕过 C# UI，直接提交原生绘制命令 |
 | [scene_graph.rs](../native/youi-scene/examples/scene_graph.rs) | 独立场景树、变换与共享网格 |
+| [textured_mesh.rs](../native/youi-scene/examples/textured_mesh.rs) | 程序生成纹理、纹理网格与九宫格，无外部素材 |
 
 除非另有说明，PowerShell 命令从仓库根目录运行。`-Configuration` 用于项目脚本；`-c` 用于 `dotnet`；Rust Release 使用 `--release`。C# 命名空间与项目名不总是相同，例如 `YoUI.Editor.Core` 中的公开接口位于 `YoUI.Editor`。
 

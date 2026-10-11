@@ -25,10 +25,15 @@
 | `void BeginLayer(float opacity)` / `EndLayer()` | 隔离层，整体透明度；有限 opacity 钳制到 0..1 |
 | `void Triangle(Vector2 a, Vector2 b, Vector2 c, Color color)` | 任意平色三角形 |
 | `void Image(Rect rect, NativeImage image, Color? tint = null)` | 绘制图像；默认白色 tint |
+| `void TexturedTriangle(Vector2 a, Vector2 b, Vector2 c, Vector2 uvA, Vector2 uvB, Vector2 uvC, NativeImage image, Color? tint = null)` | 追加纹理三角形 |
+| `void TexturedMesh(ReadOnlySpan<Vector2> positions, ReadOnlySpan<Vector2> uvs, ReadOnlySpan<int> indices, NativeImage image, Color? tint = null)` | 每 3 个索引生成三角形；全部校验后才追加，非法输入不留下部分命令 |
+| `void NineSlice(Rect destination, NativeImage image, float left, float top, float right, float bottom, Color? tint = null)` | 源像素边距九宫格 |
 | `void CopyScaledTo(DrawList target, float scale)` | 先清空 target，再复制并缩放坐标、字号、圆角 |
 | `void Append(DrawList source, Vector2 offset, float scale = 1)` | 保留已有内容，追加缩放/平移后的命令并修正文本偏移 |
 
 CopyScaledTo / Append 要求源目标不是同一对象，scale 有限且 >0，offset 有限，否则抛 ArgumentException。Span 在列表修改后不应继续持有。Image 不接管资源所有权，也不会为缓存帧延长图像生命期。
+
+纹理辅助方法要求位置有限，UV 数量与位置一致、值有限且在 [0,1]，索引有效且数量为 3 的倍数。图像须仍有效，tint 为统一非预乘 sRGB RGBA，默认白色。NineSlice 要求目标尺寸有限非负、边距有限非负且源图像内不重叠；小目标按比例缩小相对边距，源或目标面积为零的格子省略。Append / CopyScaledTo 对 kind 8 只变换顶点位置，UV 不变。详见 [A06](../a06-textured-mesh.md)。
 
 PushClip / PopClip 与 BeginLayer / EndLayer 必须保持平衡。保持范围按正常嵌套顺序使用，不交叉结束裁剪与层。仅相邻兼容项会合批，不可为减少 draw call 全局重排透明命令。
 
@@ -41,8 +46,8 @@ PushClip / PopClip 与 BeginLayer / EndLayer 必须保持平衡。保持范围�
 | `Kind`、`Flags` | uint | 操作类型及该操作的标志 / 图像 ID |
 | `TextOffset`、`TextLength` | uint | UTF-8 缓冲的字节范围 |
 | `Rect` | Rect | 操作矩形；三角形有特殊编码 |
-| `Color`、`Color2` | Color | 颜色或纵向渐变端点 |
-| `Radius`、`FontSize` | float | 圆角 / 字号 |
+| `Color`、`Color2` | Color | 颜色或渐变端点；kind 8 为 tint 和前两个 UV |
+| `Radius`、`FontSize` | float | 圆角 / 字号；kind 8 为第三个 UV |
 | `Reserved0`、`Reserved1` | float | 三角形第三个顶点 |
 
 完整 kind 定义见[Render IR](native.md#render-ir)。普通应用用 DrawList 构造；Commands 只读，不提供直接追加任意 DrawCommand 的 C# 公共方法。
@@ -55,7 +60,7 @@ PushClip / PopClip 与 BeginLayer / EndLayer 必须保持平衡。保持范围�
 
 - 宽高为物理像素，每边 1..8192；window=0 为离屏目标。
 - 非零 window 必须是本进程有效 HWND，并保持到 renderer 释放以后。
-- 构造时校验 ABI 版本 `0x00010000` 和 DrawCommand 大小。
+- 构造时校验 ABI 版本 `0x00010000` 和 DrawCommand 大小。kind 8 保持此布局，仍须使用包含 A06 的匹配原生库，版本/大小检查不能证明旧库支持新命令。
 - 访问原生实例的方法须在创建线程调用，跨线程抛 InvalidOperationException。释放后再访问原生实例抛 ObjectDisposedException；缓存属性 Adapter 仍可读取，重复 Dispose 无操作。
 
 | 成员 | 返回值 / 行为 |
@@ -78,9 +83,11 @@ Measure 使用 renderer 的文字系统及共享图集，可能上传字形；�
 
 `sealed class NativeImage : IDisposable`。由 UploadImage 创建，不提供公共构造函数或可公开修改的 ID。
 
+`uint Width { get; }`、`uint Height { get; }` 保存上传时的源像素尺寸，供九宫格使用。
+
 RGBA 数据按行连续、每像素 4 字节，没有 stride 参数；单边须在 1..2046，总长度严格等于 `width × height × 4`。字形和图片共用 2048×2048 图集，实际可用容量可能更小。
 
-`Dispose()` 释放图像槽位。释放后 DrawList.Image 立即拒绝该包装对象；已缓存的图像命令再次提交也会失败。只在原 renderer 上使用，不能跨 renderer 共享图像。推荐在 renderer 之前释放图像，尤其不要依赖终结器自动回收。
+`Dispose()` 释放图像槽位。释放后 DrawList.Image 及纹理辅助方法立即拒绝该包装对象；已缓存的图像命令再次提交也会失败。只在原 renderer 上使用，不能跨 renderer 共享图像。推荐在 renderer 之前释放图像，尤其不要依赖终结器自动回收。
 
 ## FrameStats
 
