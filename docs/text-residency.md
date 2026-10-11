@@ -6,7 +6,9 @@ bins and raster flags, including fallback-font identity. FontSystem remains
 private and immutable in membership for the cache lifetime; replacing its font
 configuration must replace the layout cache. Layout lookup still uses text,
 size bits, available-width bits, bold and wrapping mode, with the existing 512-entry clear bound.
-Shaping, line measurement, physical glyph placement and painter order are unchanged.
+Residency separation itself does not change shaping, line measurement, physical
+glyph placement or painter order. A08 additionally corrects split-grapheme wrapping
+and preserves trailing empty lines in the shared geometry; see [text input](text-input.md).
 Empty/no-raster glyphs create no draw quads; missing characters still use the
 shaper's normal fallback or .notdef behavior.
 

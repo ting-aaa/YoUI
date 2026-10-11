@@ -22,22 +22,27 @@ public sealed class TextLayout
     private readonly int[] boundaries;
     public string Text { get; }
     public IReadOnlyList<TextCell> Cells { get; }
+    /// <summary>Authoritative provider-defined editing stops, as sorted UTF-16 offsets.</summary>
+    public IReadOnlyList<int> CaretStops { get; }
     public TextLayout(string text, IEnumerable<TextCell> cells)
     {
         ArgumentNullException.ThrowIfNull(text); ArgumentNullException.ThrowIfNull(cells);
         TextBoundary.Validate(text);
-        Text = text; boundaries = TextBoundary.Stops(text); this.cells = cells.ToArray();
+        Text = text; this.cells = cells.ToArray();
         if (this.cells.Length == 0) throw new ArgumentException("Layout must include an empty-line cell for empty text.", nameof(cells));
         foreach (var cell in this.cells)
         {
             var b = cell.Bounds;
             if (cell.Start < 0 || cell.End < cell.Start || cell.End > text.Length || cell.Line < 0 ||
-                Array.BinarySearch(boundaries, cell.Start) < 0 || Array.BinarySearch(boundaries, cell.End) < 0 ||
+                !TextBoundary.IsScalarBoundary(text, cell.Start) || !TextBoundary.IsScalarBoundary(text, cell.End) ||
                 !float.IsFinite(b.X) || !float.IsFinite(b.Y) || !float.IsFinite(b.Width) || !float.IsFinite(b.Height) ||
                 b.Width < 0 || b.Height <= 0 || !float.IsFinite(b.Right) || !float.IsFinite(b.Bottom))
-                throw new ArgumentException("Cells must have grapheme-boundary indices and finite advance rectangles.", nameof(cells));
+                throw new ArgumentException("Cells must have scalar-boundary indices and finite advance rectangles.", nameof(cells));
         }
-        Cells = Array.AsReadOnly(this.cells);
+        // The provider owns Unicode segmentation. Native and .NET Unicode tables
+        // can differ (notably Indic conjuncts); never split a provider cell using StringInfo.
+        boundaries = this.cells.SelectMany(c => new[] { c.Start, c.End }).Append(0).Append(text.Length).Distinct().Order().ToArray();
+        Cells = Array.AsReadOnly(this.cells); CaretStops = Array.AsReadOnly(boundaries);
     }
     private static float StartX(TextCell cell) => cell.RightToLeft ? cell.Bounds.Right : cell.Bounds.X;
     private static float EndX(TextCell cell) => cell.RightToLeft ? cell.Bounds.X : cell.Bounds.Right;
@@ -116,6 +121,8 @@ internal static class TextBoundary
             else if (char.IsLowSurrogate(text[i])) throw new ArgumentException("Text contains an unpaired UTF-16 surrogate.", nameof(text));
         }
     }
+    internal static bool IsScalarBoundary(string text, int index) =>
+        index == 0 || index == text.Length || !(char.IsHighSurrogate(text[index - 1]) && char.IsLowSurrogate(text[index]));
     internal static int[] Stops(string text) => [.. StringInfo.ParseCombiningCharacters(text), text.Length];
     internal static int Snap(int[] stops, int index, bool forward)
     {

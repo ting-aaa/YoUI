@@ -8,7 +8,7 @@
 
 ## Rust 模块
 
-`youi_render` 公开 `ir`、`renderer`、`ffi` 模块，并在 crate 根导出 `Rect`、`Command`、`FrameStats`、`validate` 和 `Renderer`。内部文字模块不作为独立公共 API。
+`youi_render` 公开 `ir`、`renderer`、`ffi` 模块，并在 crate 根导出 `Rect`、`Command`、`FrameStats`、`validate` 、`Renderer`、`TextCell`、`ResourceBudget` 和 `ResourceUsage`。内部文字模块不作为独立公共 API。
 
 `youi_scene` 公开 `NodeId`、`Transform2D`、`Mesh`、`Scene`。两个 crate 当前都通过 workspace 源码使用。
 

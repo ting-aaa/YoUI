@@ -1508,6 +1508,7 @@ dependencies = [
  "png",
  "pollster",
  "raw-window-handle",
+ "unicode-bidi",
  "unicode-segmentation",
  "wgpu",
 ]

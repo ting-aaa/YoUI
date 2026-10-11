@@ -66,10 +66,27 @@ static class TextInputTests
         {
             Throws<ArgumentException>(() => new TextLayout("", Array.Empty<TextCell>()));
             Throws<ArgumentException>(() => new TextLayout("\ud800", [new(0, 1, 0, new(0, 0, 7, 20))]));
-            foreach (var cell in new TextCell[] { new(-1, 1, 0, new(0, 0, 7, 20)), new(0, 3, 0, new(0, 0, 7, 20)), new(0, 1, -1, new(0, 0, 7, 20)), new(0, 2, 0, new(float.NaN, 0, 7, 20)), new(0, 2, 0, new(0, 0, -1, 20)), new(0, 2, 0, new(0, 0, 7, 0)), new(0, 2, 0, new(float.MaxValue, 0, float.MaxValue, 20)) })
+            foreach (var cell in new TextCell[] { new(-1, 1, 0, new(0, 0, 7, 20)), new(0, 3, 0, new(0, 0, 7, 20)), new(0, 1, 0, new(0, 0, 7, 20)), new(1, 2, 0, new(0, 0, 7, 20)), new(0, 2, -1, new(0, 0, 7, 20)), new(0, 2, 0, new(float.NaN, 0, 7, 20)), new(0, 2, 0, new(0, 0, -1, 20)), new(0, 2, 0, new(0, 0, 7, 0)), new(0, 2, 0, new(float.MaxValue, 0, float.MaxValue, 20)) })
                 Throws<ArgumentException>(() => new TextLayout("😀", [cell]));
             Throws<ArgumentOutOfRangeException>(() => Mono("a").GetCaret(new(0, (TextAffinity)99)));
             require(true, "public geometry contracts reject invalid snapshots");
+        });
+        test("text layout follows provider graphemes across Unicode segmentation versions", () =>
+        {
+            const string conjunct = "क्षि";
+            var layout = new TextLayout(conjunct, [new(0, conjunct.Length, 0, new(0, 0, 18, 20))]);
+            require(layout.CaretStops.SequenceEqual(new[] { 0, 4 }), "layout publishes provider stop set without older-runtime interior boundaries");
+            for (int index = 1; index < conjunct.Length; index++)
+            {
+                require(layout.GetCaret(new(index, TextAffinity.Upstream)).X == 0 && layout.GetCaret(new(index, TextAffinity.Downstream)).X == 18, "provider grapheme owns every interior caret stop");
+                require(layout.GetSelection(index, index + 1).SequenceEqual(layout.GetSelection(0, conjunct.Length)), "partial Indic range expands to complete provider grapheme");
+            }
+            for (int x = -10; x < 30; x++)
+                require(layout.HitTest(new(x, 10)).Index is 0 or 4, "hit testing never returns older-runtime interior stop");
+        });
+        test("TextBox editing and attachment use provider grapheme boundaries", () =>
+        {
+            AssertIndicEditing(new IndicClusterProvider(), require);
         });
         test("text draw flags survive append and scaled copies", () =>
         {
@@ -112,6 +129,10 @@ static class TextInputTests
             require(input.Text == "abcdef" && input.CaretIndex == 2 && input.SelectedText == "cde", "undo restores text and backward anchor/caret");
             Key(doc, 89, control: true); require(input.Text == "abΩf" && input.CaretIndex == 3, "redo restores replacement and caret");
             input.Select(1, 2); Key(doc, 8); require(input.Text == "af" && input.CaretIndex == 1, "backspace deletes selected span");
+            input.Text = "a😀b"; input.Select(3, 0); Key(doc, 8); Key(doc, 90, control: true);
+            require(input.Text == "a😀b" && input.CaretIndex == 3 && input.SelectionLength == 0, "backspace undo restores the original collapsed caret instead of deletion range");
+            input.Select(1, 0); Key(doc, 46); Key(doc, 90, control: true);
+            require(input.Text == "a😀b" && input.CaretIndex == 1 && input.SelectionLength == 0, "forward-delete undo restores original collapsed caret");
         });
         test("TextBox insertion seams never leave caret inside a newly joined grapheme", () =>
         {
@@ -243,15 +264,15 @@ static class TextInputTests
         static void Require(bool condition, string message) { if (!condition) throw new Exception(message); }
         using var renderer = new NativeRenderer(480, 180);
         Console.WriteLine($"GPU text-input adapter: {renderer.Adapter}");
-        string[] samples = ["", "office ffi", "A😀e\u0301👨‍👩‍👧‍👦Z", "مرحبا بالعالم", "abc אבג xyz", "a\n\nb\n", "a\r\nb", new string('w', 100)];
+        string[] samples = ["", "office ffi", "A😀e\u0301👨‍👩‍👧‍👦Z", "مرحبا بالعالم", "abc אבג xyz", "क्षि", "क्‍ष", "a\n\nb\n", "a\r\nb", new string('w', 100)];
         foreach (string value in samples)
         {
             var layout = renderer.Layout(value, 18, 180); var repeated = renderer.Layout(value, 18, 180);
-            var boundaries = StringInfo.ParseCombiningCharacters(value).Append(value.Length).ToHashSet();
+            var boundaries = layout.CaretStops.ToHashSet();
             Require(layout.Text == value && layout.Cells.SequenceEqual(repeated.Cells), "native shape snapshot is deterministic: " + value);
             foreach (var cell in layout.Cells)
             {
-                Require(boundaries.Contains(cell.Start) && boundaries.Contains(cell.End) && cell.Start <= cell.End, "native UTF8 offsets map only to UTF16 grapheme boundaries");
+                Require(ScalarBoundary(value, cell.Start) && ScalarBoundary(value, cell.End) && cell.Start <= cell.End, "native UTF8 offsets map only to valid UTF16 scalar boundaries");
                 Require(Finite(cell.Bounds) && cell.Bounds.Width >= 0 && cell.Bounds.Height > 0 && cell.Line >= 0, "native geometry is finite and nonnegative");
             }
             foreach (int boundary in boundaries)
@@ -271,6 +292,23 @@ static class TextInputTests
             Require(selected.All(r => Finite(r) && r.Width > 0 && r.Height > 0), "native selection rectangles are finite and contain ink spans");
             Require(selected.SequenceEqual(layout.GetSelection(value.Length, 0)), "native reverse selection geometry is stable");
         }
+        var unicodeClusters = renderer.Layout("A😀e\u0301👨‍👩‍👧‍👦Z", 18, 400, wrap: false);
+        Require(unicodeClusters.CaretStops.SequenceEqual(new[] { 0, 1, 3, 5, 16, 17 }), "native UTF8-to-UTF16 bridge retains complete surrogate combining and ZWJ graphemes");
+        foreach (string conjunct in new[] { "क्षि", "क्‍ष" })
+        {
+            foreach (float width in new[] { 1f, 5f, 10f, 180f })
+            {
+                var layout = renderer.Layout(conjunct, 18, width);
+                Require(layout.Cells.Count == 1 && layout.Cells[0].Start == 0 && layout.Cells[0].End == conjunct.Length, "a native Indic grapheme has one cell even under narrow wrapping");
+                Require(layout.CaretStops.SequenceEqual(new[] { 0, conjunct.Length }), "native Indic caret stops contain only whole-cluster endpoints");
+                for (int interior = 1; interior < conjunct.Length; interior++)
+                {
+                    Require(layout.GetCaret(new(interior, TextAffinity.Upstream)) == layout.GetCaret(new(0, TextAffinity.Upstream)), "Indic upstream caret snaps before full native grapheme");
+                    Require(layout.GetCaret(new(interior, TextAffinity.Downstream)) == layout.GetCaret(new(conjunct.Length, TextAffinity.Downstream)), "Indic downstream caret snaps after full native grapheme");
+                }
+            }
+        }
+        AssertIndicEditing(renderer, Require);
         var mixed = renderer.Layout("aאבz", 18, 400);
         Require(mixed.Cells.Any(c => c.RightToLeft) && mixed.Cells.Any(c => !c.RightToLeft), "native bridge retains actual bidirectional cell direction");
         var wrapped = renderer.Layout(new string('w', 30), 18, 60);
@@ -313,6 +351,50 @@ static class TextInputTests
         Console.WriteLine($"PASS managed native text-layout bridge, Unicode geometry, thread/disposal guards and selection pixels ({changedSelection} changed); screenshots: {directory}");
     }
 
+    private static void AssertIndicEditing(ITextLayoutProvider provider, Action<bool, string> require)
+    {
+        const string conjunct = "क्षि";
+        var input = new TextBox { Text = conjunct, Transform = RectTransform.Fixed(20, 20, 200, 44) };
+        input.Select(2, 0); // Older .NET segmentation can leave this at 2 while detached.
+        var root = new Element(); root.Add(input); var doc = new UiDocument(root, provider, 300, 100); doc.Focus(input);
+        require(input.CaretIndex == conjunct.Length && input.SelectionLength == 0, "attachment normalizes detached selection to provider grapheme boundaries");
+        Key(doc, 37); require(input.CaretIndex == 0, "left traverses the full provider Indic grapheme");
+        Key(doc, 39); require(input.CaretIndex == conjunct.Length, "right traverses the full provider Indic grapheme");
+        Key(doc, 8); require(input.Text == "" && input.CaretIndex == 0, "backspace removes the full provider Indic grapheme");
+        Key(doc, 90, control: true); require(input.Text == conjunct && input.CaretIndex == conjunct.Length && input.SelectionLength == 0, "Indic backspace undo restores original collapsed endpoint");
+        input.Text = conjunct; input.Select(0, 0); Key(doc, 46);
+        require(input.Text == "" && input.CaretIndex == 0, "forward delete removes the full provider Indic grapheme");
+        input.Text = conjunct; input.Select(2, 1);
+        require(input.SelectionStart == 0 && input.SelectionLength == conjunct.Length && input.SelectedText == conjunct, "interior forward selection expands to native grapheme");
+        input.Select(3, -1); require(input.CaretIndex == 0 && input.SelectedText == conjunct, "interior backward selection expands and preserves direction");
+        input.Select(2, 0); require(input.CaretIndex == conjunct.Length, "collapsed interior selection snaps downstream using provider");
+        Key(doc, 37, shift: true); require(input.SelectedText == conjunct && input.CaretIndex == 0, "shift-left selects exactly one provider grapheme");
+        Text(doc, "X"); require(input.Text == "X", "typing replaces full provider grapheme selection");
+        Key(doc, 90, control: true); require(input.Text == conjunct && input.SelectedText == conjunct, "undo restores whole provider selection");
+        input.Text = "षि"; input.Select(0, 0); Text(doc, "क्");
+        require(input.Text == conjunct && input.CaretIndex == conjunct.Length, "insertion seam snaps through newly joined Indic provider grapheme");
+        Key(doc, 8); require(input.Text == "", "newly joined Indic grapheme deletes atomically");
+        input.Text = conjunct; input.Select(0, 0); var origin = TextOrigin(doc);
+        var layout = provider.Layout(conjunct, 14, input.Bounds.Width - 28, wrap: false); var cell = layout.Cells.Single();
+        Click(doc, origin + new Vector2(cell.Bounds.Right - .01f, cell.Bounds.Y + cell.Bounds.Height * .5f));
+        require(input.CaretIndex == conjunct.Length, "pointer and keyboard use the same provider Indic endpoint");
+        root.Remove(input); input.Select(2, 0); root.Add(input);
+        require(input.CaretIndex == conjunct.Length && input.SelectionLength == 0, "reattachment renormalizes detached fallback selection again");
+
+        var fallbackRoot = new Element(); var historyInput = fallbackRoot.Add(new TextBox { Text = conjunct });
+        var fallbackDoc = new UiDocument(fallbackRoot, new LegacyIndicProvider(), 300, 100); fallbackDoc.Focus(historyInput);
+        Key(fallbackDoc, 37); require(historyInput.CaretIndex == 2, "deterministic legacy provider reproduces old Indic segmentation on every host");
+        Text(fallbackDoc, "X"); fallbackRoot.Remove(historyInput);
+        var currentRoot = new Element(); currentRoot.Add(historyInput); var currentDoc = new UiDocument(currentRoot, provider, 300, 100); currentDoc.Focus(historyInput);
+        Key(currentDoc, 90, control: true);
+        require(historyInput.Text == conjunct && historyInput.CaretIndex == conjunct.Length && historyInput.SelectionLength == 0, "undo renormalizes a fallback-era stored caret under the current provider");
+        Key(currentDoc, 89, control: true); Key(currentDoc, 90, control: true);
+        require(historyInput.Text == conjunct && historyInput.CaretIndex == conjunct.Length && historyInput.SelectionLength == 0, "redo/undo retains provider-safe history positions after reattachment");
+        Key(currentDoc, 8); require(historyInput.Text == "", "backspace after restored fallback history removes the whole provider grapheme");
+        Key(currentDoc, 90, control: true); Key(currentDoc, 37); Key(currentDoc, 46);
+        require(historyInput.Text == "", "forward delete after restored history removes the whole provider grapheme");
+    }
+    private static bool ScalarBoundary(string text, int index) => index >= 0 && index <= text.Length && (index == 0 || index == text.Length || !char.IsHighSurrogate(text[index - 1]) || !char.IsLowSurrogate(text[index]));
     private static bool Finite(Rect r) => float.IsFinite(r.X) && float.IsFinite(r.Y) && float.IsFinite(r.Width) && float.IsFinite(r.Height);
     private static TextLayout Mono(string text) => new TestMeasurer().Layout(text, 14, 100000);
     private static void Throws<T>(Action operation) where T : Exception
@@ -336,6 +418,30 @@ static class TextInputTests
     private sealed class MeasurementOnly : ITextMeasurer
     {
         public (float Width, float Height) Measure(string text, float size, float width, bool bold = false) => new TestMeasurer().Measure(text, size, width, bold);
+    }
+    // Deliberately models a provider with newer Indic grapheme rules than the host .NET runtime.
+    private sealed class IndicClusterProvider : ITextLayoutProvider
+    {
+        public (float Width, float Height) Measure(string text, float size, float width, bool bold = false) => new TestMeasurer().Measure(text, size, width, bold);
+        public TextLayout Layout(string text, float size, float width, bool bold = false, bool wrap = true)
+        {
+            var stops = StringInfo.ParseCombiningCharacters(text).Append(text.Length).ToList();
+            foreach (string cluster in new[] { "क्षि", "क्‍ष" })
+                for (int at = text.IndexOf(cluster, StringComparison.Ordinal); at >= 0; at = text.IndexOf(cluster, at + cluster.Length, StringComparison.Ordinal))
+                    stops.RemoveAll(stop => stop > at && stop < at + cluster.Length);
+            var cells = new List<TextCell>();
+            for (int i = 0; i + 1 < stops.Count; i++) cells.Add(new(stops[i], stops[i + 1], 0, new(i * size * .5f, 0, size * .5f, size * 1.35f)));
+            if (cells.Count == 0) cells.Add(new(0, 0, 0, new(0, 0, 0, size * 1.35f)));
+            return new(text, cells);
+        }
+    }
+    // Deliberately pins the older [0,2,4] boundary set, independent of host ICU/.NET tables.
+    private sealed class LegacyIndicProvider : ITextLayoutProvider
+    {
+        public (float Width, float Height) Measure(string text, float size, float width, bool bold = false) => new TestMeasurer().Measure(text, size, width, bold);
+        public TextLayout Layout(string text, float size, float width, bool bold = false, bool wrap = true) => text == "क्षि"
+            ? new(text, [new(0, 2, 0, new(0, 0, size * .5f, size * 1.35f)), new(2, 4, 0, new(size * .5f, 0, size * .5f, size * 1.35f))])
+            : new TestMeasurer().Layout(text, size, width, bold, wrap);
     }
     private sealed class CountingProvider : ITextLayoutProvider
     {

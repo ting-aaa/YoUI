@@ -1,7 +1,8 @@
 use crate::Rect;
 use cosmic_text::{
-    Attrs, AttrsList, Buffer, BufferLine, CacheKey, Family, FontSystem, LayoutRun, LineEnding,
-    Metrics, Shaping, SwashCache, SwashContent, Weight, Wrap,
+    Attrs, AttrsList, Buffer, BufferLine, CacheKey, Family, FontSystem, LayoutGlyph, LayoutLine,
+    LayoutRun, LineEnding, Metrics, ShapeGlyph, ShapeLine, Shaping, SwashCache, SwashContent,
+    Weight, Wrap,
 };
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
@@ -344,6 +345,7 @@ impl LayoutCache {
         // BufferLine preserves line ending lengths, including CRLF/LFCR.
         let mut offset = 0;
         let lines = buffer
+            .buffer
             .lines
             .iter()
             .map(|line| {
@@ -405,7 +407,7 @@ impl LayoutCache {
         self.layouts.insert(key, layout.clone());
         layout
     }
-    fn shape(&mut self, text: &str, size: f32, width: f32, bold: bool, wrap: bool) -> Buffer {
+    fn shape(&mut self, text: &str, size: f32, width: f32, bold: bool, wrap: bool) -> ShapedText {
         let mut buffer = Buffer::new(&mut self.fonts, Metrics::new(size, size * 1.35));
         buffer.set_size(&mut self.fonts, Some(width.max(1.)), None);
         if !wrap {
@@ -429,8 +431,270 @@ impl LayoutCache {
             ));
         }
         buffer.shape_until_scroll(&mut self.fonts, false);
-        buffer
+        ShapedText::new(buffer, size, width)
     }
+}
+
+// cosmic-text 0.14's WordOrGlyph fallback wraps individual shaped glyphs, even
+// when several glyphs belong to one extended grapheme. Keep its normal layout
+// unchanged unless that happens. For affected paragraphs, layout atomic shaped
+// clusters and then restore every original glyph, face, advance and offset.
+// If a paragraph needs correction and also contains an EGC spanning embedding
+// levels, it conservatively falls back to the original unwrapped paragraph.
+// The cross-level EGC need not itself be the split one. This preserves bidi
+// semantics instead of inventing an atomic level or reordering policy.
+// Painting and editing both consume the resulting runs. No text is re-shaped.
+struct ShapedText {
+    buffer: Buffer,
+    corrected: HashMap<usize, Vec<LayoutLine>>,
+}
+impl ShapedText {
+    fn new(buffer: Buffer, size: f32, width: f32) -> Self {
+        let mut corrected = HashMap::new();
+        if buffer.wrap() != Wrap::None {
+            for (i, line) in buffer.lines.iter().enumerate() {
+                let mut boundaries = line
+                    .text()
+                    .grapheme_indices(true)
+                    .map(|(i, _)| i)
+                    .collect::<Vec<_>>();
+                boundaries.push(line.text().len());
+                // The mere presence of a cross-bidi EGC does not disable
+                // wrapping. The original layout must first actually split an
+                // EGC in this paragraph before correction/fallback is considered.
+                if splits_grapheme(line.layout_opt().expect("shaped line layout"), &boundaries) {
+                    let layout = layout_atomic_graphemes(
+                        line.shape_opt().expect("shaped line"),
+                        &boundaries,
+                        size,
+                        width.max(1.),
+                        buffer.wrap(),
+                    );
+                    debug_assert!(!splits_grapheme(&layout, &boundaries));
+                    corrected.insert(i, layout);
+                }
+            }
+        }
+        Self { buffer, corrected }
+    }
+    fn layout_runs(&self) -> impl Iterator<Item = LayoutRun<'_>> {
+        // Equivalent to cosmic's LayoutRunIter for our full-height, unscrolled
+        // buffers, using corrected LayoutLines only where an EGC was split.
+        self.buffer
+            .lines
+            .iter()
+            .enumerate()
+            .flat_map(|(line_i, line)| {
+                let layouts = self
+                    .corrected
+                    .get(&line_i)
+                    .unwrap_or_else(|| line.layout_opt().expect("shaped line layout"));
+                layouts.iter().map(move |layout| (line_i, line, layout))
+            })
+            .scan(0., |top, (line_i, line, layout)| {
+                let line_height = layout
+                    .line_height_opt
+                    .unwrap_or(self.buffer.metrics().line_height);
+                let line_top = *top;
+                *top += line_height;
+                let glyph_height = layout.max_ascent + layout.max_descent;
+                Some(LayoutRun {
+                    line_i,
+                    text: line.text(),
+                    rtl: line.shape_opt().expect("shaped line").rtl,
+                    glyphs: &layout.glyphs,
+                    line_y: line_top + (line_height - glyph_height) / 2. + layout.max_ascent,
+                    line_top,
+                    line_height,
+                    line_w: layout.w,
+                })
+            })
+    }
+}
+fn grapheme_range(start: usize, end: usize, boundaries: &[usize]) -> (usize, usize) {
+    (
+        boundaries
+            .partition_point(|&i| i <= start)
+            .saturating_sub(1),
+        boundaries.partition_point(|&i| i < end),
+    )
+}
+fn splits_grapheme(lines: &[LayoutLine], boundaries: &[usize]) -> bool {
+    let mut owners = vec![usize::MAX; boundaries.len().saturating_sub(1)];
+    for (line, layout) in lines.iter().enumerate() {
+        for glyph in &layout.glyphs {
+            let (start, end) = grapheme_range(glyph.start, glyph.end, boundaries);
+            for owner in &mut owners[start..end] {
+                if *owner != usize::MAX && *owner != line {
+                    return true;
+                }
+                *owner = line;
+            }
+        }
+    }
+    false
+}
+struct AtomicGlyphs {
+    start: usize,
+    end: usize,
+    members: Vec<usize>,
+    glyphs: Vec<LayoutGlyph>,
+    left: f32,
+    right: f32,
+}
+fn layout_atomic_graphemes(
+    source: &ShapeLine,
+    boundaries: &[usize],
+    size: f32,
+    width: f32,
+    wrap: Wrap,
+) -> Vec<LayoutLine> {
+    // Give original glyphs temporary identity tags so their exact positions
+    // inside an unbroken shaped cluster can survive bidi reordering. The tags
+    // never escape, and every original metadata value is restored below.
+    let mut shape = source.clone();
+    let mut originals = Vec::<ShapeGlyph>::new();
+    let mut levels = Vec::new();
+    let mut ranges = Vec::new();
+    for span in &mut shape.spans {
+        for word in &mut span.words {
+            for glyph in &mut word.glyphs {
+                let id = originals.len();
+                originals.push(glyph.clone());
+                levels.push(span.level);
+                glyph.metadata = id;
+                let (start, end) = grapheme_range(glyph.start, glyph.end, boundaries);
+                ranges.push((start, end, id));
+            }
+        }
+    }
+    ranges.sort_unstable();
+    let mut groups = Vec::<AtomicGlyphs>::new();
+    for (start, end, id) in ranges {
+        if let Some(previous) = groups.last_mut() {
+            if start < previous.end || (start == previous.start && end == previous.end) {
+                previous.end = previous.end.max(end);
+                previous.members.push(id);
+                continue;
+            }
+        }
+        groups.push(AtomicGlyphs {
+            start,
+            end,
+            members: vec![id],
+            glyphs: Vec::new(),
+            left: f32::INFINITY,
+            right: f32::NEG_INFINITY,
+        });
+    }
+    // This paragraph already needs atomic wrap correction. If ANY EGC crosses
+    // embedding levels (even if a different EGC caused the split), it has no
+    // single existing bidi level for an atomic placeholder. Preserve cosmic's exact bidi
+    // placement and keep this affected paragraph unwrapped rather than invent
+    // a new direction/reordering policy or split a user's grapheme.
+    if groups.iter().any(|group| {
+        group
+            .members
+            .iter()
+            .any(|&id| levels[id] != levels[group.members[0]])
+    }) {
+        return source.layout(size, Some(width), Wrap::None, None, None);
+    }
+    let mut group_for = vec![0; originals.len()];
+    for (index, group) in groups.iter_mut().enumerate() {
+        group.members.sort_unstable();
+        for &id in &group.members {
+            group_for[id] = index;
+        }
+    }
+    // This is line placement over the SAME shaped glyphs, not another shaping
+    // pass. It establishes cluster-internal positions across font/word boundaries.
+    // All glyphs in an atomic group have the same original embedding level.
+    for layout in shape.layout(size, Some(width), Wrap::None, None, None) {
+        for mut glyph in layout.glyphs {
+            let group = &mut groups[group_for[glyph.metadata]];
+            group.left = group.left.min(glyph.x.min(glyph.x + glyph.w));
+            group.right = group.right.max(glyph.x.max(glyph.x + glyph.w));
+            glyph.metadata = originals[glyph.metadata].metadata;
+            group.glyphs.push(glyph);
+        }
+    }
+    // Each connected EGC/shape-cluster group appears exactly once in the
+    // wrapping input at its original logical slot and unchanged embedding level;
+    // the original glyph positions/levels within it survive.
+    for span in &mut shape.spans {
+        for word in &mut span.words {
+            word.glyphs = std::mem::take(&mut word.glyphs)
+                .into_iter()
+                .filter_map(|mut glyph| {
+                    let index = group_for[glyph.metadata];
+                    let group = &groups[index];
+                    if glyph.metadata != group.members[0] {
+                        return None;
+                    }
+                    glyph.start = boundaries[group.start];
+                    glyph.end = boundaries[group.end];
+                    glyph.metadata = index;
+                    glyph.metrics_opt = None;
+                    glyph.x_advance = (group.right - group.left) / size;
+                    glyph.y_advance = group
+                        .members
+                        .iter()
+                        .map(|&id| {
+                            let g = &originals[id];
+                            g.metrics_opt.map_or(size, |m| m.font_size) * g.y_advance
+                        })
+                        .sum::<f32>()
+                        / size;
+                    glyph.ascent = group
+                        .members
+                        .iter()
+                        .map(|&id| {
+                            let g = &originals[id];
+                            g.metrics_opt.map_or(size, |m| m.font_size) * g.ascent
+                        })
+                        .fold(0., f32::max)
+                        / size;
+                    glyph.descent = group
+                        .members
+                        .iter()
+                        .map(|&id| {
+                            let g = &originals[id];
+                            g.metrics_opt.map_or(size, |m| m.font_size) * g.descent
+                        })
+                        .fold(0., f32::max)
+                        / size;
+                    Some(glyph)
+                })
+                .collect();
+        }
+        span.words.retain(|word| !word.glyphs.is_empty());
+    }
+    shape.spans.retain(|span| !span.words.is_empty());
+    let mut layouts = shape.layout(size, Some(width), wrap, None, None);
+    for layout in &mut layouts {
+        let mut expanded = Vec::new();
+        layout.max_ascent = 0.;
+        layout.max_descent = 0.;
+        for aggregate in std::mem::take(&mut layout.glyphs) {
+            let group = &groups[aggregate.metadata];
+            let origin_y = group.glyphs.first().map_or(0., |glyph| glyph.y);
+            for glyph in &group.glyphs {
+                let mut glyph = glyph.clone();
+                glyph.x = aggregate.x + (glyph.x - group.left);
+                glyph.y = aggregate.y + (glyph.y - origin_y);
+                expanded.push(glyph);
+            }
+            for &id in &group.members {
+                let glyph = &originals[id];
+                let font_size = glyph.metrics_opt.map_or(size, |m| m.font_size);
+                layout.max_ascent = layout.max_ascent.max(font_size * glyph.ascent);
+                layout.max_descent = layout.max_descent.max(font_size * glyph.descent);
+            }
+        }
+        layout.glyphs = expanded;
+    }
+    layouts
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -454,10 +718,7 @@ fn append_run_cells(
         .map(|glyph| {
             // Font fallback/combining glyphs can have scalar-level cluster bounds.
             // Expand them to the paragraph's EGC bounds before combining advances.
-            let start = boundaries
-                .partition_point(|&i| i <= glyph.start)
-                .saturating_sub(1);
-            let end = boundaries.partition_point(|&i| i < glyph.end);
+            let (start, end) = grapheme_range(glyph.start, glyph.end, boundaries);
             Cluster {
                 start,
                 end,
@@ -974,6 +1235,297 @@ mod tests {
                 .map(|cell| cell.x + cell.width)
                 .fold(0., f32::max),
             100.,
+        );
+    }
+
+    #[test]
+    fn indic_graphemes_are_atomic_when_narrow_wrapping_overflows() {
+        let mut cache = LayoutCache::new();
+        // These are each one EGC in the native Unicode segmentation version,
+        // even when a fallback font emits several scalar-level glyph clusters.
+        for text in ["क्षि", "क्‍ष"] {
+            assert_eq!(text.graphemes(true).count(), 1);
+            for width in [1., 10.] {
+                let wrapped = cache.layout_with_wrap(text, 18., width, false, true);
+                let nowrap = cache.layout_with_wrap(text, 18., width, false, false);
+                assert_eq!(
+                    wrapped.cells.len(),
+                    1,
+                    "split {text:?} at width {width}: {:?}",
+                    wrapped.cells
+                );
+                assert_eq!(
+                    (
+                        wrapped.cells[0].start,
+                        wrapped.cells[0].end,
+                        wrapped.cells[0].line
+                    ),
+                    (0, text.len() as u32, 0)
+                );
+                assert_eq!(wrapped.cells, nowrap.cells);
+                assert_eq!(
+                    wrapped
+                        .glyphs
+                        .iter()
+                        .map(|g| (g.key, rect(g.rect)))
+                        .collect::<Vec<_>>(),
+                    nowrap
+                        .glyphs
+                        .iter()
+                        .map(|g| (g.key, rect(g.rect)))
+                        .collect::<Vec<_>>(),
+                    "reflow must preserve the complete EGC's original shaped glyphs"
+                );
+                assert_close(wrapped.height, 18. * 1.35);
+            }
+        }
+    }
+
+    #[test]
+    fn wrapping_between_graphemes_never_duplicates_a_grapheme_on_another_line() {
+        let mut cache = LayoutCache::new();
+        for text in [
+            "क्षिक्षिक्षि",
+            "क्‍षक्‍ष",
+            "Aक्षिBक्‍षC",
+            "क्षि क्षि क्षि",
+            "👩‍👩‍👧‍👦👩🏽‍🚀",
+            "a\u{301}a\u{308}",
+            "العربية क्षि العربية",
+            "বাংলাক্ষি",
+            "\u{0600}A\u{0600}B",
+            "\u{0600}क्षि",
+            "\u{0600}אבג",
+        ] {
+            for width in [1., 10., 20., 40., 70.] {
+                let layout = cache.layout(text, 18., width, false);
+                let expected = text
+                    .grapheme_indices(true)
+                    .map(|(start, g)| (start as u32, (start + g.len()) as u32))
+                    .collect::<Vec<_>>();
+                for (start, end) in expected {
+                    let cells = layout
+                        .cells
+                        .iter()
+                        .filter(|cell| cell.start == start && cell.end == end)
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        cells.len(),
+                        1,
+                        "{text:?}, width {width}, range {start}..{end}: {:?}",
+                        layout.cells
+                    );
+                }
+            }
+        }
+        let cells = cache.layout("क्षिक्षिक्षि", 18., 10., false).cells;
+        assert_eq!(cells.len(), 3);
+        assert_eq!(
+            cells.iter().map(|cell| cell.line).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+    }
+
+    fn synthetic_shape(rtl: bool) -> ShapeLine {
+        let glyphs = (0..4)
+            .map(|i| ShapeGlyph {
+                start: i * 3,
+                end: (i + 1) * 3,
+                x_advance: if i % 2 == 0 { 3. } else { 7. },
+                y_advance: 0.,
+                x_offset: 0.125,
+                y_offset: 0.25,
+                ascent: 0.8,
+                descent: 0.2,
+                font_monospace_em_width: None,
+                font_id: Default::default(),
+                glyph_id: i as u16,
+                color_opt: None,
+                metadata: 100 + i,
+                cache_key_flags: cosmic_text::CacheKeyFlags::empty(),
+                metrics_opt: None,
+            })
+            .collect();
+        ShapeLine {
+            rtl,
+            spans: vec![cosmic_text::ShapeSpan {
+                level: if rtl {
+                    unicode_bidi::Level::rtl()
+                } else {
+                    unicode_bidi::Level::ltr()
+                },
+                words: vec![cosmic_text::ShapeWord {
+                    blank: false,
+                    glyphs,
+                }],
+            }],
+            metrics_opt: None,
+        }
+    }
+    #[test]
+    fn synthetic_multiglyph_graphemes_wrap_atomically_without_fonts() {
+        for rtl in [false, true] {
+            let source = synthetic_shape(rtl);
+            let boundaries = [0, 6, 12];
+            let split = source.layout(1., Some(5.), Wrap::WordOrGlyph, None, None);
+            assert!(splits_grapheme(&split, &boundaries));
+            let fixed = layout_atomic_graphemes(&source, &boundaries, 1., 5., Wrap::WordOrGlyph);
+            assert!(!splits_grapheme(&fixed, &boundaries));
+            assert_eq!(fixed.len(), 2);
+            for line in &fixed {
+                assert_eq!(line.glyphs.len(), 2);
+                assert_close(line.w, 10.);
+                assert_close(line.max_ascent, 0.8);
+                assert_close(line.max_descent, 0.2);
+                for glyph in &line.glyphs {
+                    assert_eq!(glyph.metadata, glyph.glyph_id as usize + 100);
+                    assert_eq!((glyph.x_offset, glyph.y_offset), (0.125, 0.25));
+                    assert_eq!(glyph.level.is_rtl(), rtl);
+                }
+            }
+        }
+    }
+    #[test]
+    fn synthetic_cross_embedding_grapheme_preserves_unwrapped_bidi_without_fonts() {
+        let mut source = synthetic_shape(false);
+        let tail = source.spans[0].words[0].glyphs.split_off(1);
+        source.spans.push(cosmic_text::ShapeSpan {
+            level: unicode_bidi::Level::rtl(),
+            words: vec![cosmic_text::ShapeWord {
+                blank: false,
+                glyphs: tail,
+            }],
+        });
+        let fixed = layout_atomic_graphemes(&source, &[0, 6, 12], 1., 5., Wrap::WordOrGlyph);
+        let original = source.layout(1., Some(5.), Wrap::None, None, None);
+        assert_eq!(fixed.len(), 1);
+        assert_eq!(format!("{fixed:?}"), format!("{original:?}"));
+        assert!(!splits_grapheme(&fixed, &[0, 6, 12]));
+    }
+    #[test]
+    fn unaffected_layout_runs_keep_cosmic_positions_exactly() {
+        let mut cache = LayoutCache::new();
+        for text in ["office text", "abc אבג 123", "مرحبا", "A\n\nB\r\n"] {
+            let shaped = cache.shape(text, 18., 100., false, true);
+            assert!(shaped.corrected.is_empty());
+            let original = shaped
+                .buffer
+                .layout_runs()
+                .map(|run| {
+                    (
+                        run.line_i,
+                        run.rtl,
+                        run.line_y,
+                        run.line_top,
+                        run.line_height,
+                        run.line_w,
+                        format!("{:?}", run.glyphs),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let actual = shaped
+                .layout_runs()
+                .map(|run| {
+                    (
+                        run.line_i,
+                        run.rtl,
+                        run.line_y,
+                        run.line_top,
+                        run.line_height,
+                        run.line_w,
+                        format!("{:?}", run.glyphs),
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(actual, original);
+        }
+    }
+
+    #[test]
+    fn long_paragraph_cross_bidi_fallback_is_conditional_and_shared_with_paint() {
+        let mut cache = LayoutCache::new();
+        let text = format!(
+            "{} \u{0600}A {}",
+            "alpha beta ".repeat(12),
+            "gamma delta ".repeat(12)
+        );
+        let ordinary = cache.shape(&text, 18., 120., false, true);
+        assert!(
+            ordinary.corrected.is_empty(),
+            "a cross-level EGC that does not split must retain normal wrapping"
+        );
+        assert!(ordinary.layout_runs().count() > 1);
+        let narrow = cache.shape(&text, 18., 1., false, true);
+        assert!(!narrow.corrected.is_empty());
+        assert_eq!(
+            narrow.layout_runs().count(),
+            1,
+            "affected paragraph intentionally overflows"
+        );
+        let wrapped = cache.layout_with_wrap(&text, 18., 1., false, true);
+        let nowrap = cache.layout_with_wrap(&text, 18., 1., false, false);
+        assert_eq!(wrapped.cells, nowrap.cells);
+        assert_eq!(
+            wrapped
+                .glyphs
+                .iter()
+                .map(|g| (g.key, rect(g.rect)))
+                .collect::<Vec<_>>(),
+            nowrap
+                .glyphs
+                .iter()
+                .map(|g| (g.key, rect(g.rect)))
+                .collect::<Vec<_>>()
+        );
+        assert!(wrapped.cells.iter().all(|cell| cell.line == 0));
+    }
+
+    #[test]
+    fn conservative_fallback_covers_safe_cross_level_egc_plus_other_split_egc() {
+        let mut source = synthetic_shape(false);
+        let mut glyphs = std::mem::take(&mut source.spans[0].words[0].glyphs);
+        glyphs[0].x_advance = 1.;
+        glyphs[1].x_advance = 1.;
+        let tail = glyphs.split_off(2);
+        let middle = glyphs.split_off(1);
+        source.spans[0].words[0].glyphs = glyphs;
+        source.spans.push(cosmic_text::ShapeSpan {
+            level: unicode_bidi::Level::rtl(),
+            words: vec![cosmic_text::ShapeWord {
+                blank: false,
+                glyphs: middle,
+            }],
+        });
+        source.spans.push(cosmic_text::ShapeSpan {
+            level: unicode_bidi::Level::ltr(),
+            words: vec![cosmic_text::ShapeWord {
+                blank: false,
+                glyphs: tail,
+            }],
+        });
+        let original = source.layout(1., Some(5.), Wrap::WordOrGlyph, None, None);
+        let lines_for = |start: usize, end: usize| {
+            original
+                .iter()
+                .enumerate()
+                .filter_map(|(line, run)| {
+                    run.glyphs
+                        .iter()
+                        .any(|g| g.start < end && g.end > start)
+                        .then_some(line)
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(lines_for(0, 6).len(), 1, "cross-level EGC initially fits");
+        assert!(
+            lines_for(6, 12).len() > 1,
+            "another EGC requires correction"
+        );
+        let fixed = layout_atomic_graphemes(&source, &[0, 6, 12], 1., 5., Wrap::WordOrGlyph);
+        assert_eq!(fixed.len(), 1);
+        assert_eq!(
+            format!("{fixed:?}"),
+            format!("{:?}", source.layout(1., Some(5.), Wrap::None, None, None))
         );
     }
 }

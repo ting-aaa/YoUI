@@ -145,7 +145,7 @@ public sealed class TextBox : Element
     /// <summary>UTF-16 range; negative length makes a backward selection. Clamps and expands partial graphemes.</summary>
     public void Select(int start, int length)
     {
-        var stops = TextBoundary.Stops(text);
+        var stops = Stops(text);
         int end = (int)Math.Clamp((long)start + length, 0, text.Length);
         start = Math.Clamp(start, 0, text.Length);
         if (length == 0) cursor = anchor = TextBoundary.Snap(stops, start, true);
@@ -154,23 +154,40 @@ public sealed class TextBox : Element
         affinity = length < 0 ? TextAffinity.Downstream : TextAffinity.Upstream;
         composition = ""; dragging = false; Invalidate();
     }
-    private int Previous() => StringInfo.ParseCombiningCharacters(text).LastOrDefault(i => i < cursor);
-    private int Next() => StringInfo.ParseCombiningCharacters(text).FirstOrDefault(i => i > cursor, text.Length);
-    private void Remember() { undo.Add((text, cursor, anchor, affinity)); if (undo.Count > 100) undo.RemoveAt(0); redo.Clear(); }
-    private void ReplaceSelection(string inserted)
+    private int[] Stops(string value) => Layout(value, VisualBounds)?.CaretStops.ToArray() ?? TextBoundary.Stops(value);
+    private int Previous() => Stops(text).LastOrDefault(i => i < cursor);
+    private int Next() => Stops(text).FirstOrDefault(i => i > cursor, text.Length);
+    private void NormalizeSelection()
     {
-        if (inserted.Length == 0 && cursor == anchor) return;
-        Remember(); int begin = SelectionStart;
-        text = text.Remove(begin, SelectionLength).Insert(begin, inserted);
+        var stops = Stops(text);
+        if (cursor == anchor) cursor = anchor = TextBoundary.Snap(stops, cursor, true);
+        else
+        {
+            bool forward = cursor > anchor;
+            cursor = TextBoundary.Snap(stops, cursor, forward); anchor = TextBoundary.Snap(stops, anchor, !forward);
+        }
+    }
+    private void Remember() { undo.Add((text, cursor, anchor, affinity)); if (undo.Count > 100) undo.RemoveAt(0); redo.Clear(); }
+    private void ReplaceSelection(string inserted, int? rangeStart = null, int? rangeEnd = null)
+    {
+        int begin = rangeStart ?? SelectionStart, end = rangeEnd ?? (SelectionStart + SelectionLength);
+        if (inserted.Length == 0 && begin == end) return;
+        string next = text.Remove(begin, end - begin).Insert(begin, inserted);
+        var stops = Stops(next); // Query before mutating text or history if the provider fails.
+        Remember(); text = next;
         // An insertion/deletion can join neighboring graphemes (combining marks, ZWJ, regional indicators).
-        cursor = anchor = TextBoundary.Snap(TextBoundary.Stops(text), begin + inserted.Length, true);
+        cursor = anchor = TextBoundary.Snap(stops, begin + inserted.Length, true);
         affinity = TextAffinity.Upstream; composition = "";
         Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics); Changed?.Invoke(text);
     }
     private void Restore(List<(string Text, int Cursor, int Anchor, TextAffinity Affinity)> from, List<(string Text, int Cursor, int Anchor, TextAffinity Affinity)> to)
     {
         if (from.Count == 0) return;
-        to.Add((text, cursor, anchor, affinity)); (text, cursor, anchor, affinity) = from[^1]; from.RemoveAt(from.Count - 1);
+        var state = from[^1]; var stops = Stops(state.Text);
+        int restoredCursor = TextBoundary.Snap(stops, state.Cursor, state.Cursor >= state.Anchor);
+        int restoredAnchor = state.Cursor == state.Anchor ? restoredCursor : TextBoundary.Snap(stops, state.Anchor, state.Anchor > state.Cursor);
+        to.Add((text, cursor, anchor, affinity));
+        (text, cursor, anchor, affinity) = (state.Text, restoredCursor, restoredAnchor, state.Affinity); from.RemoveAt(from.Count - 1);
         composition = ""; Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics); Changed?.Invoke(text);
     }
     private static float ContentWidth(Rect b) => Math.Max(1, b.Width - 28);
@@ -205,6 +222,7 @@ public sealed class TextBox : Element
     protected override void OnDocumentChanged(UiDocument? previous, UiDocument? current)
     {
         dragging = false; composition = ""; scroll = 0;
+        if (current != null) NormalizeSelection();
     }
     protected override void OnEvent(UiEvent e)
     {
@@ -252,8 +270,8 @@ public sealed class TextBox : Element
                     }
                     e.Handled = true; Invalidate(); break;
                 }
-                if (e.Key == 8 && (cursor > 0 || cursor != anchor)) { if (anchor == cursor) anchor = Previous(); ReplaceSelection(""); }
-                else if (e.Key == 46 && (cursor < text.Length || cursor != anchor)) { if (anchor == cursor) anchor = Next(); ReplaceSelection(""); }
+                if (e.Key == 8 && (cursor > 0 || cursor != anchor)) ReplaceSelection("", cursor == anchor ? Previous() : SelectionStart, SelectionStart + SelectionLength);
+                else if (e.Key == 46 && (cursor < text.Length || cursor != anchor)) ReplaceSelection("", SelectionStart, cursor == anchor ? Next() : SelectionStart + SelectionLength);
                 else if (e.Key is 37 or 39 or 36 or 35)
                 {
                     cursor = e.Key switch { 37 => !e.Shift && cursor != anchor ? Math.Min(cursor, anchor) : Previous(), 39 => !e.Shift && cursor != anchor ? Math.Max(cursor, anchor) : Next(), 36 => 0, _ => text.Length };
