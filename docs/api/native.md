@@ -8,7 +8,7 @@
 
 ## Rust 模块
 
-`youi_render` 公开 `ir`、`renderer`、`ffi` 模块，并在 crate 根导出 `Rect`、`Command`、`FrameStats`、`validate` 和 `Renderer`。内部文字模块不作为独立公共 API。
+`youi_render` 公开 `ir`、`renderer`、`ffi` 模块，并在 crate 根导出 `Rect`、`Command`、`FrameStats`、`validate` 、`Renderer`、`TextCell`、`ResourceBudget` 和 `ResourceUsage`。内部文字模块不作为独立公共 API。
 
 `youi_scene` 公开 `NodeId`、`Transform2D`、`Mesh`、`Scene`。两个 crate 当前都通过 workspace 源码使用。
 
@@ -34,7 +34,7 @@ radius: f32, font_size: f32, reserved: [f32; 2]
 | kind | 操作 | 字段 |
 | --- | --- | --- |
 | 0 | 圆角矩形、纵向渐变 | rect、color/color2、radius |
-| 1 | 文字 | rect、color、font_size、text_offset/text_length；flags bit 0=粗体 |
+| 1 | 文字 | rect、color、font_size、text_offset/text_length；flags bit 0=粗体、bit 1=禁止自动换行、bit 2=仅使用 clip stack 裁剪 |
 | 2 / 3 | 压入 / 弹出矩形裁剪 | 压入使用 rect，嵌套求交 |
 | 4 / 5 | 开始 / 结束隔离层 | color[3] 为整层透明度；rect 不定义局部层范围 |
 | 6 | 任意平色三角形 | rect.xy=p0，rect.wh=p1，reserved=p2；此时 w/h 是坐标，不是尺寸 |
@@ -50,7 +50,7 @@ Command::triangle(points: [[f32; 2]; 3], color: [f32; 4]) -> Self
 validate(commands: &[Command], text: &[u8]) -> Result<(), String>
 ```
 
-其他命令用字段和 `..Default::default()` 构造。默认颜色为透明黑；手工图像命令需要显式设置白色 tint `[1.; 4]`。Text 的 offset/length 是 UTF-8 **字节**，rect.w 控制换行且 rect 同时裁剪文字。
+其他命令用字段和 `..Default::default()` 构造。默认颜色为透明黑；手工图像命令需要显式设置白色 tint `[1.; 4]`。Text 的 offset/length 是 UTF-8 **字节**，rect.w 控制布局宽度；默认换行并按 rect 裁剪。新增旗标可分别关闭自动换行或该命令自身的矩形裁剪。
 
 输入坐标为物理像素、左上原点、Y 向下。两套输入颜色都须为 0..1 的非预乘 sRGB RGBA。
 
@@ -90,7 +90,7 @@ validate(commands: &[Command], text: &[u8]) -> Result<(), String>
 
 renderer 通过 Rust drop 释放，没有额外 destroy 方法。停止使用图像，drop renderer，再销毁 HWND。图像 ID 只能用于创建它的 renderer，释放后不再可用。
 
-render 每帧从透明背景绘制，仅相邻兼容操作合批。返回前已读完调用方的命令和文本，但不等待 GPU 执行完毕。measure 与绘制共用文字系统，可能生成字形并占用 GPU 图集。
+render 每帧从透明背景绘制，仅相邻兼容操作合批。返回前已读完调用方的命令和文本，但不等待 GPU 执行完毕。measure/text_cells 与绘制共用文字系统及塑形缓存，但几何查询不上传 GPU 图集。新增 TextCell、text_cells 和 C ABI 的单位/旗标/容量契约见 [A08 文字输入](../text-input.md)。
 
 Surface lost/outdated 会重配后重试一次；呈现超时可能跳过窗口呈现但仍返回统计。当前不提供完整设备丢失重建。
 

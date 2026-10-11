@@ -5,8 +5,10 @@ not atlas coordinates. The keys include font face ID, glyph ID, size, subpixel
 bins and raster flags, including fallback-font identity. FontSystem remains
 private and immutable in membership for the cache lifetime; replacing its font
 configuration must replace the layout cache. Layout lookup still uses text,
-size bits, available-width bits and bold, with the existing 512-entry clear bound.
-Shaping, line measurement, physical glyph placement and painter order are unchanged.
+size bits, available-width bits, bold and wrapping mode, with the existing 512-entry clear bound.
+Residency separation itself does not change shaping, line measurement, physical
+glyph placement or painter order. A08 additionally corrects split-grapheme wrapping
+and preserves trailing empty lines in the shared geometry; see [text input](text-input.md).
 Empty/no-raster glyphs create no draw quads; missing characters still use the
 shaper's normal fallback or .notdef behavior.
 
@@ -16,8 +18,8 @@ draw preparation. A layout cache hit therefore does not imply an atlas hit.
 FrameStats.AtlasGlyphs now counts glyphs resident from drawing rather than also
 measurement; fully clipped glyphs need not become resident. The existing Swash
 raster cache behavior is unchanged (this is not a new memory-budget policy).
-The public Rust Renderer, C ABI, command/stat structures and managed API are
-unchanged. Measurement no longer fails merely because the atlas is exhausted;
+A08 adds text-cell geometry APIs and text command flags without changing the
+command/stat structure layouts; see [text input](text-input.md). Measurement no longer fails merely because the atlas is exhausted;
 drawing can still fail on exhaustion.
 
 The atlas remains one fixed 2048-square texture shared by images and glyphs.

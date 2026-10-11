@@ -16,8 +16,20 @@ extern "C" {
    count is a command count; text/path/buffer lengths and capacities are bytes.
    Text and paths are UTF-8. HWND outlives renderer.
    Image uploads: straight-alpha RGBA8 sRGB. Release invalidates the ID.
-   Coordinates: physical pixels, top-left origin, +Y down. */
+   Coordinates: physical pixels, top-left origin, +Y down.
+   Text command flags: bit 0 bold, bit 1 no-wrap, bit 2 skip command rect clip
+   while honoring the clip stack; all other text command bits are reserved. */
 typedef struct { float x, y, w, h; } youi_rect;
+/* UTF-8 byte boundaries, visual-line index and physical-pixel advance bounds.
+   flags bit 0: RTL (logical start at right edge); all other bits are zero.
+   Ligatures divide their advance equally at extended-grapheme boundaries.
+   Hard line ending bytes have no cell; empty lines have start=end, width=0.
+   Wrap-suppressed whitespace has width=0 at the adjacent shaped caret.
+   Ordered by visual line then x. Geometry never allocates glyph atlas space. */
+typedef struct {
+    uint32_t start, end, line, flags;
+    float x, y, width, height;
+} youi_text_cell;
 typedef struct {
     uint32_t kind, flags, text_offset, text_length;
     youi_rect rect;
@@ -46,6 +58,8 @@ typedef struct {
    See docs/api/native.md for ownership, frame budgets and full contracts. */
 uint32_t YOUI_CALL youi_abi_version(void);
 uint32_t YOUI_CALL youi_command_size(void);
+/* Additive v1 geometry symbol: check availability and 32-byte struct size. */
+uint32_t YOUI_CALL youi_text_cell_size(void);
 /* Additive v1 symbols: older v1 libraries may not export these functions.
    Check symbol availability and both sizes before using the resource API. */
 uint32_t YOUI_CALL youi_resource_budget_size(void);
@@ -69,8 +83,17 @@ int32_t YOUI_CALL youi_resize(uint64_t renderer, uint32_t width, uint32_t height
    NULL input is allowed only for zero count/length. Clip/layer scopes must balance. */
 int32_t YOUI_CALL youi_render(uint64_t renderer, const youi_command* commands, uint32_t count, const uint8_t* text, uint32_t length, youi_frame_stats* stats);
 /* size: 1..512, max_width: finite and >=0; outputs are physical pixels.
-   Any nonzero bold selects bold text. Measurement may populate the GPU atlas. */
+   Any nonzero bold selects bold text. Measurement does not populate the GPU atlas. */
 int32_t YOUI_CALL youi_measure(uint64_t renderer, const uint8_t* text, uint32_t length, float size, float max_width, uint32_t bold, float* width, float* height);
+/* size/max_width have the same meaning as youi_measure. flags bit 0 selects
+   bold, bit 1 disables wrapping; other bits are invalid. text length is
+   bytes (<=16 MiB), while capacity and count are numbers of youi_text_cell.
+   NULL cells with capacity=0 queries the required count and succeeds.
+   Nonzero capacity requires an aligned, writable cells buffer. Insufficient
+   capacity returns -1 and the required count, without writing partial cells.
+   count is required, writable and aligned. All other errors leave outputs
+   unchanged. Outputs must not overlap each other or input. No memory retained. */
+int32_t YOUI_CALL youi_text_cells(uint64_t renderer, const uint8_t* text, uint32_t length, float size, float max_width, uint32_t flags, youi_text_cell* cells, uint32_t capacity, uint32_t* count);
 /* Tightly packed RGBA8; length == width*height*4; each side 1..2046.
    Returned image belongs only to this renderer and must remain live through render. */
 int32_t YOUI_CALL youi_upload_image(uint64_t renderer, uint32_t width, uint32_t height, const uint8_t* rgba, uint32_t length, uint32_t* image);
@@ -86,6 +109,8 @@ uint32_t YOUI_CALL youi_last_error(uint8_t* output, uint32_t capacity);
 int32_t YOUI_CALL youi_adapter_name(uint64_t renderer, uint8_t* output, uint32_t capacity, uint32_t* written);
 #ifdef __cplusplus
 }
+static_assert(sizeof(youi_text_cell) == 32, "YoUI text cell ABI mismatch");
+static_assert(offsetof(youi_text_cell, x) == 16, "YoUI text cell offset mismatch");
 static_assert(sizeof(youi_command) == 80, "YoUI command ABI mismatch");
 static_assert(sizeof(youi_frame_stats) == 48, "YoUI stats ABI mismatch");
 static_assert(sizeof(youi_resource_budget_t) == 16, "YoUI resource budget ABI mismatch");

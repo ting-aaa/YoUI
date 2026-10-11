@@ -7,6 +7,7 @@ var count = root.Add(new Label("Clicked 0 times"));
 var button = root.Add(new Button("Click me") { Width = 160, Primary = true });
 int clicks = 0;
 button.Clicked += () => count.Text = $"Clicked {++clicks} times";
+root.Add(new TextBox { Text = "Click or drag: office · é · 👩‍🚀", Width = 440 });
 
 if (args.Length == 2 && args[0] == "--headless")
 {

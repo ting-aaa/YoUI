@@ -47,3 +47,5 @@ cargo doc --workspace --no-deps --locked
 输出入口为 `target/doc/youi_render/index.html` 和 `target/doc/youi_scene/index.html`，需先执行上述命令才会存在。
 
 - [A07 渲染器资源预算](resource-budgets.md)：创建时上限、保留分配快照与失败边界。
+
+- [A08 文字命中与单行输入](text-input.md)：共源塑形几何、Unicode 边界、拖选和平台限制。

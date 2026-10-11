@@ -38,6 +38,8 @@ use std::ops::Sub;
 /// kind: 0 rounded rectangle, 1 text, 2 push clip, 3 pop clip,
 /// 4 begin isolated layer (`color[3]` opacity), 5 end layer,
 /// 6 triangle (rect.xy=p0, rect.wh=p1, reserved=p2), 7 atlas image (flags=resource ID).
+/// Text flags: bit 0 bold, bit 1 no-wrap, bit 2 skip the command rectangle clip
+/// (the current clip stack is still honored). Other text flag bits are reserved.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
 pub struct Command {
@@ -131,6 +133,9 @@ pub fn validate(commands: &[Command], text: &[u8]) -> Result<(), String> {
                 }
             }
             1 => {
+                if c.flags & !7 != 0 {
+                    return Err("invalid text flags".into());
+                }
                 if !(1.0..=512.0).contains(&c.font_size) {
                     return Err("font size outside [1,512]".into());
                 }
@@ -233,5 +238,17 @@ mod tests {
             ..Default::default()
         };
         assert!(validate(&[c], b"").is_err());
+    }
+    #[test]
+    fn text_flags_allow_nowrap_and_explicit_overflow_only() {
+        let mut command = Command::text(Rect::new(0., 0., 100., 20.), [1.; 4], 16., 0, 1);
+        for flags in 0..8 {
+            command.flags = flags;
+            assert!(validate(&[command], b"x").is_ok());
+        }
+        for flags in [8, 15, u32::MAX] {
+            command.flags = flags;
+            assert!(validate(&[command], b"x").is_err());
+        }
     }
 }
