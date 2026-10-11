@@ -264,7 +264,7 @@ static class TextInputTests
         static void Require(bool condition, string message) { if (!condition) throw new Exception(message); }
         using var renderer = new NativeRenderer(480, 180);
         Console.WriteLine($"GPU text-input adapter: {renderer.Adapter}");
-        string[] samples = ["", "office ffi", "A😀e\u0301👨‍👩‍👧‍👦Z", "مرحبا بالعالم", "abc אבג xyz", "क्षि", "क्‍ष", "a\n\nb\n", "a\r\nb", new string('w', 100)];
+        string[] samples = ["", "office ffi", "A😀e\u0301👨‍👩‍👧‍👦Z", "مرحبا بالعالم", "abc אבג xyz", "\u0600\u0301\u0600", "\u0600\u0301\u0600aaب", "\u0600\u202A\u2060\u0301👩‍👧\u202C", "क्षि", "क्‍ष", "a\n\nb\n", "a\r\nb", new string('w', 100)];
         foreach (string value in samples)
         {
             var layout = renderer.Layout(value, 18, 180); var repeated = renderer.Layout(value, 18, 180);
@@ -292,6 +292,40 @@ static class TextInputTests
             Require(selected.All(r => Finite(r) && r.Width > 0 && r.Height > 0), "native selection rectangles are finite and contain ink spans");
             Require(selected.SequenceEqual(layout.GetSelection(value.Length, 0)), "native reverse selection geometry is stable");
         }
+        // These valid prepend/combining strings previously produced reversed native
+        // glyph ranges and poisoned the shared renderer registry through the ABI.
+        string[] clusterParts = ["\u0600", "\u0301", "a", "ب"];
+        int clusterCases = 0;
+        var clusterSamples = from a in clusterParts from b in clusterParts from c in clusterParts select a + b + c;
+        foreach (string value in clusterSamples.Append("\u0600\u0301\u0600aaب").Append("\u0600\u202A\u2060\u0301👩‍👧\u202C"))
+            foreach (float width in new[] { 1f, 10f, 30f, 180f })
+                foreach (bool wrap in new[] { false, true })
+                {
+                    var layout = renderer.Layout(value, 18, width, wrap: wrap);
+                    Require(layout.Cells.Count > 0 && layout.Cells.All(c => c.Start <= c.End && ScalarBoundary(value, c.Start) && ScalarBoundary(value, c.End) && Finite(c.Bounds)), "valid prepend/combining text has ordered scalar-safe geometry");
+                    foreach (int stop in layout.CaretStops)
+                        Require(Finite(layout.GetCaret(new(stop))), "range normalization retains usable carets");
+                    clusterCases++;
+                }
+        foreach (string value in new[] { "\u0600\u0301\u0600", "\u0600\u202A\u2060\u0301👩‍👧\u202C" })
+        {
+            var editRoot = new Element(); var edit = editRoot.Add(new TextBox { Text = value, Width = 58 });
+            var editDoc = new UiDocument(editRoot, renderer, 480, 180); editDoc.Focus(edit); edit.Select(0, edit.Text.Length);
+            Require(edit.Text == value, "TextBox preserves the valid Unicode format characters in this regression");
+            renderer.Render(editDoc.BuildFrame()); Key(editDoc, 46);
+            Require(edit.Text.Length == 0 && edit.CaretIndex == 0, "valid bidi-format text remains editable through the no-wrap TextBox path");
+            renderer.Render(editDoc.BuildFrame());
+        }
+        Require(renderer.Measure("still usable", 18, 200).Height > 0, "same renderer can measure after all Unicode layouts");
+        var lifecycleFrame = new DrawList(); lifecycleFrame.Rectangle(new(0, 0, 16, 16), Color.Hex(0x336699));
+        renderer.Render(lifecycleFrame);
+        using (var second = new NativeRenderer(32, 32))
+        {
+            Require(second.Layout("second renderer", 14, 30).Cells.Count > 0, "registry remains usable for another renderer");
+            second.Render(lifecycleFrame);
+        }
+        Require(renderer.Layout("after second disposal", 14, 100).Cells.Count > 0, "second renderer disposal preserves first renderer access");
+        Console.WriteLine($"PASS {clusterCases} prepend/combining range layouts and subsequent measure/render/create/dispose operations");
         var unicodeClusters = renderer.Layout("A😀e\u0301👨‍👩‍👧‍👦Z", 18, 400, wrap: false);
         Require(unicodeClusters.CaretStops.SequenceEqual(new[] { 0, 1, 3, 5, 16, 17 }), "native UTF8-to-UTF16 bridge retains complete surrogate combining and ZWJ graphemes");
         foreach (string conjunct in new[] { "क्षि", "क्‍ष" })

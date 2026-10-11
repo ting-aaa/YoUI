@@ -441,3 +441,152 @@ fn text_geometry_shares_cached_draw_layout_and_abi_contract() -> Result<(), Stri
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "requires a GPU adapter; run explicitly in the quality gate"]
+fn unicode_cluster_ranges_succeed_through_abi_and_keep_renderers_usable() {
+    use unicode_segmentation::UnicodeSegmentation;
+    use youi_render::{ffi::*, FrameStats, TextCell};
+
+    fn success(status: i32) {
+        let mut message = [0; 512];
+        let length = unsafe { youi_last_error(message.as_mut_ptr(), message.len() as u32) };
+        assert_eq!(
+            status,
+            0,
+            "{}",
+            String::from_utf8_lossy(&message[..(length as usize).min(message.len())])
+        );
+    }
+
+    unsafe {
+        let mut first = 0;
+        success(youi_create(256, 128, 0, &mut first));
+        let mut adapter = [0; 256];
+        let mut written = 0;
+        success(youi_adapter_name(
+            first,
+            adapter.as_mut_ptr(),
+            adapter.len() as u32,
+            &mut written,
+        ));
+        for text in [
+            "\u{0600}\u{0301}\u{0600}",
+            "\u{0600}\u{0301}\u{0600}aaب",
+            "\u{0600}\u{202a}\u{2060}\u{0301}👩‍👧\u{202c}",
+        ] {
+            for flags in [0, 2] {
+                let mut count = 0;
+                success(youi_text_cells(
+                    first,
+                    text.as_ptr(),
+                    text.len() as u32,
+                    18.,
+                    30.,
+                    flags,
+                    std::ptr::null_mut(),
+                    0,
+                    &mut count,
+                ));
+                assert_eq!(count as usize, text.graphemes(true).count());
+                let mut cells = vec![TextCell::default(); count as usize];
+                success(youi_text_cells(
+                    first,
+                    text.as_ptr(),
+                    text.len() as u32,
+                    18.,
+                    30.,
+                    flags,
+                    cells.as_mut_ptr(),
+                    count,
+                    &mut count,
+                ));
+                for (start, grapheme) in text.grapheme_indices(true) {
+                    assert_eq!(
+                        cells
+                            .iter()
+                            .filter(|cell| {
+                                cell.start == start as u32
+                                    && cell.end == (start + grapheme.len()) as u32
+                            })
+                            .count(),
+                        1
+                    );
+                }
+                assert!(cells.iter().all(|cell| cell.width.is_finite()
+                    && cell.width >= 0.
+                    && cell.x.is_finite()
+                    && cell.y.is_finite()));
+                let command = Command {
+                    flags: flags | 4,
+                    ..Command::text(
+                        Rect::new(8., 8., 30., 112.),
+                        [1.; 4],
+                        18.,
+                        0,
+                        text.len() as u32,
+                    )
+                };
+                let mut stats = FrameStats::default();
+                success(youi_render(
+                    first,
+                    &command,
+                    1,
+                    text.as_ptr(),
+                    text.len() as u32,
+                    &mut stats,
+                ));
+                assert!(
+                    stats.atlas_glyphs > 0,
+                    "the regression must retain raster glyphs"
+                );
+                assert_eq!(
+                    stats.text_cache_hits, 1,
+                    "painting must reuse queried geometry"
+                );
+            }
+        }
+        // These operations used to fail after the contained panic poisoned the
+        // process-wide registry. Success is required, not merely containment or
+        // a recovered mutex: both existing and newly created engines must work.
+        let mut second = 0;
+        success(youi_create(256, 128, 0, &mut second));
+        for id in [first, second] {
+            let text = b"renderer remains usable";
+            let (mut width, mut height) = (0., 0.);
+            success(youi_measure(
+                id,
+                text.as_ptr(),
+                text.len() as u32,
+                18.,
+                240.,
+                0,
+                &mut width,
+                &mut height,
+            ));
+            assert!(width > 0. && height > 0. && width.is_finite() && height.is_finite());
+            let command = Command::text(
+                Rect::new(8., 8., 240., 112.),
+                [1.; 4],
+                18.,
+                0,
+                text.len() as u32,
+            );
+            let mut stats = FrameStats::default();
+            success(youi_render(
+                id,
+                &command,
+                1,
+                text.as_ptr(),
+                text.len() as u32,
+                &mut stats,
+            ));
+            assert!(stats.atlas_glyphs > 0);
+            success(youi_destroy(id));
+        }
+        println!(
+            "Unicode cluster ranges and C ABI lifecycle verified on {}",
+            String::from_utf8_lossy(&adapter[..written as usize])
+        );
+    }
+}

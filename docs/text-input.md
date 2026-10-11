@@ -8,6 +8,8 @@
 
 cosmic-text 0.14 在极窄宽度下可能把一个 Indic 字素的多个 glyph 分到不同视觉行。检测到这种情况时，对同一份已塑形 glyph 先按不可分的字素/cluster advance 进行原子换行，再恢复原始 glyph、字体、偏移和 bidi level；绘制与 cell 都使用修正后的 runs，不按单字素重新塑形。一个字素比布局宽度更宽时允许完整溢出。若段落确实需要这项原子换行修正，且该段落内还存在跨不同 bidi embedding level 的字素，整个段落保守回退为不自动换行，以保留原有双向顺序；跨级字素不一定就是最初被拆行的那个字素。这样不会在重新流排时把它再次拆开，也不人为决定新的 bidi level。长段落可能因此整体超出给定宽度，但 hit/caret/cell 和绘制仍一致。若原排版没有拆开任何字素，则不触发修正或回退，保持原有换行。这是本阶段明确的自动换行限制。
 
+部分有效 prepend/combining/bidi 文本会使 cosmic-text 产生 end≤start 的退化 glyph cluster 范围。转换层保留 glyph 的逻辑 start 锚点和所有绘制信息，把这种范围归入该锚点所在字素（末尾锚点归入最后字素），并统一钳制到段落边界；不交换锚点、不丢弃可见 glyph。分行检测、原子换行和几何 cell 使用同一规范化规则，避免合法文本触发越界或整数下溢。
+
 普通 `Measure` 和 `DrawList.Text` 默认继续换行。新增 `wrap: false` 使用 cosmic-text `Wrap::None`，宽度仍用于行对齐。绘制旗标 bit 0=bold，bit 1=no-wrap，bit 2=不使用该文字命令自身的矩形裁剪；最后一项不会绕过 clip stack。`TextBox` 使用 `wrap: false, clip: false`，再用自己的视口裁剪，这样水平滚动不会改变排版宽度或提前截断右侧内容。`Append` 和 `CopyScaledTo` 保留这些旗标。
 
 显式 CR/LF/CRLF/LFCR 与空行按照 native buffer 的段落规则处理；末尾换行现在保留末尾空行，测量高度因此包含这一行。自动换行丢弃的空白以相邻实际 shaped edge 上的零宽 cell 保留索引。没有可见 advance 的换行/格式字符不生成选择色块；行末没有额外的“选中换行”标记。

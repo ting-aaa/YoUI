@@ -512,12 +512,28 @@ impl ShapedText {
     }
 }
 fn grapheme_range(start: usize, end: usize, boundaries: &[usize]) -> (usize, usize) {
-    (
-        boundaries
-            .partition_point(|&i| i <= start)
-            .saturating_sub(1),
-        boundaries.partition_point(|&i| i < end),
-    )
+    let count = boundaries.len().saturating_sub(1);
+    if count == 0 {
+        return (0, 0);
+    }
+    // cosmic-text 0.14 derives ends from neighboring glyphs in visual order.
+    // Font fallback/non-monotone shaping can therefore produce end <= start,
+    // including a visible glyph with 4..0 for "\u{0600}\u{0301}\u{0600}".
+    // `start` remains the logical cluster anchor: keep its containing EGC,
+    // rather than swapping endpoints (which assigns it to preceding text) or
+    // dropping the glyph. Empty/EOF anchors likewise own a neighboring EGC.
+    // Valid forward spans still cover every intersecting EGC. All callers get
+    // a bounded nonempty range for nonempty text, including wrap detection,
+    // atomic grouping, and the painted glyph's editing geometry.
+    let first = boundaries
+        .partition_point(|&i| i <= start)
+        .saturating_sub(1)
+        .min(count - 1);
+    let last = boundaries
+        .partition_point(|&i| i < end)
+        .min(count)
+        .max(first + 1);
+    (first, last)
 }
 fn splits_grapheme(lines: &[LayoutLine], boundaries: &[usize]) -> bool {
     let mut owners = vec![usize::MAX; boundaries.len().saturating_sub(1)];
@@ -1005,6 +1021,174 @@ mod tests {
     }
 
     #[test]
+    fn glyph_ranges_keep_logical_anchors_and_are_always_bounded() {
+        let boundaries = [0, 4, 6];
+        for (start, end, expected) in [
+            (0, 4, (0, 1)),
+            (2, 5, (0, 2)),
+            (4, 6, (1, 2)),
+            // A reversed end is not a reason to move the logical anchor back.
+            (4, 0, (1, 2)),
+            (5, 2, (1, 2)),
+            (2, 0, (0, 1)),
+            // Empty ranges retain visible glyphs at start, inside an EGC,
+            // exactly at an interior boundary, and at paragraph end.
+            (0, 0, (0, 1)),
+            (2, 2, (0, 1)),
+            (4, 4, (1, 2)),
+            (5, 5, (1, 2)),
+            (6, 6, (1, 2)),
+            (6, 0, (1, 2)),
+            (usize::MAX, usize::MAX, (1, 2)),
+            (0, usize::MAX, (0, 2)),
+        ] {
+            assert_eq!(grapheme_range(start, end, &boundaries), expected);
+        }
+        assert_eq!(grapheme_range(0, 0, &[0]), (0, 0));
+        assert_eq!(grapheme_range(usize::MAX, 0, &[]), (0, 0));
+        for start in 0..10 {
+            for end in 0..10 {
+                let (first, last) = grapheme_range(start, end, &boundaries);
+                assert!(first < last && last < boundaries.len());
+            }
+        }
+    }
+
+    #[test]
+    fn unicode_prepend_and_bidi_ranges_preserve_all_cells_and_painted_glyphs() {
+        let mut cache = LayoutCache::new();
+        for text in [
+            "\u{0600}\u{0301}\u{0600}",
+            "\u{0600}\u{0301}\u{0600}aaب",
+            "\u{0600}\u{202a}\u{2060}\u{0301}👩‍👧\u{202c}",
+        ] {
+            let mut boundaries = text
+                .grapheme_indices(true)
+                .map(|(start, _)| start)
+                .collect::<Vec<_>>();
+            boundaries.push(text.len());
+            for wrap in [true, false] {
+                for width in [1., 10., 30., 120.] {
+                    let shaped = cache.shape(text, 18., width, false, wrap);
+                    let layout = cache.layout_with_wrap(text, 18., width, false, wrap);
+                    assert_eq!(layout.cells.len(), boundaries.len() - 1);
+                    assert!(layout.width.is_finite() && layout.height.is_finite());
+                    for pair in boundaries.windows(2) {
+                        let cells = layout
+                            .cells
+                            .iter()
+                            .filter(|cell| {
+                                cell.start == pair[0] as u32 && cell.end == pair[1] as u32
+                            })
+                            .collect::<Vec<_>>();
+                        assert_eq!(cells.len(), 1, "{text:?}, wrap={wrap}, width={width}");
+                        let cell = cells[0];
+                        assert!(cell.x.is_finite() && cell.y.is_finite());
+                        assert!(cell.width.is_finite() && cell.width >= 0.);
+                    }
+                    // This includes reversed/empty cosmic ranges if the fonts
+                    // emit them. Every source glyph survives atomic reflow,
+                    // including visible ones whose byte spans are malformed.
+                    let glyph_identity = |glyph: &LayoutGlyph| {
+                        format!(
+                            "{:?}",
+                            (
+                                glyph.start,
+                                glyph.end,
+                                glyph.font_id,
+                                glyph.glyph_id,
+                                glyph.w.to_bits(),
+                                glyph.level,
+                                glyph.x_offset.to_bits(),
+                                glyph.y_offset.to_bits(),
+                                glyph.metadata,
+                            )
+                        )
+                    };
+                    let mut original = shaped.buffer.lines[0]
+                        .shape_opt()
+                        .unwrap()
+                        .layout(18., Some(width), Wrap::None, None, None)
+                        .iter()
+                        .flat_map(|line| line.glyphs.iter().map(glyph_identity))
+                        .collect::<Vec<_>>();
+                    let mut corrected = Vec::new();
+                    let mut painted = Vec::new();
+                    for (line, run) in shaped.layout_runs().enumerate() {
+                        for glyph in run.glyphs {
+                            corrected.push(glyph_identity(glyph));
+                            let (start, end) = grapheme_range(glyph.start, glyph.end, &boundaries);
+                            let cells = layout
+                                .cells
+                                .iter()
+                                .filter(|cell| {
+                                    cell.line == line as u32
+                                        && cell.start >= boundaries[start] as u32
+                                        && cell.end <= boundaries[end] as u32
+                                })
+                                .collect::<Vec<_>>();
+                            assert!(!cells.is_empty(), "unowned glyph {glyph:?}");
+                            let physical = glyph.physical((0., 0.), 1.);
+                            if let Some(image) =
+                                cache.swash.get_image(&mut cache.fonts, physical.cache_key)
+                            {
+                                let p = image.placement;
+                                if p.width != 0 && p.height != 0 {
+                                    painted.push((
+                                        physical.cache_key,
+                                        [
+                                            (physical.x + p.left) as f32,
+                                            run.line_y + physical.y as f32 - p.top as f32,
+                                            p.width as f32,
+                                            p.height as f32,
+                                        ],
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    original.sort_unstable();
+                    corrected.sort_unstable();
+                    assert_eq!(
+                        corrected, original,
+                        "lost/replaced shaped glyph in {text:?}"
+                    );
+                    assert_eq!(
+                        layout
+                            .glyphs
+                            .iter()
+                            .map(|g| (g.key, rect(g.rect)))
+                            .collect::<Vec<_>>(),
+                        painted,
+                        "geometry and painting must share the corrected shaping"
+                    );
+                    assert_eq!(
+                        layout.cells,
+                        cache.layout_with_wrap(text, 18., width, false, wrap).cells
+                    );
+                    if shaped.layout_runs().count() == 1 {
+                        let nowrap = cache.layout_with_wrap(text, 18., width, false, false);
+                        assert_eq!(layout.cells, nowrap.cells);
+                        assert_eq!(
+                            layout
+                                .glyphs
+                                .iter()
+                                .map(|g| (g.key, rect(g.rect)))
+                                .collect::<Vec<_>>(),
+                            nowrap
+                                .glyphs
+                                .iter()
+                                .map(|g| (g.key, rect(g.rect)))
+                                .collect::<Vec<_>>(),
+                            "one-line correction preserves original raster order and positions"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn cells_preserve_graphemes_spaces_newlines_and_empty_trailing_lines() {
         let mut cache = LayoutCache::new();
         for (text, starts) in [
@@ -1383,6 +1567,72 @@ mod tests {
                     assert_eq!(glyph.level.is_rtl(), rtl);
                 }
             }
+        }
+    }
+    #[test]
+    fn synthetic_reversed_and_empty_ranges_keep_visible_glyphs_and_atomic_egcs() {
+        for rtl in [false, true] {
+            let mut source = synthetic_shape(rtl);
+            let ranges = [(0, 0), (3, 0), (6, 0), (12, 12)];
+            for (glyph, (start, end)) in source.spans[0].words[0].glyphs.iter_mut().zip(ranges) {
+                glyph.start = start;
+                glyph.end = end;
+            }
+            let boundaries = [0, 6, 12];
+            let original = source.layout(1., Some(5.), Wrap::WordOrGlyph, None, None);
+            assert!(splits_grapheme(&original, &boundaries));
+            let fixed = layout_atomic_graphemes(&source, &boundaries, 1., 5., Wrap::WordOrGlyph);
+            assert!(!splits_grapheme(&fixed, &boundaries));
+            assert_eq!(fixed.len(), 2);
+            let nowrap = source.layout(1., Some(5.), Wrap::None, None, None);
+            let mut seen = Vec::new();
+            let mut cells = Vec::new();
+            for (line, layout) in fixed.iter().enumerate() {
+                assert_eq!(layout.glyphs.len(), 2);
+                assert_close(layout.w, 10.);
+                let group = layout.glyphs[0].glyph_id / 2;
+                assert_eq!(
+                    layout.glyphs.iter().map(|g| g.glyph_id).collect::<Vec<_>>(),
+                    nowrap
+                        .iter()
+                        .flat_map(|line| &line.glyphs)
+                        .filter(|g| g.glyph_id / 2 == group)
+                        .map(|g| g.glyph_id)
+                        .collect::<Vec<_>>(),
+                    "atomic reflow must preserve internal paint order"
+                );
+                for glyph in &layout.glyphs {
+                    let id = glyph.glyph_id as usize;
+                    assert_eq!((glyph.start, glyph.end), ranges[id]);
+                    assert_eq!(glyph.metadata, id + 100);
+                    assert_eq!((glyph.x_offset, glyph.y_offset), (0.125, 0.25));
+                    assert_eq!(glyph.level.is_rtl(), rtl);
+                    seen.push(id);
+                }
+                append_run_cells(
+                    &LayoutRun {
+                        line_i: 0,
+                        text: "",
+                        rtl,
+                        glyphs: &layout.glyphs,
+                        line_y: line as f32,
+                        line_top: line as f32,
+                        line_height: 1.,
+                        line_w: layout.w,
+                    },
+                    &boundaries,
+                    0,
+                    line as u32,
+                    &mut cells,
+                );
+            }
+            seen.sort_unstable();
+            assert_eq!(seen, [0, 1, 2, 3], "never discard malformed-range glyphs");
+            cells.sort_by_key(|cell| cell.start);
+            assert_eq!(cells.len(), 2);
+            assert_eq!((cells[0].start, cells[0].end), (0, 6));
+            assert_eq!((cells[1].start, cells[1].end), (6, 12));
+            assert!(cells.iter().all(|cell| cell.width == 10.));
         }
     }
     #[test]
