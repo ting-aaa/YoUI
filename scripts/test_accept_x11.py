@@ -54,6 +54,7 @@ class FakeDriver:
         self.pointer, self.down, self.selected = None, False, False
         self.cancel = cancel
         self.finished = False
+        self.wm = 1
 
     def increment(self, event):
         self.state["eventCounts"][event] = accept.count(self.state, event) + 1
@@ -112,6 +113,11 @@ class FakeDriver:
             self.state["suspended"] = True
         elif kind == "windowmap":
             self.state["suspended"] = False
+            self.wm = 1
+        elif kind == "windowminimize":
+            self.wm = 3
+            self.state["suspended"] = True
+            self.state["hasInputFocus"] = False
         elif kind == "windowraise":
             pass
         else:
@@ -146,6 +152,11 @@ class FakeDriver:
 
     def capture(self):
         return dict(method="fixture only; no native image", distinctColorsAtLeast=20)
+
+    def wait_wm_state(self, xid, expected):
+        if self.wm != expected:
+            raise ValueError("fixture WM state mismatch")
+        return dict(xid=xid, wmState=self.wm, mapState=2 if self.wm == 1 else 0)
 
 
 class Fixture:
@@ -219,14 +230,22 @@ class AcceptanceTests(unittest.TestCase):
         with patch.dict(os.environ, {"DISPLAY": ":fake"}), patch.object(accept.platform, "system", return_value="Linux"), \
              patch.object(accept, "X11Worker") as x11, patch.object(accept, "run_command", side_effect=fixture.run), \
              patch.object(accept, "WindowSession", side_effect=fixture.session), \
-             patch.object(accept, "exercise_window", return_value=result), contextlib.redirect_stdout(io.StringIO()):
+             patch.object(accept, "exercise_window", return_value=result) as exercise, contextlib.redirect_stdout(io.StringIO()):
             x11.return_value.library = "fixture libX11"
             x11.return_value.close.return_value = cleanup_error
             with patch.dict(os.environ):
                 os.environ.pop("RUSTUP_TOOLCHAIN", None)
                 code = accept.run_acceptance(self.args, self.root)
             x11.return_value.close.assert_called_once()
+            if code == 0:
+                self.assertIs(exercise.call_args.kwargs["require_wm"], getattr(self.args, "require_wm", False))
         return code, json.loads((self.args.output / "result.json").read_text(encoding="utf-8"))
+
+    def test_requested_wm_mode_is_forwarded_and_recorded(self):
+        self.args.require_wm = True
+        code, report = self.fixture_run(Fixture(self.root))
+        self.assertEqual(code, 0)
+        self.assertIs(report["requireWindowManager"], True)
 
     def test_matching_profiles_native_before_managed_and_metadata(self):
         for configuration in ("Debug", "Release"):
@@ -306,6 +325,12 @@ class AcceptanceTests(unittest.TestCase):
                 accept.main(arguments)
             self.assertEqual(exc.exception.code, 2)
 
+    def test_cli_wm_mode_defaults_off_and_is_explicit(self):
+        for extra, expected in (([], False), (["--require-wm"], True)):
+            with patch.object(accept, "run_acceptance", return_value=0) as run:
+                self.assertEqual(accept.main(["--configuration", "Release", "--backend", "vulkan", *extra]), 0)
+            self.assertIs(run.call_args.args[0].require_wm, expected)
+
     def test_actual_cli_no_display_creates_failed_evidence(self):
         environment = dict(os.environ)
         environment.pop("DISPLAY", None)
@@ -318,6 +343,66 @@ class AcceptanceTests(unittest.TestCase):
 
 
 class DriverTests(unittest.TestCase):
+    def test_wm_mode_requires_iconic_normal_transitions_and_restored_click(self):
+        session = FakeDriver()
+        result = accept.exercise_window(session, require_wm=True)
+        self.assertEqual(result["windowManager"], dict(required=True, transitions=[
+            dict(xid=12345, wmState=s, mapState=m) for s, m in ((1, 2), (3, 0), (1, 2))]))
+        self.assertIn(("windowminimize", "12345"), session.inputs)
+        self.assertEqual(result["finalState"]["clicks"], 3)
+        self.assertIn("WM restored window accepts input", session.checks)
+
+    def test_no_wm_mode_never_queries_or_minimizes(self):
+        session = FakeDriver()
+        with patch.object(session, "wait_wm_state", side_effect=AssertionError("unexpected WM probe")):
+            result = accept.exercise_window(session)
+        self.assertEqual(result["windowManager"], dict(required=False, transitions=[]))
+        self.assertFalse(any(item[0] == "windowminimize" for item in session.inputs))
+
+    def test_wm_failure_does_not_become_passing_check(self):
+        for failure_index in (0, 1, 2):
+            session = FakeDriver()
+            observations = [dict(xid=12345, wmState=s, mapState=m) for s, m in ((1, 2), (3, 0), (1, 2))]
+            observations[failure_index] = ValueError("WM transition never observed")
+            with patch.object(session, "wait_wm_state", side_effect=observations):
+                with self.assertRaisesRegex(ValueError, "never observed"):
+                    accept.exercise_window(session, require_wm=True)
+            self.assertFalse(session.finished)
+            self.assertNotIn("WM restored window accepts input", session.checks)
+
+    def test_host_not_suspended_or_failed_restored_input_cannot_pass(self):
+        for failure in ("windowminimize", "click"):
+            session = FakeDriver()
+            original = session.input
+            def input_(*args):
+                if args[0] == failure and (failure == "windowminimize" or session.wm == 1 and ("windowminimize", "12345") in session.inputs):
+                    if failure == "windowminimize":
+                        session.wm = 3
+                    return
+                original(*args)
+            with patch.object(session, "input", side_effect=input_):
+                with self.assertRaisesRegex(ValueError, "Fake condition failed"):
+                    accept.exercise_window(session, require_wm=True)
+            self.assertFalse(session.finished)
+
+    def test_minimized_frame_progress_and_missing_restored_focus_fail(self):
+        session = FakeDriver()
+        def pause(_seconds):
+            if session.wm == 3:
+                session.state["frames"] += 1
+        with patch.object(session, "pause", side_effect=pause):
+            with self.assertRaisesRegex(ValueError, "WM minimized frame count"):
+                accept.exercise_window(session, require_wm=True)
+        session = FakeDriver()
+        original = session.input
+        def input_(*args):
+            if args[0] == "windowfocus" and ("windowminimize", "12345") in session.inputs:
+                return
+            original(*args)
+        with patch.object(session, "input", side_effect=input_):
+            with self.assertRaisesRegex(ValueError, "WM restore resumes"):
+                accept.exercise_window(session, require_wm=True)
+
     def test_fake_os_sequence_covers_contract_without_real_window_claim(self):
         session = FakeDriver()
         result = accept.exercise_window(session)
@@ -549,6 +634,103 @@ class FocusSinkTests(unittest.TestCase):
         self.assertNotIn("focus", native.lib.calls)
 
 
+class WindowManagerTests(unittest.TestCase):
+    class Library:
+        def __init__(self, *, atom=42, actual=42, form=32, count=2, remaining=0,
+                     state=3, mapped=0, status=0, query=1, data=True):
+            self.atom, self.actual, self.form, self.count = atom, actual, form, count
+            self.remaining, self.mapped, self.status, self.query = remaining, mapped, status, query
+            self.data = (ctypes.c_ulong * 2)(state, 777)
+            self.has_data, self.freed = data, 0
+
+        def XInternAtom(self, _display, name, existing):
+            assert name == b"WM_STATE" and existing == 1
+            return self.atom
+
+        def XGetWindowProperty(self, display, xid, atom, offset, length, delete, requested,
+                               actual, form, count, remaining, data):
+            assert (xid, atom, offset, length, delete, requested) == (12345, 42, 0, 2, 0, 42)
+            for pointer, kind, value in ((actual, ctypes.c_ulong, self.actual),
+                    (form, ctypes.c_int, self.form), (count, ctypes.c_ulong, self.count),
+                    (remaining, ctypes.c_ulong, self.remaining)):
+                ctypes.cast(pointer, ctypes.POINTER(kind))[0] = value
+            if self.has_data:
+                ctypes.cast(data, ctypes.POINTER(ctypes.c_void_p))[0] = ctypes.addressof(self.data)
+            return self.status
+
+        def XGetWindowAttributes(self, display, xid, attributes):
+            ctypes.cast(attributes, ctypes.POINTER(accept.XWindowAttributes)).contents.map_state = self.mapped
+            return self.query
+
+        def XFree(self, _data):
+            self.freed += 1
+
+    def native(self, **kwargs):
+        native = accept.XlibNative.__new__(accept.XlibNative)
+        native.display, native.lib = 1, self.Library(**kwargs)
+        return native
+
+    def test_icccm_lp64_property_read_and_free(self):
+        native = self.native()
+        self.assertEqual(native.wm_state(12345), dict(xid=12345, wmState=3, mapState=0))
+        self.assertEqual(native.lib.freed, 1)
+
+    def test_malformed_or_failed_property_is_rejected_and_freed(self):
+        for kwargs in (dict(actual=43), dict(form=8), dict(count=1), dict(remaining=4),
+                       dict(state=2), dict(status=1), dict(data=False)):
+            with self.subTest(kwargs=kwargs):
+                native = self.native(**kwargs)
+                with self.assertRaises(ValueError):
+                    native.wm_state(12345)
+                self.assertEqual(native.lib.freed, 0 if kwargs.get("data") is False else 1)
+
+    def test_missing_wm_property_is_not_iconic_even_when_unmapped(self):
+        for kwargs in (dict(atom=0), dict(actual=0, data=False)):
+            native = self.native(**kwargs)
+            self.assertIsNone(native.wm_state(12345)["wmState"])
+            with self.assertRaisesRegex(ValueError, "Timed out"):
+                native.wait_wm_state(12345, 3, 0)
+
+    def test_query_failure_cannot_pass(self):
+        with self.assertRaisesRegex(ValueError, "map state"):
+            self.native(query=0).wm_state(12345)
+
+    def test_delayed_transition_requires_both_wm_state_and_map_state(self):
+        native = self.native()
+        records = [dict(xid=12345, wmState=3, mapState=2), dict(xid=12345, wmState=1, mapState=0),
+                   dict(xid=12345, wmState=3, mapState=0)]
+        with patch.object(native, "wm_state", side_effect=records), patch.object(accept.time, "sleep"):
+            self.assertEqual(native.wait_wm_state(12345, 3, 1), records[-1])
+        for state, mapped, expected in ((1, 0, 3), (3, 2, 3), (3, 2, 1), (1, 1, 1)):
+            native = self.native(state=state, mapped=mapped)
+            with self.assertRaisesRegex(ValueError, "Timed out"):
+                native.wait_wm_state(12345, expected, 0)
+
+    def test_worker_result_type_and_exact_client_state_are_required(self):
+        worker = accept.X11Worker.__new__(accept.X11Worker)
+        worker.event_timeout, worker.deadline = 1, time.monotonic() + 2
+        for result in (None, {}, dict(xid=42, wmState=1, mapState=2),
+                       dict(xid=12345, wmState=True, mapState=2), dict(xid=12345, wmState=1, mapState=0)):
+            with patch.object(worker, "request", return_value=result), self.assertRaises(ValueError):
+                worker.wait_wm_state(12345, 1)
+
+    def test_rpc_routes_wm_probe_to_native_observer(self):
+        requests = [dict(id=1, operation="open", arguments=dict(display=":fixture")),
+                    dict(id=2, operation="wait-wm-state", arguments=dict(xid=12345, expected=3, timeout=.2)),
+                    dict(id=3, operation="close", arguments={})]
+        stream = io.StringIO()
+        with patch.object(accept, "XlibNative") as native, \
+             patch.object(sys, "stdin", io.StringIO("\n".join(map(json.dumps, requests)))), \
+             contextlib.redirect_stdout(stream):
+            native.return_value.library = "fake Xlib, no display"
+            native.return_value.wait_wm_state.return_value = dict(xid=12345, wmState=3, mapState=0)
+            native.return_value.close.return_value = None
+            self.assertEqual(accept.xlib_worker_main(), 0)
+        native.return_value.wait_wm_state.assert_called_once_with(12345, 3, .2)
+        replies = list(map(json.loads, stream.getvalue().splitlines()))
+        self.assertEqual(replies[1]["result"], dict(xid=12345, wmState=3, mapState=0))
+
+
 class WorkerTimeoutTests(unittest.TestCase):
     # This child deliberately never opens Xlib or a display. It blocks forever
     # where the real worker could be stuck inside an uninterruptible Xlib call.
@@ -635,6 +817,17 @@ for line in sys.stdin:
         self.assertIn("Xlib close: timeout", error)
         self.assertEqual(self.report["commands"][0]["status"], "failed")
         self.assertEqual(self.report["xlibOperations"][-1]["status"], "timeout")
+        self.assert_reaped()
+
+    def test_indefinitely_blocked_wm_probe_is_killed_with_remaining_budget(self):
+        worker = self.create(self.BLOCKING)
+        worker.bind_deadline(time.monotonic() + .08)
+        try:
+            with self.assertRaisesRegex(ValueError, "Xlib wait-wm-state: timeout"):
+                worker.wait_wm_state(12345, 3)
+        finally:
+            worker.close()
+        self.assertLessEqual(self.report["xlibOperations"][-1]["timeoutSeconds"], .08)
         self.assert_reaped()
 
     def test_normal_pipe_rpc_worker_is_reaped_cleanly(self):

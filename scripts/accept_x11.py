@@ -246,6 +246,11 @@ class XlibNative:
             "XSetErrorHandler": (pointer, [pointer]),
             "XSetInputFocus": (ctypes.c_int, [pointer, window, ctypes.c_int, ctypes.c_ulong]),
             "XInternAtom": (ctypes.c_ulong, [pointer, ctypes.c_char_p, ctypes.c_int]),
+            "XGetWindowProperty": (ctypes.c_int, [pointer, window, ctypes.c_ulong, ctypes.c_long,
+                ctypes.c_long, ctypes.c_int, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+                ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_ulong),
+                ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(pointer)]),
+            "XFree": (ctypes.c_int, [pointer]),
             "XSendEvent": (ctypes.c_int, [pointer, window, ctypes.c_int, ctypes.c_long, ctypes.POINTER(XEvent)]),
             "XTranslateCoordinates": (ctypes.c_int, [pointer, window, window, ctypes.c_int, ctypes.c_int,
                 ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(window)]),
@@ -265,6 +270,47 @@ class XlibNative:
         if not self.display:
             raise ValueError(f"Cannot open DISPLAY={display!r}; no native-window checks were run")
         self.root = self.lib.XDefaultRootWindow(self.display)
+
+    def wm_state(self, xid: int) -> dict:
+        """Read the WM-owned ICCCM property, never infer iconification from SDL/unmap."""
+        atom = self.lib.XInternAtom(self.display, b"WM_STATE", 1)
+        state = None
+        if atom:
+            actual, count, remaining = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_ulong()
+            form, data = ctypes.c_int(), ctypes.c_void_p()
+            try:
+                status = self.lib.XGetWindowProperty(self.display, xid, atom, 0, 2, 0, atom,
+                    ctypes.byref(actual), ctypes.byref(form), ctypes.byref(count),
+                    ctypes.byref(remaining), ctypes.byref(data))
+                if status != 0:
+                    raise ValueError("Cannot query ICCCM WM_STATE")
+                if actual.value:
+                    if actual.value != atom or form.value != 32 or count.value != 2 or remaining.value or not data.value:
+                        raise ValueError("Malformed ICCCM WM_STATE property")
+                    # Xlib expands format-32 items to native unsigned longs on LP64.
+                    state = ctypes.cast(data, ctypes.POINTER(ctypes.c_ulong))[0]
+                    if state not in (0, 1, 3):
+                        raise ValueError("Unknown ICCCM WM_STATE value")
+            finally:
+                if data.value:
+                    self.lib.XFree(data)
+        attributes = XWindowAttributes()
+        if not self.lib.XGetWindowAttributes(self.display, xid, ctypes.byref(attributes)):
+            raise ValueError("Cannot query WM-managed client map state")
+        return dict(xid=xid, wmState=state, mapState=attributes.map_state)
+
+    def wait_wm_state(self, xid: int, expected: int, timeout: float) -> dict:
+        if expected not in (1, 3):
+            raise ValueError("Expected NormalState or IconicState")
+        deadline = time.monotonic() + timeout
+        while True:
+            observed = self.wm_state(xid)
+            if observed["wmState"] == expected and observed["mapState"] == (2 if expected == 1 else 0):
+                return observed
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError(f"Timed out waiting for ICCCM WM_STATE={expected}: {observed}")
+            time.sleep(min(.01, remaining))
 
     def focus_away(self, timeout: float = 5.0) -> None:
         # XSync only drains this client's requests: a WM may still be handling
@@ -426,6 +472,8 @@ def xlib_worker_main() -> int:
                     result = native.focus_away()
                 elif operation == "request-close":
                     result = native.request_close(arguments["xid"])
+                elif operation == "wait-wm-state":
+                    result = native.wait_wm_state(arguments["xid"], arguments["expected"], arguments["timeout"])
                 elif operation == "outside-point":
                     result = native.outside_point(arguments["state"])
                 elif operation == "capture-window":
@@ -554,6 +602,8 @@ class X11Worker:
                 raise ValueError("Invalid Xlib worker reply")
             if not value["ok"]:
                 raise ValueError("Xlib worker: " + str(value.get("error", "operation failed")))
+            if operation == "wait-wm-state":
+                record["observation"] = value.get("result")
             record["status"] = "passed"
             return value.get("result")
         except (OSError, ValueError, KeyboardInterrupt) as exc:
@@ -574,6 +624,14 @@ class X11Worker:
 
     def request_close(self, xid: int) -> None:
         self.request("request-close", dict(xid=xid))
+
+    def wait_wm_state(self, xid: int, expected: int) -> dict:
+        result = self.request("wait-wm-state", dict(xid=xid, expected=expected,
+            timeout=max(0, min(self.event_timeout, self.deadline - time.monotonic()))))
+        wanted = dict(xid=xid, wmState=expected, mapState=2 if expected == 1 else 0)
+        if result != wanted or any(type(value) is not int for value in result.values()):
+            raise ValueError("Xlib worker returned invalid WM_STATE evidence")
+        return result
 
     def outside_point(self, state: dict) -> tuple[int, int]:
         result = self.request("outside-point", dict(state={key: state[key] for key in ("xid", "width", "height")}))
@@ -718,7 +776,7 @@ def count(state: dict, event: str) -> int:
     return state["eventCounts"].get(event, 0)
 
 
-def exercise_window(session: WindowSession) -> dict:
+def exercise_window(session: WindowSession, *, require_wm: bool = False) -> dict:
     initial = session.wait("initial rendered native window", lambda s: s["frames"] >= 1 and not s["closed"])
     adapter = adapter_evidence(initial["adapter"])
     if initial["text"] != "" or initial["clicks"] != 0 or initial["closeRequests"] != 0:
@@ -778,6 +836,24 @@ def exercise_window(session: WindowSession) -> dict:
     session.input("windowmap", "--sync", xid)
     session.input("windowfocus", "--sync", xid)
     session.wait("X11 remap resumes rendering", lambda s: not s["suspended"] and s["frames"] > hidden["frames"])
+    wm = dict(required=require_wm, transitions=[])
+    if require_wm:
+        # Mapping alone cannot establish minimize/restore. Require independently
+        # observed WM-owned ICCCM state on this exact client before each assertion.
+        wm["transitions"].append(session.x11.wait_wm_state(int(xid), 1))
+        session.input("windowminimize", xid)
+        wm["transitions"].append(session.x11.wait_wm_state(int(xid), 3))
+        minimized = session.wait("WM minimize suspends rendering", lambda s: s["suspended"] and not s["hasInputFocus"])
+        session.pause(.25)
+        session.wait("WM minimized frame count remains stable", lambda s: s["suspended"] and s["frames"] == minimized["frames"])
+        session.input("windowmap", "--sync", xid)
+        wm["transitions"].append(session.x11.wait_wm_state(int(xid), 1))
+        session.input("windowfocus", "--sync", xid)
+        session.wait("WM restore resumes rendering", lambda s: not s["suspended"] and s["hasInputFocus"] and s["frames"] > minimized["frames"])
+        session.point("button")
+        restored_clicks = session.state["clicks"]
+        session.input("click", "1")
+        session.wait("WM restored window accepts input", lambda s: s["clicks"] == restored_clicks + 1)
     session.input("windowraise", xid)
     capture = session.capture()
     session.x11.request_close(int(xid))
@@ -789,7 +865,7 @@ def exercise_window(session: WindowSession) -> dict:
     session.finish()
     if final["adapter"] != initial["adapter"] or final["xid"] != initial["xid"]:
         raise ValueError("Native window/adapter identity changed during acceptance")
-    return dict(**adapter, sdlVersion=initial["sdlVersion"], nativeWindowCapture=capture, finalState=final)
+    return dict(**adapter, sdlVersion=initial["sdlVersion"], nativeWindowCapture=capture, finalState=final, windowManager=wm)
 
 
 def validate_lifecycle(path: Path) -> dict:
@@ -858,7 +934,8 @@ def run_acceptance(args: argparse.Namespace, root: Path = ROOT) -> int:
                   environment={key: env[key] for key in ("DISPLAY", "SDL_VIDEODRIVER", "YOUI_BACKEND", "YOUI_TRACE",
                       "VK_ICD_FILENAMES", "VK_DRIVER_FILES", "LIBGL_ALWAYS_SOFTWARE", "XDG_RUNTIME_DIR") if key in env},
                   versions={}, commands=[], checks=[], adapter=None, binaryEvidence=[], artifacts=[],
-                  evidenceScope="This Linux X11/Vulkan host and its reported adapter only. Synthetic OS input via XTest and Xlib; no injected UiDocument or SDL event queue. Unmap/remap is hidden-window coverage, not window-manager minimize coverage. No IME, accessibility, Wayland, other-platform, or hardware-performance claim.")
+                  requireWindowManager=getattr(args, "require_wm", False),
+                  evidenceScope="This Linux X11/Vulkan host and its reported adapter only. Synthetic OS input via XTest and Xlib; no injected UiDocument or SDL event queue. WM minimize/restore is covered only when explicitly required and its ICCCM transitions and named checks pass. Unmap/remap alone is hidden-window coverage. No IME, accessibility, Wayland, other-platform, or hardware-performance claim.")
     write_report(output, report)
     x11 = session = None
     code = 1
@@ -905,7 +982,7 @@ def run_acceptance(args: argparse.Namespace, root: Path = ROOT) -> int:
         report["binaryEvidence"] = binary_evidence(root, args.configuration)
         session = WindowSession(args, root, output, env, report, x11)
         session.start()
-        report["adapter"] = exercise_window(session)
+        report["adapter"] = exercise_window(session, require_wm=report["requireWindowManager"])
         report["frame"] = validate_frame(output / "sample/frame.png", report["adapter"]["finalState"])
         report["lifecycle"] = validate_lifecycle(output / "sample/lifecycle.json")
         report["sourceAfter"] = source("-after")
@@ -952,6 +1029,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--window-timeout-seconds", type=bounded_timeout, default=120)
     parser.add_argument("--event-timeout-seconds", type=bounded_timeout, default=15)
     parser.add_argument("--xdotool", default="xdotool", help="xdotool executable or full path")
+    parser.add_argument("--require-wm", action="store_true", help="Also require ICCCM WM minimize/restore and post-restore input")
     return run_acceptance(parser.parse_args(argv))
 
 

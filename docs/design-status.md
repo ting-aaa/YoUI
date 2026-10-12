@@ -19,7 +19,7 @@
 | 无障碍 | 部分符合 | 语义树导出；尚未接入平台辅助技术 |
 | 资源管理 | 部分符合 | checked handles、释放后拒绝访问、图集与缓冲复用；无异步资产图、热重载和设备重建 |
 | Spine / Live2D | 未实现 | 没有包含 SDK 或可运行模型适配，不以空接口作为支持证据 |
-| 跨平台宿主与发布 | 部分验证 / 未实现 | Windows x64 历史 DX12/Vulkan/OpenGL 验收；Linux 支持构建/逻辑与显式离屏验收流程，新增 SDL2/X11 实验原生窗口/输入宿主，尚未通过真实窗口验收；macOS、移动、Web 未验收，ANGLE 仅可选实验 |
+| 跨平台宿主与发布 | 部分验证 / 未实现 | Windows x64 历史 DX12/Vulkan/OpenGL 验收；Linux 支持构建/逻辑与显式离屏验收流程，SDL2/X11 实验宿主已有特定历史提交的 Release 虚拟 X11 原始 23 项检查通过，当前基线与新增 WM 最小化/恢复检查未运行（见下文）；不代表 Linux 硬件或物理输入验收；macOS、移动、Web 未验收，ANGLE 仅可选实验 |
 | 编辑器与 UI 文件 | 部分符合 | 同库自举 Editor，层级/画布/属性/历史/保存打开/运行时预览，版本 1 JSON 和可编译 C# 导出；没有多选、模板、时间轴和资产面板 |
 | 编辑器导出插件 | 符合当前基础范围 | 独立 IUiExporter 契约、GUI/CLI 加载本地 DLL、真实示例插件导出；不提供插件控件、沙箱、热卸载或私有依赖解析 |
 | 性能稳定性 | 部分符合 | 可配置 warm CPU 逐帧指标、计数器与保留资源快照，复用和像素检查；无 GPU 时间戳、长时 soak 或设备丢失测试 |
@@ -42,4 +42,10 @@ Spine/Cubism 的运行时、素材版本与再分发条件需在实际引入时�
 
 [A10 外部自定义控件](custom-components.md)：独立程序集评分控件、公共 API 消费者契约测试、文档附着订阅和绘制 IR；不含动态控件插件加载或通用 Dispose 生命周期。
 
-[A12 CPU 帧分析](profiling.md)补齐可配置预热/采样、每帧现有计数器和资源快照导出；[离屏平台验收](platform-acceptance.md)区分 Linux/Windows 宿主、实际后端与软件/硬件适配器。该离屏流程不是原生窗口验收。后续新增的 [Linux X11 实验宿主](linux-window.md)仍待真实窗口/输入验收，第二桌面平台验收未完成。
+[A12 CPU 帧分析](profiling.md)补齐可配置预热/采样、每帧现有计数器和资源快照导出；[离屏平台验收](platform-acceptance.md)区分 Linux/Windows 宿主、实际后端与软件/硬件适配器。该离屏流程不是原生窗口验收。
+
+[Linux X11 实验宿主](linux-window.md)的历史 [GitHub Release 运行](https://github.com/ting-aaa/YoUI/actions/runs/38223249352)在提交 `59154396a30abb1a131c490a4bb708c6817a1a5f` 上通过原始 23 项检查，环境为 Xvfb/Openbox、合成 XTest 输入、SDL 2.30 和软件 Vulkan（llvmpipe）。这是该提交与配置的虚拟 X11 窗口呈现/输入证据；原始 unmap/remap 仅验证隐藏/重显，不证明窗口管理器最小化/恢复。
+
+合入文字修复后的基线 `41d896eb9bee7bda281c5ef7d2c56740100dce89` 不继承上述原生验收结果；新增 `--require-wm` 原生检查为 **NOT RUN（未运行）**。该可选模式通过有时限的 Xlib worker 观察同一窗口的 ICCCM `WM_STATE` 从 `NormalState` 到 `IconicState` 再到 `NormalState`，同时检查 X map state、宿主挂起/帧数稳定/恢复和恢复后点击；[Openbox CI](x11-ci.md)要求此模式及其证据，默认无 WM 的 unmap/remap 路径保持不变。这是有界的验收补充，不扩大 Alpha 要求。
+
+实现环境仍因 AF_UNIX socket 创建被拒绝而不能执行原生检查；本次不绕过限制，也不授权新的远端调度。宿主仍为实验状态，第二桌面平台的完整验收未完成；不据此宣称硬件 GPU、物理键鼠、原生 Wayland、IME 或平台无障碍支持。
