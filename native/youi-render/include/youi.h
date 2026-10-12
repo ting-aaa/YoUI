@@ -123,6 +123,14 @@ int32_t YOUI_CALL youi_text_cells(uint64_t renderer, const uint8_t* text, uint32
    Returned image belongs only to this renderer and must remain live through render. */
 int32_t YOUI_CALL youi_upload_image(uint64_t renderer, uint32_t width, uint32_t height, const uint8_t* rgba, uint32_t length, uint32_t* image);
 int32_t YOUI_CALL youi_release_image(uint64_t renderer, uint32_t image);
+/* Additive ABI v1 symbol; older v1 libraries may not export it.
+   Call between render calls on the renderer's owning thread. Reclaims only
+   glyph slots; preserves live images, layout/raster caches, last frame/stats
+   and GPU payload allocation. Idempotent, no GPU wait. Submitted frames remain
+   ordered before later uploads. The next render re-resolves all glyph UVs.
+   Fragmentation/current-frame capacity may still exhaust the fixed atlas;
+   retry a failed atlas-exhaustion frame at most once, never arbitrary errors. */
+int32_t YOUI_CALL youi_purge_glyph_residency(uint64_t renderer);
 /* Blocking readback; overwrites path, requires an existing parent directory.
    Output preserves render-target premultiplication; no unpremultiplication. */
 int32_t YOUI_CALL youi_save_png(uint64_t renderer, const uint8_t* path, uint32_t length);

@@ -220,6 +220,15 @@ pub unsafe extern "C" fn youi_upload_image(
 pub extern "C" fn youi_release_image(id: u64, image: u32) -> i32 {
     guard(|| with_engine(id, |e| e.release_image(image)))
 }
+#[no_mangle]
+pub extern "C" fn youi_purge_glyph_residency(id: u64) -> i32 {
+    guard(|| {
+        with_engine(id, |e| {
+            e.purge_glyph_residency();
+            Ok(())
+        })
+    })
+}
 /// # Safety
 /// Pointers must reference readable arrays of the given lengths; stats is writable.
 #[no_mangle]
@@ -572,6 +581,7 @@ mod tests {
     }
     #[test]
     fn invalid_handle_is_error() {
+        assert_eq!(youi_purge_glyph_residency(0), -1);
         assert_eq!(youi_resize(u64::MAX, 10, 10), -1);
         assert_eq!(youi_destroy(u64::MAX), -1);
     }

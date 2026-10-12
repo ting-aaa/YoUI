@@ -314,6 +314,24 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
         fixed (DrawCommand* commands = list.Commands)
         fixed (byte* text = list.TextBytes) { Check(Native.Render(handle, commands, (uint)list.Commands.Length, text, (uint)list.TextBytes.Length, out var stats)); return stats; }
     }
+    /// <summary>
+    /// Explicitly reclaims all resident glyph atlas slots, including their padding. Call on
+    /// the creating thread between Render calls. Repeated calls are safe. Live images,
+    /// shaping/layout and CPU raster caches, the last submitted output and frame statistics,
+    /// and retained GPU allocations and budgets are preserved. Later rendering uploads the
+    /// required glyphs again, in queue order without waiting for the GPU. This is not automatic
+    /// eviction or retry; fragmentation or the current frame's demand can still exhaust the atlas.
+    /// Requires the additive native glyph-residency API.
+    /// </summary>
+    public void PurgeGlyphResidency()
+    {
+        Verify();
+        try { Check(Native.PurgeGlyphResidency(handle)); }
+        catch (EntryPointNotFoundException ex)
+        {
+            throw new InvalidOperationException("This YoUI native library does not export the glyph-residency API (youi_purge_glyph_residency). Rebuild or deploy the matching native library; ABI v1 alone does not guarantee these additive symbols.", ex);
+        }
+    }
     public void Resize(uint width, uint height) { Verify(); Check(Native.Resize(handle, width, height)); }
     public NativeImage UploadImage(uint width, uint height, ReadOnlySpan<byte> rgba)
     {
@@ -389,6 +407,7 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
         [DllImport(Dll, EntryPoint = "youi_upload_image", CallingConvention = CallingConvention.Cdecl)] internal static extern int UploadImage(ulong handle, uint w, uint h, byte* data, uint length, out uint image);
         [DllImport(Dll, EntryPoint = "youi_release_image", CallingConvention = CallingConvention.Cdecl)] internal static extern int ReleaseImage(ulong handle, uint image);
         [DllImport(Dll, EntryPoint = "youi_render", CallingConvention = CallingConvention.Cdecl)] internal static extern int Render(ulong handle, DrawCommand* commands, uint count, byte* text, uint length, out FrameStats stats);
+        [DllImport(Dll, EntryPoint = "youi_purge_glyph_residency", CallingConvention = CallingConvention.Cdecl)] internal static extern int PurgeGlyphResidency(ulong handle);
         [DllImport(Dll, EntryPoint = "youi_measure", CallingConvention = CallingConvention.Cdecl)] internal static extern int Measure(ulong handle, byte* text, uint length, float size, float maxWidth, uint bold, out float width, out float height);
         [DllImport(Dll, EntryPoint = "youi_text_cell_size", CallingConvention = CallingConvention.Cdecl)] internal static extern uint TextCellSize();
         [DllImport(Dll, EntryPoint = "youi_text_cells", CallingConvention = CallingConvention.Cdecl)] internal static extern int TextCells(ulong handle, byte* text, uint length, float size, float maxWidth, uint bold, NativeTextCell* cells, uint capacity, out uint count);

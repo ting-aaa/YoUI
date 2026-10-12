@@ -488,7 +488,7 @@ static class TextInputTests
         }
     }
     // Decode the renderer's non-interlaced RGBA8 PNG readback without a test-only image package.
-    private static (int Width, int Height, byte[] Pixels) ReadRgbaPng(string path)
+    internal static (int Width, int Height, byte[] Pixels) ReadRgbaPng(string path)
     {
         byte[] bytes = File.ReadAllBytes(path); int width = 0, height = 0; using var compressed = new MemoryStream();
         if (!bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })) throw new Exception("Invalid PNG signature.");

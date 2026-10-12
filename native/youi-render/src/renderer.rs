@@ -651,6 +651,18 @@ impl Renderer {
     pub fn release_image(&mut self, id: u32) -> Result<(), String> {
         self.text.release_image(id)
     }
+    /// Reclaim resident glyph slots between render calls, preserving live images
+    /// and cached layouts/rasters. The next render resolves and uploads glyphs again.
+    /// This is idempotent and does not wait for the GPU or shrink its allocation.
+    /// Submitted frames precede later atlas writes on the same private queue.
+    /// No prepared draw/command buffer escapes `render`; failed preparation is
+    /// discarded. Fragmentation and current-frame demand can still exhaust space.
+    pub fn purge_glyph_residency(&mut self) {
+        // Also discard CPU instances left by a successful or failed preparation.
+        // Their UVs must never be reused after the corresponding slots are freed.
+        self.instances.clear();
+        self.text.purge_glyph_residency();
+    }
     pub fn render(&mut self, commands: &[Command], text: &[u8]) -> Result<FrameStats, String> {
         validate(commands, text)?;
         for c in commands {
@@ -1006,6 +1018,135 @@ mod text_filter_tests;
 #[cfg(test)]
 mod text_residency_tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires a GPU adapter and a font with Latin glyphs; run explicitly"]
+    fn glyph_purge_recovers_text_pressure_with_live_images() -> Result<(), String> {
+        let budget = ResourceBudget {
+            max_texture_bytes: 2048 * 2048 * 4 + 320 * 320 * 4,
+            max_instance_buffer_bytes: 1024 * crate::resource::INSTANCE_BYTES,
+        };
+        let mut renderer = unsafe { Renderer::new_with_budget(320, 320, 0, budget)? };
+        let image = renderer.upload_image(2, 2, &[255, 0, 255, 255].repeat(4))?;
+        let image_uv = renderer.text.image_uv(image)?;
+        let commands = [
+            Command::rect(Rect::new(0., 0., 320., 320.), [0., 0., 0., 1.], 0.),
+            Command {
+                kind: 7,
+                flags: image,
+                rect: Rect::new(280., 280., 24., 24.),
+                color: [1.; 4],
+                ..Default::default()
+            },
+            Command {
+                kind: 1,
+                text_length: 5,
+                font_size: 18.,
+                rect: Rect::new(0.25, 0.5, 200., 36.),
+                color: [1.; 4],
+                ..Default::default()
+            },
+        ];
+        renderer.render(&commands, b"Hello")?;
+        let reference = renderer.read_pixels()?;
+        assert!(
+            reference[..320 * 36 * 4].chunks_exact(4).any(|p| p[0] > 0),
+            "requires visible Latin glyphs"
+        );
+        let measured = renderer.measure("Hello", 18., 200., false)?;
+        let cells = renderer.text_cells("Hello", 18., 200., false, true)?;
+        let usage = renderer.resource_usage();
+        let mut exhausted = false;
+        // Actual different raster sizes, not synthetic allocator entries/images.
+        for size in 100..=512 {
+            let command = Command {
+                text_length: 1,
+                font_size: size as f32,
+                rect: Rect::new(0., 0., 320., 320.),
+                flags: 2,
+                ..commands[2]
+            };
+            match renderer.render(&[command], b"W") {
+                Ok(_) => {}
+                Err(error) => {
+                    assert!(error.contains("atlas budget exhausted"), "{error}");
+                    exhausted = true;
+                    break;
+                }
+            }
+        }
+        assert!(exhausted, "text churn must really reach atlas pressure");
+        assert!(renderer.text.glyph_count() > 5);
+        // Keep a queued old frame, then reclaim and overwrite glyph pixels before
+        // readback. Submission ordering must protect the old frame's sampling.
+        let stats = renderer.render(&commands, b"Hello")?;
+        renderer.purge_glyph_residency();
+        assert_eq!(renderer.text.glyph_count(), 0);
+        assert!(renderer.instances.is_empty());
+        renderer.purge_glyph_residency();
+        let replacement = renderer.upload_image(1, 1, &[0, 255, 0, 255])?;
+        assert_eq!(renderer.read_pixels()?, reference);
+        assert_eq!(renderer.stats.upload_bytes, stats.upload_bytes);
+        assert_eq!(renderer.stats.atlas_glyphs, stats.atlas_glyphs);
+        renderer.release_image(replacement)?;
+        assert!(renderer.release_image(replacement).is_err());
+        // Recovery uses cached geometry but resolves/uploads residency afresh.
+        for _ in 0..4 {
+            let next = renderer.render(&commands, b"Hello")?;
+            assert_eq!(next.text_cache_hits, 1);
+            assert!(next.atlas_glyphs > 0);
+            assert_eq!(renderer.read_pixels()?, reference);
+            assert_eq!(renderer.text.image_uv(image)?, image_uv);
+            assert_eq!(renderer.measure("Hello", 18., 200., false)?, measured);
+            assert_eq!(renderer.text_cells("Hello", 18., 200., false, true)?, cells);
+            assert_eq!(renderer.resource_usage(), usage);
+            renderer.purge_glyph_residency();
+        }
+        // Preparation can upload glyphs before a later instance-budget failure.
+        let mut failed = vec![commands[2]];
+        failed.extend(std::iter::repeat_n(commands[0], 1024));
+        assert!(renderer
+            .render(&failed, b"Hello")
+            .unwrap_err()
+            .contains("instance"));
+        assert!(renderer.text.glyph_count() > 0);
+        assert_eq!(renderer.read_pixels()?, reference);
+        let previous = renderer.stats;
+        renderer.purge_glyph_residency();
+        assert!(renderer.instances.is_empty());
+        assert_eq!(renderer.stats.atlas_glyphs, previous.atlas_glyphs);
+        renderer.render(&commands, b"Hello")?;
+        assert_eq!(renderer.read_pixels()?, reference);
+        assert_eq!(renderer.resource_usage(), usage);
+        // Purge cannot make an oversized single-frame working set fit. A
+        // bounded retry still fails without changing the last successful output.
+        let oversized: Vec<_> = (100..=512)
+            .map(|size| Command {
+                text_length: 1,
+                font_size: size as f32,
+                rect: Rect::new(0., 0., 320., 320.),
+                flags: 2,
+                ..commands[2]
+            })
+            .collect();
+        for _ in 0..2 {
+            renderer.purge_glyph_residency();
+            assert!(renderer
+                .render(&oversized, b"W")
+                .unwrap_err()
+                .contains("atlas budget exhausted"));
+            assert_eq!(renderer.read_pixels()?, reference);
+            assert_eq!(renderer.resource_usage(), usage);
+        }
+        renderer.purge_glyph_residency();
+        renderer.render(&commands, b"Hello")?;
+        assert_eq!(renderer.read_pixels()?, reference);
+        if let Ok(directory) = std::env::var("YOUI_ARTIFACT_DIR") {
+            std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+            renderer.save_png(&format!("{directory}/glyph-residency-purge.png"))?;
+        }
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires a GPU adapter and a font with Latin glyphs; run explicitly"]

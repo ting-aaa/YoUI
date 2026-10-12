@@ -23,8 +23,8 @@ command/stat structure layouts; see [text input](text-input.md). Measurement no 
 drawing can still fail on exhaustion.
 
 The atlas remains one fixed 2048-square texture shared by images and glyphs.
-Glyph allocations are permanent for the renderer lifetime. Explicitly released
-image regions are now available to both smaller/equal-sized images and glyphs.
+Glyph allocations persist until an explicit between-frame residency purge.
+Released image and purged glyph regions are available to smaller/equal-sized images and glyphs.
 The allocator chooses a fitting region with the smallest padded area, then splits
 it into disjoint right/bottom rectangles. Every resulting slot retains its own
 one-texel gutter on all sides. Image uploads initialize the complete gutter to
@@ -33,35 +33,49 @@ occupant; image UVs and sampling semantics are unchanged. Fragments too small fo
 are discarded. If no free rectangle fits, allocation falls back to the existing
 shelf. Failed dimension/capacity checks leave the shelf and free regions unchanged.
 
-This is **free-region reuse**, not glyph eviction or complete capacity recovery.
-Regions are not coalesced, rotated or compacted; fragmentation can still reject
-an allocation even when aggregate free area is sufficient. Pure text or changing
-font-size workloads can still exhaust the atlas because resident glyphs are never
-released. There is no LRU, multipage atlas, reset API, or CPU raster-cache budget.
+## Explicit between-frame glyph purge
 
-Live glyph/image slots never move or get overwritten. Layout cache entries still
-resolve glyph keys during preparation; previously prepared UVs remain valid.
-Released image handles stay invalid and are never resurrected by slot reuse.
-No public API or ABI changes are needed. Existing synchronous owner-thread calls
-and queue ordering ensure a submitted frame finishes sampling before later
-recycled-slot writes on that queue. Release is not a GPU wait. Future externally
-recorded/deferred command buffers must establish a different lifetime contract
-before using this allocator.
+Rust `Renderer::purge_glyph_residency()`, C `youi_purge_glyph_residency(renderer)`
+and C# `NativeRenderer.PurgeGlyphResidency()` drain resident glyph rectangles into
+that same free-region allocator. Repeating the purge without drawing is a no-op;
+rectangles are released exactly once. Live image locations and handles, cached
+layouts and CPU rasters are preserved. New uploads initialize every padded texel,
+so neither old glyph ink nor image pixels contaminate reused gutters.
 
-A failed frame may already have uploaded permanent glyphs into recycled space;
-it does not roll back residency, just as with shelf allocation. It does not submit
-partial drawing, change the previous output/FrameStats or invalidate live images.
-The 16 MiB texture allocation and GPU payload budgets are unchanged. Free-region
-metadata is CPU state outside the existing GPU budget.
+Call only between synchronous render calls, on the renderer's owning thread.
+Rust requires exclusive access; the C registry serializes calls but is not a
+license to violate host/window thread rules or reenter a call. Managed access
+checks the creating thread and disposal. All prepare passes/command buffers are
+local to `render`; none escape for later submission. Purge clears retained CPU
+instances, including those left by failed preparation. Cached layouts contain
+raster keys rather than UVs, so the next render resolves residency again.
+Previously submitted draws are ordered before subsequent recycled-slot writes
+on the renderer's private queue. Purge does not wait for the GPU, submit a frame,
+or change the last successful output or FrameStats. `AtlasGlyphs` remains the
+last successful frame's residency snapshot until another successful render.
+Future externally recorded/deferred command buffers need a different contract.
 
-The next smallest safe glyph-reclamation contract would be an explicit
-between-frame operation, with no retained prepared command buffers, that clears
-only glyph residency while preserving all live image locations. It would require
-tracking occupied glyph rectangles and making those padded rectangles reusable,
-plus proving queue ordering and re-resolution from cached layouts under failed
-frames. It would not be a full atlas reset, promise contiguous space, shrink the
-texture, or bound CPU caches. This contract is only a proposal; it is not exposed
-or implemented in this increment.
+Recovery is explicit: when a render fails specifically with `atlas budget
+exhausted`, call purge once and retry the same commands/text once. Do not retry
+arbitrary render errors or loop on failure. A failed frame may have uploaded
+some glyphs before running out of atlas or instance capacity; purge also releases
+those glyph slots, without changing the previous output. Images referenced by
+the retried frame must still be live. Applications may instead purge at a known
+text-workload transition before rendering.
+
+This is bounded reclamation, not automatic eviction, a full atlas reset or
+complete capacity recovery. Regions are not coalesced, rotated or compacted;
+fragmentation can reject an allocation despite sufficient aggregate free area.
+The current frame's working set may exceed capacity even after purge. Text churn
+can still exhaust space until the caller explicitly purges. There is no LRU,
+multipage atlas or CPU cache-budget policy. The fixed 16 MiB atlas texture and
+GPU payload budgets do not shrink; free-region metadata is CPU state outside
+those budgets. Live image UVs never move; released image handles remain invalid.
+
+The C symbol is additive within ABI v1: version/structure-size checks alone do
+not prove an older native library supports it. Deploy matching native binaries.
+The managed method reports a missing-symbol error instead of silently pretending
+reclamation succeeded. Invalid/disposed C handles return an error without mutation.
 
 ## Raster filter footprint
 
@@ -120,3 +134,11 @@ It checks retained live UVs, stale handles, a submitted frame still sampling the
 released image, instance-budget failure without partial submission, fixed payload
 usage and exact pixels against a fresh atlas. CPU tests cover gutter-aware splits,
 small fragments, exhaustion/failure preservation and repeated mixed-size reuse.
+
+The GPU gate also runs
+`renderer::text_residency_tests::glyph_purge_recovers_text_pressure_with_live_images`
+and managed `--gpu-glyph-residency`. The native test exhausts the atlas with actual
+changing-size glyphs, recovers cached text alongside live images, checks queued
+old-frame pixels after recycled uploads, repeats purge/reupload, and reclaims
+uploads left by an instance-budget failure. CPU tests prove idempotence,
+non-overlapping padded extents, image preservation and remaining fragmentation.
