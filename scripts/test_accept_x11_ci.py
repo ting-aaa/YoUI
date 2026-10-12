@@ -50,7 +50,7 @@ class SupervisorTests(unittest.TestCase):
         self.session.close.return_value = []
         self.session.start.return_value.pid = 123
 
-    def run_fixture(self, mutate=None, native_code=0):
+    def run_fixture(self, mutate=None, native_code=0, top_level=None):
         def native(args, root):
             self.assertEqual(os.environ["DISPLAY"], ":97")
             self.assertEqual(os.environ["VK_DRIVER_FILES"], str(self.icd))
@@ -60,6 +60,8 @@ class SupervisorTests(unittest.TestCase):
             value = result(args.output)
             if mutate:
                 mutate(value)
+            if top_level is not None:
+                value = top_level
             (args.output / "result.json").write_text(json.dumps(value))
             return native_code
         with patch.object(ci, "Session", return_value=self.session), \
@@ -134,6 +136,33 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(runner.call_count, 1)
         self.assertIn("late server death", report["error"])
+
+    def test_teardown_exception_after_success_returns_failure(self):
+        self.session.close.side_effect = OSError("mock teardown filesystem failure")
+        code, report, _ = self.run_fixture()
+        self.assertEqual(code, 1)
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("mock teardown", report["error"])
+
+    def test_late_interrupt_after_success_returns_failure(self):
+        self.session.close.side_effect = KeyboardInterrupt("late interrupt")
+        code, report, _ = self.run_fixture()
+        self.assertEqual(code, 1)
+        self.assertEqual(report["status"], "failed")
+
+    def test_malformed_top_level_has_terminal_failed_report(self):
+        code, report, _ = self.run_fixture(top_level=[])
+        self.assertEqual(code, 1)
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("must be an object", report["error"])
+
+    def test_malformed_nested_types_have_terminal_failed_reports(self):
+        for field, value in (("adapter", []), ("lifecycle", []), ("checks", {}), ("checks", [None])):
+            with self.subTest(field=field, value=value):
+                self.args.output = self.root / (field + str(len(str(value))))
+                code, report, _ = self.run_fixture(lambda r: r.update({field: value}))
+                self.assertEqual(code, 1)
+                self.assertEqual(report["status"], "failed")
 
     def test_existing_directory_rejected_without_processes(self):
         self.args.output.mkdir()
@@ -215,6 +244,20 @@ class ReadinessTests(unittest.TestCase):
             self.assertEqual(record["status"], "timeout")
             self.assertEqual(record["exitCode"], -ci.signal.SIGKILL)
             self.assertLessEqual(record["timeoutSeconds"], .15)
+
+    def test_teardown_attempts_all_owned_groups_after_one_raises(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            first, second = Mock(returncode=None), Mock(returncode=None)
+            report = dict(commands=[], processes=[dict(name="first"), dict(name="second")], readiness={})
+            session = ci.Session(folder, folder, {}, report)
+            session.processes = [("first", first), ("second", second)]
+            with patch.object(ci.acceptance, "stop_process_tree", side_effect=[OSError("kill failed"), None]) as stop:
+                errors = session.close()
+            self.assertEqual(stop.call_count, 2)
+            self.assertEqual([call.args[0] for call in stop.call_args_list], [second, first])
+            self.assertEqual(len(errors), 1)
+            self.assertIn("second: OSError: kill failed", errors[0])
 
     def test_real_owned_process_is_killed_and_reaped_without_display(self):
         with tempfile.TemporaryDirectory() as directory:

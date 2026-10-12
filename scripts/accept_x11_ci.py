@@ -84,11 +84,20 @@ class Session:
     def close(self):
         errors = []
         for name, process in reversed(self.processes):
-            error = acceptance.stop_process_tree(process)
-            next(record for record in self.report["processes"] if record["name"] == name)["exitCode"] = process.returncode
-            if error:
-                errors.append(f"{name}: {error}")
-        self.files.close()
+            try:
+                error = acceptance.stop_process_tree(process)
+                if error:
+                    errors.append(f"{name}: {error}")
+            except (Exception, KeyboardInterrupt) as exc:
+                # Teardown is best-effort for every owned group, even if one
+                # termination or reap operation fails. Any error revokes pass.
+                errors.append(f"{name}: {type(exc).__name__}: {exc}")
+            finally:
+                next(record for record in self.report["processes"] if record["name"] == name)["exitCode"] = process.returncode
+        try:
+            self.files.close()
+        except (Exception, KeyboardInterrupt) as exc:
+            errors.append(f"log files: {type(exc).__name__}: {exc}")
         return errors
 
 
@@ -121,6 +130,15 @@ def source(session, expected):
 
 
 def validate_result(result, expected, configuration, output):
+    if not isinstance(result, dict):
+        raise ValueError("Native acceptance result must be an object")
+    for field in ("adapter", "lifecycle"):
+        if not isinstance(result.get(field), dict):
+            raise ValueError(f"Native acceptance {field} must be an object")
+    if not isinstance(result.get("checks"), list) or any(not isinstance(check, dict) for check in result["checks"]):
+        raise ValueError("Native acceptance checks must be a list of objects")
+    if not isinstance(result["adapter"].get("nativeWindowCapture"), dict):
+        raise ValueError("Native acceptance capture must be an object")
     if result.get("status") != "passed" or result.get("configuration") != configuration:
         raise ValueError("Native acceptance did not pass the selected configuration")
     identity = dict(sha=expected, dirty=False, statusPorcelain=[])
@@ -131,7 +149,8 @@ def validate_result(result, expected, configuration, output):
         raise ValueError("This CI job requires reported CPU/software Vulkan evidence")
     capture = adapter.get("nativeWindowCapture") or {}
     path = output / "sample/native-window.png"
-    if capture.get("path") != "sample/native-window.png" or capture.get("distinctColorsAtLeast", 0) < 8:
+    colors = capture.get("distinctColorsAtLeast")
+    if capture.get("path") != "sample/native-window.png" or type(colors) is not int or colors < 8:
         raise ValueError("Native X11 presentation evidence is missing")
     evidence = acceptance.file_evidence(path, output)
     if any(capture.get(key) != value for key, value in evidence.items()):
@@ -225,7 +244,7 @@ def run(args, root=ROOT):
                 if report["cleanupErrors"]:
                     report["status"], code = "failed", 1
     except (KeyboardInterrupt, OSError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:
-        report["status"], report["error"] = "failed", str(exc) or "Interrupted"
+        report["status"], report["error"], code = "failed", str(exc) or "Interrupted", 1
     finally:
         report["completedUtc"] = acceptance.utc_now()
         write_report(output, report)
