@@ -15,7 +15,7 @@
 - [组件图库与交互示例](docs/component-gallery.md)：可切换的控件、搜索选择与布局演示，支持可复现截图。
 - [Editor 使用与导出](docs/editor.md)：可视化编辑、配置和 C# 导出、插件开发。
 - [常见问题](docs/troubleshooting.md)：构建、DLL、布局、资源和导出问题。
-- [Linux 开发验证](docs/linux-development.md)：原生库构建、C# 编译及无 GPU 逻辑测试；窗口宿主仍仅支持 Windows。
+- [Linux 开发验证](docs/linux-development.md)：原生库构建、C# 编译及无 GPU 逻辑测试；新增 [Linux X11 实验宿主](docs/linux-window.md)，真实窗口验收仍待完成。
 - [分层验证与 CI](docs/verification-layers.md)：区分逻辑、GPU、原生窗口证据；保留默认完整验收入口。
 - [渲染后端验证](docs/render-backends.md)：DX12、Vulkan、原生 OpenGL 的画面、窗口及复现脚本。
 

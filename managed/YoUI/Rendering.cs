@@ -211,11 +211,50 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
     /// Requires a native library exporting the additive v1 resource-budget API.
     /// </summary>
     public NativeRenderer(uint width, uint height, nint window, ResourceBudget budget) : this(width, height, window, (ResourceBudget?)budget) { }
-    private NativeRenderer(uint width, uint height, nint window, ResourceBudget? budget)
+    /// <summary>
+    /// Creates a Linux X11 renderer from an Xlib Display pointer, window XID and screen index.
+    /// The host owns the display and window and must keep both valid until this renderer is
+    /// disposed on its creating thread. Dispose before destroying the window or closing the
+    /// display. The screen must be valid for that display and window. Follow Xlib's threading
+    /// rules; do not concurrently use the display unless Xlib threading was initialized.
+    /// Requires the additive native Xlib API; the HWND/offscreen constructors are unchanged.
+    /// </summary>
+    public static NativeRenderer CreateXlib(uint width, uint height, nint display, nuint window, int screen) =>
+        new(width, height, 0, null, new(display, window, screen));
+    /// <summary>
+    /// Creates a Linux Xlib renderer with explicit resource ceilings. The borrowed-handle
+    /// lifetime and threading requirements of CreateXlib apply. Swapchain allocations are
+    /// excluded from the resource budget, as with the HWND renderer.
+    /// </summary>
+    public static NativeRenderer CreateXlib(uint width, uint height, nint display, nuint window, int screen, ResourceBudget budget) =>
+        new(width, height, 0, budget, new(display, window, screen));
+    private readonly record struct XlibTarget(nint Display, nuint Window, int Screen);
+    private NativeRenderer(uint width, uint height, nint window, ResourceBudget? budget, XlibTarget? xlib = null)
     {
+        if (xlib is { } target)
+        {
+            if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Xlib surfaces are supported only on Linux.");
+            if (target.Display == 0) throw new ArgumentException("Require a live Xlib Display pointer.", "display");
+            if (target.Window == 0) throw new ArgumentException("Require a live Xlib window XID.", nameof(window));
+            if (target.Screen < 0) throw new ArgumentOutOfRangeException("screen", "Require a nonnegative Xlib screen index.");
+            ValidateResourceBudget(width, height, budget ?? YoUI.ResourceBudget.Default);
+        }
         if (budget is { } configured) ValidateResourceBudget(width, height, configured);
         if (Native.AbiVersion() != 0x00010000 || Native.CommandSize() != Marshal.SizeOf<DrawCommand>()) throw new InvalidOperationException("Incompatible YoUI native ABI.");
-        if (budget is { } requested)
+        if (xlib is { } surface)
+        {
+            try
+            {
+                if (budget is { } requested)
+                {
+                    VerifyResourceAbi();
+                    Check(Native.CreateXlibWithBudget(width, height, surface.Display, surface.Window, surface.Screen, in requested, out handle));
+                }
+                else Check(Native.CreateXlib(width, height, surface.Display, surface.Window, surface.Screen, out handle));
+            }
+            catch (EntryPointNotFoundException ex) { throw new InvalidOperationException("This YoUI native library does not export the Xlib surface API. Rebuild or deploy the matching native library; ABI v1 alone does not guarantee these additive symbols.", ex); }
+        }
+        else if (budget is { } requested)
         {
             VerifyResourceAbi();
             try { Check(Native.CreateWithBudget(width, height, window, in requested, out handle)); }
@@ -341,6 +380,8 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
         [DllImport(Dll, EntryPoint = "youi_resource_usage_size", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ResourceUsageSize();
         [DllImport(Dll, EntryPoint = "youi_create", CallingConvention = CallingConvention.Cdecl)] internal static extern int Create(uint w, uint h, nint window, out ulong handle);
         [DllImport(Dll, EntryPoint = "youi_create_with_budget", CallingConvention = CallingConvention.Cdecl)] internal static extern int CreateWithBudget(uint w, uint h, nint window, in ResourceBudget budget, out ulong handle);
+        [DllImport(Dll, EntryPoint = "youi_create_xlib", CallingConvention = CallingConvention.Cdecl)] internal static extern int CreateXlib(uint w, uint h, nint display, nuint window, int screen, out ulong handle);
+        [DllImport(Dll, EntryPoint = "youi_create_xlib_with_budget", CallingConvention = CallingConvention.Cdecl)] internal static extern int CreateXlibWithBudget(uint w, uint h, nint display, nuint window, int screen, in ResourceBudget budget, out ulong handle);
         [DllImport(Dll, EntryPoint = "youi_resource_budget", CallingConvention = CallingConvention.Cdecl)] internal static extern int ResourceBudget(ulong handle, out ResourceBudget budget);
         [DllImport(Dll, EntryPoint = "youi_resource_usage", CallingConvention = CallingConvention.Cdecl)] internal static extern int ResourceUsage(ulong handle, out ResourceUsage usage);
         [DllImport(Dll, EntryPoint = "youi_destroy", CallingConvention = CallingConvention.Cdecl)] internal static extern int Destroy(ulong handle);

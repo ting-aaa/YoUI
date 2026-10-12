@@ -333,3 +333,9 @@ Copy-Item -LiteralPath target/release/youi_render.dll -Destination artifacts/you
 
 原有 `youi_create` 使用默认 528 MiB texture / 256 MiB instance-buffer 上限。尺寸、层数/像素与设备限制仍然生效。仅检查 ABI v1 不能判断旧 DLL 是否含这些新增符号；新调用方需要匹配的 native library。
 完整范围、排除项、错误与高水位语义见 [资源预算](../resource-budgets.md)。这不是总 VRAM 或物理峰值上限。
+
+## Additive Linux Xlib surface API
+
+`youi_create_xlib(width, height, void* display, uintptr_t window, int32_t screen, uint64_t* result)` 与 `youi_create_xlib_with_budget(..., const youi_resource_budget_t* budget, uint64_t* result)` 接收宿主拥有的 Xlib Display 指针和窗口 XID。旧 `youi_create` 的非零窗口参数仍只表示 Windows HWND，不重新解释为 XID。
+
+仅 Linux 支持该入口。display、window、screen 必须来自同一个有效窗口；调用方负责创建线程与 Xlib 线程规则，并在销毁窗口或关闭 display 前销毁 renderer。库只能验证空指针、零 XID、负 screen、输出对齐、尺寸和预算，不能验证任意指针的有效性。失败时有效输出置零。ABI v1 不保证旧库包含新增符号，部署需使用匹配版本。窗口 swapchain 不计入保留资源预算，与 HWND 行为一致。参见 [Linux X11 实验宿主](../linux-window.md) 的验证边界。

@@ -36,19 +36,21 @@ run() {
 export FAIL_AT=0
 for configuration in Debug Release; do
     run "$configuration"
-    [[ "$(cat "$COUNT")" == 11 ]]
-    [[ "$(grep -cF "$scratch/repo with spaces|" "$TRACE")" == 11 ]]
+    [[ "$(cat "$COUNT")" == 13 ]]
+    [[ "$(grep -cF "$scratch/repo with spaces|" "$TRACE")" == 13 ]]
     grep -F '<test><--workspace><--locked><--target-dir>' "$TRACE" > /dev/null
     [[ "$(grep -cF "<--target-dir><$scratch/repo with spaces/target>" "$TRACE")" == 3 ]]
-    [[ "$(grep -cF "<-c><$configuration>" "$TRACE")" == 6 ]]
+    [[ "$(grep -cF "<-c><$configuration>" "$TRACE")" == 8 ]]
     sed -n 's/^.*|dotnet|//p' "$TRACE" > "$scratch/managed-actual"
     printf '%s\n' \
         "<run><--project><tests/YoUI.Tests><-c><$configuration><-p:BuildInParallel=false>" \
         "<run><--project><tests/YoUI.Editor.Tests><-c><$configuration><-p:BuildInParallel=false>" \
         "<run><--project><tests/YoUI.Component.Tests><-c><$configuration><-p:BuildInParallel=false>" \
         "<run><--project><tests/YoUI.Profiling.Tests><-c><$configuration><-p:BuildInParallel=false>" \
+        "<run><--project><tests/YoUI.Platform.Linux.Tests><-c><$configuration><-p:BuildInParallel=false>" \
         "<build><samples/YoUI.Showcase/YoUI.Showcase.csproj><-c><$configuration><-m:1>" \
-        "<build><docs/examples/HelloYoUI/HelloYoUI.csproj><-c><$configuration><-m:1>" > "$scratch/managed-expected"
+        "<build><docs/examples/HelloYoUI/HelloYoUI.csproj><-c><$configuration><-m:1>" \
+        "<build><samples/YoUI.Linux.Sample/YoUI.Linux.Sample.csproj><-c><$configuration><-m:1>" > "$scratch/managed-expected"
     cmp "$scratch/managed-expected" "$scratch/managed-actual"
     if [[ "$configuration" == Release ]]; then
         [[ "$(grep -cF '<--release>' "$TRACE")" == 3 ]]
@@ -60,7 +62,7 @@ for configuration in Debug Release; do
     grep -F 'layer=Logic' "$scratch/output" > /dev/null
     echo "PASS Linux $configuration commands, profile, layer and independent working directory"
 done
-for step in {1..11}; do
+for step in {1..13}; do
     export FAIL_AT="$step"
     code=0; run Release || code=$?
     [[ "$code" == 23 ]]

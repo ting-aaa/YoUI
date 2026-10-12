@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><ProjectReference Include="../YoUI/YoUI.csproj" /></ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="YoUI.Platform.Linux.Tests" /></ItemGroup>
+</Project>

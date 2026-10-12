@@ -33,7 +33,7 @@ try {
         foreach ($layer in 'Logic','Gpu') {
             Run-Verification $configuration $layer
             $trace = $global:YoUIVerificationCalls -join "`n"
-            $expected = if ($layer -eq 'Logic') { 12 } else { 17 }
+            $expected = if ($layer -eq 'Logic') { 14 } else { 18 }
             Require ($global:YoUIVerificationCalls.Count -eq $expected) "Unexpected $layer command count"
             foreach ($command in $global:YoUIVerificationCalls | Where-Object { $_ -like 'cargo|*' -and $_ -notlike '*<fmt>*' }) {
                 Require ($command.Contains('<--locked>')) 'Cargo command omitted the lockfile guard'
@@ -41,14 +41,14 @@ try {
                 Require ($command.Contains('<--release>') -eq ($configuration -eq 'Release')) 'Rust profile mismatch'
             }
             $managed = @($global:YoUIVerificationCalls | Where-Object { $_ -like 'dotnet|*' })
-            $expectedProjects = @('samples/YoUI.Showcase/YoUI.Showcase.csproj','tools/YoUI.Editor/YoUI.Editor.csproj','samples/YoUI.Exporter.Sample/YoUI.Exporter.Sample.csproj','docs/examples/HelloYoUI/HelloYoUI.csproj')
-            if ($layer -eq 'Logic') { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Editor.Tests','tests/YoUI.Component.Tests','tests/YoUI.Profiling.Tests') }
+            $expectedProjects = @('samples/YoUI.Showcase/YoUI.Showcase.csproj','tools/YoUI.Editor/YoUI.Editor.csproj','samples/YoUI.Exporter.Sample/YoUI.Exporter.Sample.csproj','docs/examples/HelloYoUI/HelloYoUI.csproj','samples/YoUI.Linux.Sample/YoUI.Linux.Sample.csproj')
+            if ($layer -eq 'Logic') { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Editor.Tests','tests/YoUI.Component.Tests','tests/YoUI.Profiling.Tests','tests/YoUI.Platform.Linux.Tests') }
             else { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Tests','tools/YoUI.Editor','samples/YoUI.Showcase','samples/YoUI.Showcase','samples/YoUI.Showcase','tests/YoUI.Component.Tests') }
             Require ($managed.Count -eq $expectedProjects.Count) 'Managed project count mismatch'
             for ($index = 0; $index -lt $managed.Count; $index++) {
                 Require ($managed[$index].Contains("<-c><$configuration>")) 'Managed configuration mismatch'
                 Require ($managed[$index].Contains('<' + $expectedProjects[$index] + '>')) 'Managed project order mismatch'
-                if ($index -lt 4) { Require ($managed[$index].StartsWith('dotnet|<build>')) 'Expected build command' }
+                if ($index -lt 5) { Require ($managed[$index].StartsWith('dotnet|<build>')) 'Expected build command' }
                 else { Require ($managed[$index].StartsWith('dotnet|<run><--project>')) 'Expected run command' }
             }
             Require ($trace.Contains('<--gpu-resource-budget>') -eq ($layer -eq 'Gpu')) 'Managed resource-budget GPU invocation mismatch'
@@ -61,9 +61,9 @@ try {
             if ($layer -eq 'Gpu') {
                 $cargoOptions = "<--locked><--target-dir><$repo/target>"
                 if ($configuration -eq 'Release') { $cargoOptions += '<--release>' }
-                Require ($global:YoUIVerificationCalls[7] -eq "cargo|<test><-p><youi-render><--test><gpu>$cargoOptions<--><--ignored><--nocapture>") 'GPU integration test command mismatch'
-                Require ($global:YoUIVerificationCalls[8] -eq "cargo|<test><-p><youi-render><--lib><$residencyTest>$cargoOptions<--><--exact><--ignored><--nocapture>") 'Text residency GPU unit test command mismatch'
-                Require ($global:YoUIVerificationCalls[15] -eq "cargo|<run><-p><youi-scene><--example><textured_mesh>$cargoOptions<--><artifacts/textured-mesh.png>") 'Textured mesh example command mismatch'
+                Require ($global:YoUIVerificationCalls[8] -eq "cargo|<test><-p><youi-render><--test><gpu>$cargoOptions<--><--ignored><--nocapture>") 'GPU integration test command mismatch'
+                Require ($global:YoUIVerificationCalls[9] -eq "cargo|<test><-p><youi-render><--lib><$residencyTest>$cargoOptions<--><--exact><--ignored><--nocapture>") 'Text residency GPU unit test command mismatch'
+                Require ($global:YoUIVerificationCalls[16] -eq "cargo|<run><-p><youi-scene><--example><textured_mesh>$cargoOptions<--><artifacts/textured-mesh.png>") 'Textured mesh example command mismatch'
             }
             Require (!$trace.Contains('<--smoke>')) 'A headless layer invoked native-window checks'
             Require ((Get-Location).Path -eq $unrelated) 'Working directory was not restored'
@@ -75,7 +75,7 @@ try {
         }
     }
     foreach ($layer in 'Logic','Gpu') {
-        $count = if ($layer -eq 'Logic') { 12 } else { 17 }
+        $count = if ($layer -eq 'Logic') { 14 } else { 18 }
         for ($step = 1; $step -le $count; $step++) {
             $global:YoUIVerificationFailAt = $step
             $failed = $false
@@ -117,8 +117,8 @@ try {
     }
 
     # Derive full acceptance from independently checked phases, not another stale total.
-    $buildCommands = @($releaseCommands.Logic | Select-Object -First 5)
-    Require (($buildCommands -join "`n") -eq (($releaseCommands.Gpu | Select-Object -First 5) -join "`n")) 'Logic and Gpu must share the same build prelude'
+    $buildCommands = @($releaseCommands.Logic | Select-Object -First 6)
+    Require (($buildCommands -join "`n") -eq (($releaseCommands.Gpu | Select-Object -First 6) -join "`n")) 'Logic and Gpu must share the same build prelude'
     $smokeCommands = @(
         'dotnet|<run><--project><tools/YoUI.Editor><-c><Release><--no-build><--><--smoke>',
         'dotnet|<run><--project><samples/YoUI.Showcase><-c><Release><--no-build><--><--smoke>',

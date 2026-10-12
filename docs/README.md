@@ -2,7 +2,7 @@
 
 [返回项目首页](../README.md)
 
-这套文档对应仓库当前 **0.1.0** 实现。YoUI 由独立 Rust 渲染器、可选 Rust 场景树、C# 保留式 UI 和 Windows 宿主组成。目前在 Windows x64 上验证了 **DX12 / Vulkan / 原生 OpenGL**，详见[渲染后端验证](render-backends.md)；其他平台和未实现能力见[设计对照](design-status.md)。
+这套文档对应仓库当前 **0.1.0** 实现。YoUI 由独立 Rust 渲染器、可选 Rust 场景树、C# 保留式 UI、Windows 宿主及尚未完成原生窗口验收的 Linux X11 实验宿主组成。目前在 Windows x64 上验证了 **DX12 / Vulkan / 原生 OpenGL**，详见[渲染后端验证](render-backends.md)；其他平台和未实现能力见[设计对照](design-status.md)。
 
 ## 从这里开始
 
@@ -57,4 +57,5 @@ cargo doc --workspace --no-deps --locked
 
 - [A10 外部自定义控件契约与独立程序集示例](custom-components.md)
 
+- [Linux X11 实验窗口与输入](linux-window.md)：SDL2、Xlib surface、独立 OS 输入验收入口与限制。
 - [A12 CPU 帧分析与导出](profiling.md)、[离屏平台验收流程](platform-acceptance.md)

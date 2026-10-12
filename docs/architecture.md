@@ -69,3 +69,7 @@ VirtualList 是定高实现，仅实例化视口所需行与 overscan，滚动�
 Windows 宿主桥接 WM_CHAR、IME preedit/result、组合窗口位置与 DPI。TextBox 按 Unicode grapheme 删除与移动光标，支持 Shift 选择、Ctrl+A/C/X/V、Ctrl+Z/Y 及最多 100 步撤销。剪贴板通过独立平台服务接入；真实窗口粘贴和撤销已验证。鼠标定位/拖选、密码输入和完整多行编辑尚未实现。IME 当前主要完成消息逻辑，不声称实测全部中文/日文输入法。
 
 Semantics 可导出控件名称/角色/值/矩形，但还没有 UI Automation / AccessKit 平台适配。它是独立数据输出，不能视为屏幕阅读器已可用。
+
+## Linux X11 实验宿主
+
+`YoUI.Platform.Linux` 独立拥有 SDL2 窗口、事件循环和剪贴板，借用 Xlib display/window 交给新增渲染 ABI；渲染器仍不依赖 SDL2 或控件树。先释放渲染器再销毁窗口/display。原型仅支持单窗口、Linux LP64、1 像素 = 1 逻辑单位，详细限制与尚未执行的原生验收见 [Linux X11](linux-window.md)。
