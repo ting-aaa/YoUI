@@ -340,6 +340,22 @@ Copy-Item -LiteralPath target/release/youi_render.dll -Destination artifacts/you
 
 仅 Linux 支持该入口。display、window、screen 必须来自同一个有效窗口；调用方负责创建线程与 Xlib 线程规则，并在销毁窗口或关闭 display 前销毁 renderer。库只能验证空指针、零 XID、负 screen、输出对齐、尺寸和预算，不能验证任意指针的有效性。失败时有效输出置零。ABI v1 不保证旧库包含新增符号，部署需使用匹配版本。窗口 swapchain 不计入保留资源预算，与 HWND 行为一致。参见 [Linux X11 实验宿主](../linux-window.md) 的验证边界。
 
+## Explicit offscreen-layer trim (additive ABI v1)
+
+For reclaiming compositing targets rather than glyph slots, use Rust
+`Renderer::trim_offscreen_layers()` or C
+`int32_t youi_trim_offscreen_layers(uint64_t renderer)`. This additive ABI v1
+symbol may be absent from older v1 libraries. Call between renders on the owning
+thread; it drops every retained layer texture/view/bind group, without waiting
+for the GPU or destroying resources still used by submitted work. It returns 0
+on success, -1 with `youi_last_error` for an invalid/disposed handle. As with the
+other C entrypoints, owning-thread use is the caller's responsibility; the managed
+wrapper checks it before invoking native code.
+Output pixels, last stats, atlas residency, instance capacity and budgets survive.
+Only retained layer count/bytes become zero; this is not measured driver VRAM.
+The next admitted layered frame recreates needed targets. Prefer an idle or
+modal-close boundary, not every frame. See [resource budgets](../resource-budgets.md).
+
 ## Explicit glyph-residency purge (additive ABI v1)
 
 Rust `Renderer::purge_glyph_residency()` / C

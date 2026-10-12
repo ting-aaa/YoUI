@@ -332,6 +332,24 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
             throw new InvalidOperationException("This YoUI native library does not export the glyph-residency API (youi_purge_glyph_residency). Rebuild or deploy the matching native library; ABI v1 alone does not guarantee these additive symbols.", ex);
         }
     }
+    /// <summary>
+    /// Explicitly drops all retained scratch compositing layer targets. Call on the creating
+    /// thread between Render calls, preferably at idle or modal-close boundaries rather than
+    /// every frame. Repeated calls are safe. Preserves the last submitted output and frame
+    /// statistics, atlas/image/glyph residency, caches, instance-buffer capacity and budgets.
+    /// Later admitted layered frames recreate the targets they need. Does not wait for the
+    /// GPU: ResourceUsage reports reclaimed retained payload, not immediate driver VRAM release.
+    /// Requires the additive native offscreen-trim API.
+    /// </summary>
+    public void TrimOffscreenLayers()
+    {
+        Verify();
+        try { Check(Native.TrimOffscreenLayers(handle)); }
+        catch (EntryPointNotFoundException ex)
+        {
+            throw new InvalidOperationException("This YoUI native library does not export the offscreen-trim API (youi_trim_offscreen_layers). Rebuild or deploy the matching native library; ABI v1 alone does not guarantee these additive symbols.", ex);
+        }
+    }
     public void Resize(uint width, uint height) { Verify(); Check(Native.Resize(handle, width, height)); }
     public NativeImage UploadImage(uint width, uint height, ReadOnlySpan<byte> rgba)
     {
@@ -408,6 +426,7 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
         [DllImport(Dll, EntryPoint = "youi_release_image", CallingConvention = CallingConvention.Cdecl)] internal static extern int ReleaseImage(ulong handle, uint image);
         [DllImport(Dll, EntryPoint = "youi_render", CallingConvention = CallingConvention.Cdecl)] internal static extern int Render(ulong handle, DrawCommand* commands, uint count, byte* text, uint length, out FrameStats stats);
         [DllImport(Dll, EntryPoint = "youi_purge_glyph_residency", CallingConvention = CallingConvention.Cdecl)] internal static extern int PurgeGlyphResidency(ulong handle);
+        [DllImport(Dll, EntryPoint = "youi_trim_offscreen_layers", CallingConvention = CallingConvention.Cdecl)] internal static extern int TrimOffscreenLayers(ulong handle);
         [DllImport(Dll, EntryPoint = "youi_measure", CallingConvention = CallingConvention.Cdecl)] internal static extern int Measure(ulong handle, byte* text, uint length, float size, float maxWidth, uint bold, out float width, out float height);
         [DllImport(Dll, EntryPoint = "youi_text_cell_size", CallingConvention = CallingConvention.Cdecl)] internal static extern uint TextCellSize();
         [DllImport(Dll, EntryPoint = "youi_text_cells", CallingConvention = CallingConvention.Cdecl)] internal static extern int TextCells(ulong handle, byte* text, uint length, float size, float maxWidth, uint bold, NativeTextCell* cells, uint capacity, out uint count);

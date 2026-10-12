@@ -131,6 +131,15 @@ int32_t YOUI_CALL youi_release_image(uint64_t renderer, uint32_t image);
    Fragmentation/current-frame capacity may still exhaust the fixed atlas;
    retry a failed atlas-exhaustion frame at most once, never arbitrary errors. */
 int32_t YOUI_CALL youi_purge_glyph_residency(uint64_t renderer);
+/* Additive ABI v1 symbol; older v1 libraries may not export it.
+   Call between render calls on the renderer's owning thread. Drops all retained
+   scratch layer targets, views and bind groups, preserving output, last stats,
+   atlas/image/glyph residency and instance-buffer capacity. Idempotent, no GPU
+   wait; submitted work retains its resources until safe. ResourceUsage reports
+   retained payload, not immediate driver VRAM release. Subsequent admitted
+   layered frames recreate needed targets. Prefer idle/modal-close boundaries,
+   not every frame. Returns 0 on success or -1 with youi_last_error. */
+int32_t YOUI_CALL youi_trim_offscreen_layers(uint64_t renderer);
 /* Blocking readback; overwrites path, requires an existing parent directory.
    Output preserves render-target premultiplication; no unpremultiplication. */
 int32_t YOUI_CALL youi_save_png(uint64_t renderer, const uint8_t* path, uint32_t length);

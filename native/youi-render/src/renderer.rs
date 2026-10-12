@@ -663,6 +663,16 @@ impl Renderer {
         self.instances.clear();
         self.text.purge_glyph_residency();
     }
+    /// Drop all retained scratch compositing targets between render calls.
+    /// Preserves the output, last frame stats, atlas, and instance-buffer capacity.
+    /// The next admitted layered frame recreates only the targets it needs.
+    /// Idempotent and nonblocking: submitted work keeps its resources alive, so
+    /// retained payload accounting decreases immediately, not necessarily VRAM.
+    pub fn trim_offscreen_layers(&mut self) {
+        // Drop each complete Target (texture, view and bind group). Never call
+        // Texture::destroy: submitted commands may still reference these objects.
+        self.layers.clear();
+    }
     pub fn render(&mut self, commands: &[Command], text: &[u8]) -> Result<FrameStats, String> {
         validate(commands, text)?;
         for c in commands {
