@@ -20,7 +20,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zlib
 
 SPEC = importlib.util.spec_from_file_location("accept_x11", Path(__file__).with_name("accept_x11.py"))
@@ -362,7 +362,117 @@ class AcceptanceTests(unittest.TestCase):
         self.assertEqual(report["status"], "failed")
 
 
+class PointerPositionTests(unittest.TestCase):
+    """Exercise real point/input/wait methods without a display or xdotool."""
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.folder = Path(self.temporary.name)
+        self.session = accept.WindowSession(
+            argparse.Namespace(window_timeout_seconds=1, event_timeout_seconds=.1, xdotool="xdotool"),
+            self.folder, self.folder, {}, dict(commands=[], checks=[]), Mock())
+        self.session.state = state()
+        self.session.process = Mock()
+        self.session.process.poll.return_value = None
+        self.observation = FakeDriver().input_snapshot(12345)
+        self.clock = 100.
+
+    def sleep(self, seconds):
+        self.clock += seconds
+
+    def position(self, observations, *, command_error=None):
+        session = self.session
+        session.deadline = self.clock + 1
+        session.x11.input_snapshot.side_effect = observations
+        with patch.object(accept, "run_command", side_effect=command_error) as command, \
+                patch.object(session, "read", return_value=session.state), \
+                patch.object(accept.time, "monotonic", side_effect=lambda: self.clock), \
+                patch.object(accept.time, "sleep", side_effect=self.sleep):
+            try:
+                session.point("button")
+            finally:
+                self.commands = command.call_args_list
+
+    def test_already_at_target_is_idempotent_without_movement_or_click(self):
+        self.position([self.observation])
+        self.assertEqual(len(self.commands), 1)
+        self.assertEqual(self.commands[0].args[0], ["xdotool", "mousemove", "--window", "12345", "104", "132"])
+        self.assertEqual(self.session.x11.input_snapshot.call_count, 1)
+        self.assertEqual(self.session.state["eventCounts"], {})
+        self.assertEqual(self.session.report["checks"][-1]["status"], "passed")
+
+    def test_moved_target_waits_for_independent_arrival(self):
+        self.position([{**self.observation, "pointerRoot": [0, 0]}, self.observation])
+        self.assertEqual(self.session.x11.input_snapshot.call_count, 2)
+        self.assertGreater(self.clock, 100.)
+        self.assertEqual(len(self.commands), 1)
+
+    def test_wrong_coordinates_occlusion_or_unmapped_target_time_out(self):
+        for changed in (dict(pointerRoot=[0, 0]), dict(pointerPath=[1, 99]), dict(mapState=0)):
+            with self.subTest(changed=changed):
+                self.session.report["checks"].clear()
+                with self.assertRaisesRegex(ValueError, "Timed out waiting for pointer positioned"):
+                    self.position([{**self.observation, **changed}] * 10)
+                self.assertEqual(self.session.report["checks"][-1]["status"], "timeout")
+                self.assertEqual(len(self.commands), 1)
+
+    def test_positioning_does_not_require_a_window_manager(self):
+        self.position([{**self.observation, "wmState": None, "activeWindow": None}])
+        self.assertEqual(self.session.report["checks"][-1]["status"], "passed")
+
+    def test_command_failure_is_not_hidden_by_already_correct_position(self):
+        with self.assertRaisesRegex(ValueError, "move failed"):
+            self.position([self.observation], command_error=ValueError("move failed"))
+        self.session.x11.input_snapshot.assert_not_called()
+        self.assertEqual(self.session.report["checks"], [])
+
+    def test_observer_failure_is_not_a_positioning_pass(self):
+        with self.assertRaisesRegex(ValueError, "snapshot failed"):
+            self.position([ValueError("snapshot failed")])
+        self.assertEqual(self.session.report["checks"], [])
+
+
 class DriverTests(unittest.TestCase):
+    def test_restored_already_positioned_pointer_reaches_one_click(self):
+        session = FakeDriver()
+        original_point, original_input = session.point, session.input
+        def point(element):
+            if ("windowactivate", "--sync", "12345") not in session.inputs or element != "button":
+                return original_point(element)
+            accept.WindowSession.point(session, element)
+        def input_(*args):
+            if args[0] == "mousemove" and "--window" in args:
+                if "--sync" in args:
+                    raise ValueError("already-at-target --sync would time out")
+                session.inputs.append(args)  # Idempotent warp: no fake PointerMove.
+                return
+            original_input(*args)
+        with patch.object(session, "point", side_effect=point), patch.object(session, "input", side_effect=input_):
+            accept.exercise_window(session, require_wm=True)
+        activation = session.inputs.index(("windowactivate", "--sync", "12345"))
+        self.assertEqual(session.inputs[activation + 1], ("mousemove", "--window", "12345", "104", "132"))
+        self.assertEqual(session.inputs[activation:].count(("click", "1")), 1)
+        self.assertIn("pointer positioned on button", session.checks)
+        self.assertIn("WM restored pointer targets activated client", session.checks)
+        self.assertIn("WM restored window accepts input", session.checks)
+
+    def test_restored_positioning_failure_prevents_click_and_keeps_diagnostic(self):
+        session = FakeDriver()
+        original = session.point
+        def point(element):
+            if ("windowactivate", "--sync", "12345") in session.inputs:
+                accept.WindowSession.point(session, element)
+            else:
+                original(element)
+        bad = {**session.input_snapshot(12345), "pointerRoot": [0, 0]}
+        with patch.object(session, "point", side_effect=point), \
+                patch.object(session, "input_snapshot", return_value=bad):
+            with self.assertRaisesRegex(ValueError, "pointer positioned on button"):
+                accept.exercise_window(session, require_wm=True)
+        self.assertEqual(session.state["clicks"], 2)
+        self.assertEqual(session.inputs[-1], ("diagnostic", "wm-restored-input-failure"))
+        self.assertFalse(session.finished)
+
     def test_wm_mode_requires_iconic_normal_transitions_and_restored_click(self):
         session = FakeDriver()
         result = accept.exercise_window(session, require_wm=True)

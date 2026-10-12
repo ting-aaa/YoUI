@@ -816,8 +816,12 @@ class WindowSession:
 
     def point(self, element: str) -> None:
         rect = self.state[element]
-        self.input("mousemove", "--sync", "--window", str(self.state["xid"]),
+        # xdotool 3.20160805 --sync waits for departure from the old position,
+        # even when it already equals the target. Observe arrival independently.
+        self.input("mousemove", "--window", str(self.state["xid"]),
                    str(round(rect["x"] + rect["width"] / 2)), str(round(rect["y"] + rect["height"] / 2)))
+        self.wait(f"pointer positioned on {element}", lambda s:
+            pointer_positioned(self.x11.input_snapshot(s["xid"]), s, element))
 
     def pause(self, seconds: float) -> None:
         time.sleep(min(seconds, self.remaining()))
@@ -897,14 +901,19 @@ def validate_input_snapshot(value: object, xid: int) -> None:
         raise ValueError("Invalid X11 pointer hierarchy")
 
 
-def pointer_ready(observation: dict, state: dict, element: str) -> bool:
+def pointer_positioned(observation: dict, state: dict, element: str) -> bool:
     validate_input_snapshot(observation, state["xid"])
     rect = state[element]
     x, y = (observation["pointerRoot"][i] - observation["clientOrigin"][i] for i in (0, 1))
-    return (observation["wmState"] == 1 and observation["mapState"] == 2
-        and observation["activeWindow"] == state["xid"] and observation["inputFocus"] == state["xid"]
+    return (observation["mapState"] == 2
         and state["xid"] in observation["pointerPath"]
-        and (x, y) == (round(rect["x"] + rect["width"] / 2), round(rect["y"] + rect["height"] / 2))
+        and (x, y) == (round(rect["x"] + rect["width"] / 2), round(rect["y"] + rect["height"] / 2)))
+
+
+def pointer_ready(observation: dict, state: dict, element: str) -> bool:
+    return (pointer_positioned(observation, state, element)
+        and observation["wmState"] == 1
+        and observation["activeWindow"] == state["xid"] and observation["inputFocus"] == state["xid"]
         and observation["pointerMask"] & 0x1F00 == 0)  # No X11 button is still held.
 
 
