@@ -19,6 +19,7 @@
 | 排查 DLL、布局、图集或导出错误 | [常见问题](troubleshooting.md) |
 | 理解分层、颜色、绘制顺序与性能边界 | [架构约定](architecture.md) |
 | 了解已经完成的验证和仍未验证的能力 | [验证记录](verification.md)、[设计对照](design-status.md) |
+| 核对 Alpha 渲染与基础 Demo 范围、证据和剩余验收 | [Alpha 验收清单](alpha-acceptance.md) |
 
 建议第一次使用时按“快速开始 → 使用指南 → 对应模块 API”阅读。Editor 用户可以先阅读 Editor 指南，再查资源和导出 API。
 

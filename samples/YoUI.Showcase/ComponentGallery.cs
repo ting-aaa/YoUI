@@ -28,6 +28,9 @@ public sealed class ComponentGallery : Element
     public VirtualList Items { get; }
     public PropertyGrid Properties { get; }
     public StackPanel LayoutPreview { get; }
+    public RenderingGallery Rendering { get; }
+    public Toggle RenderingClip { get; }
+    public Slider RenderingOpacity { get; }
     public int Page { get; private set; } = -1;
     public bool ModalOpen => modal.Visible;
     public int SelectedRecord => selectedRecord;
@@ -40,7 +43,7 @@ public sealed class ComponentGallery : Element
         ClipToBounds = true;
         Add(new Label("YoUI / Component gallery") { Bold = true, FontSize = 25, Transform = RectTransform.Fixed(24, 18, 560, 40) });
         Add(new Label("Live controls. Shared input, layout and model contracts.") { FontSize = 13, Transform = RectTransform.Fixed(24, 62, 560, 28) });
-        Navigation = [new("Controls"), new("Collection"), new("Layout")];
+        Navigation = [new("Controls"), new("Collection"), new("Layout"), new("Rendering")];
         for (int i = 0; i < Navigation.Length; i++)
         {
             int page = i; Add(Navigation[i]); Navigation[i].Clicked += () => SelectPage(page);
@@ -105,12 +108,22 @@ public sealed class ComponentGallery : Element
         ]);
         Properties.ValidationFailed += message => status.Text = message;
         layout.Add(new Label("Edit 0..32 DIP; Enter or blur commits. Invalid values leave the preview unchanged.") { FontSize = 12 });
-        pages = [Viewport(controls), Viewport(collection), Viewport(layout)];
+        var rendering = new StackPanel { Gap = 12, Padding = 16 };
+        rendering.Add(new Label("04 / Rendering foundations") { Bold = true, FontSize = 22 });
+        rendering.Add(new Label("Generated textures. Ordered triangles. Nested clips and isolated groups.") { FontSize = 13 });
+        RenderingClip = rendering.Add(new Toggle("Clip the overlapping group", true) { Primary = true });
+        rendering.Add(new Label("Group opacity / arrows or drag (0–100%)") { FontSize = 13 });
+        RenderingOpacity = rendering.Add(new Slider { Value = .65f, AccessibleName = "Rendering group opacity" });
+        Rendering = rendering.Add(new RenderingGallery { Height = 460 });
+        RenderingClip.Changed += _ => { Rendering.Clipped = RenderingClip.Value; RenderingClip.Primary = RenderingClip.Value; };
+        RenderingOpacity.Changed += _ => Rendering.GroupOpacity = RenderingOpacity.Value;
+        rendering.Add(new Label("The host owns GPU images; page navigation keeps them alive.") { FontSize = 12 });
+        pages = [Viewport(controls), Viewport(collection), Viewport(layout), Viewport(rendering)];
 
         modal = Add(new Element { Visible = false, HitTestVisible = true, Background = Color.Hex(0x020711, .75f) });
         dialog = modal.Add(new Panel { Radius = 16 });
         dialog.Add(new Label("Reset the demos?") { FontSize = 23, Bold = true, Transform = RectTransform.Fixed(24, 22, 380, 38) });
-        dialog.Add(new Label("Restore rating, preview, filter and spacing.\nCancel keeps your current values.") { FontSize = 13, Transform = RectTransform.Fixed(24, 76, 380, 62) });
+        dialog.Add(new Label("Restore controls, rendering, filter and spacing.\nCancel keeps your current values.") { FontSize = 13, Transform = RectTransform.Fixed(24, 76, 380, 62) });
         CancelButton = dialog.Add(new Button("Cancel") { Transform = RectTransform.Fixed(24, 158, 176, 42) });
         ConfirmButton = dialog.Add(new Button("Reset") { Primary = true, Transform = RectTransform.Fixed(216, 158, 176, 42) });
         CancelButton.Clicked += CloseReset;
@@ -193,6 +206,7 @@ public sealed class ComponentGallery : Element
         State.Value = 3; Opacity.Value = .8f; ShowPreview.Value = true;
         selectedRecord = -1; Search.Text = ""; FilterRecords();
         LayoutPreview.Gap = LayoutPreview.Padding = 12; Properties.RefreshValues();
+        RenderingClip.Value = true; RenderingOpacity.Value = .65f;
         status.Text = "Demos reset.";
     }
     protected override void ArrangeChildren(Rect bounds)
@@ -203,11 +217,11 @@ public sealed class ComponentGallery : Element
             var rect = child.Transform!.Value.Resolve(bounds);
             child.Measure(new(rect.Width, rect.Height)); child.Arrange(rect);
         }
-        float gap = 8, width = (bounds.Width - 48 - gap * 4) / 5;
-        for (int i = 0; i < 3; i++) Navigation[i].Arrange(new(bounds.X + 24 + i * (width + gap), bounds.Y + 106, width, 42));
-        ThemeButton.Arrange(new(bounds.X + 24 + 3 * (width + gap), bounds.Y + 106, width, 42));
-        ResetButton.Arrange(new(bounds.X + 24 + 4 * (width + gap), bounds.Y + 106, width, 42));
-        host.Arrange(new(bounds.X + 24, bounds.Y + 166, Math.Max(0, bounds.Width - 48), Math.Max(0, bounds.Height - 216)));
+        float gap = 8, width = (bounds.Width - 48 - gap * (Navigation.Length - 1)) / Navigation.Length;
+        for (int i = 0; i < Navigation.Length; i++) Navigation[i].Arrange(new(bounds.X + 24 + i * (width + gap), bounds.Y + 106, width, 42));
+        ThemeButton.Arrange(new(bounds.X + 24, bounds.Y + 156, 142, 36));
+        ResetButton.Arrange(new(bounds.X + 174, bounds.Y + 156, 142, 36));
+        host.Arrange(new(bounds.X + 24, bounds.Y + 210, Math.Max(0, bounds.Width - 48), Math.Max(0, bounds.Height - 260)));
         status.Arrange(new(bounds.X + 24, bounds.Bottom - 40, Math.Max(0, bounds.Width - 48), 32));
         modal.Arrange(bounds);
         dialog.Arrange(new(bounds.X + (bounds.Width - 416) / 2, bounds.Y + (bounds.Height - 222) / 2, 416, 222));

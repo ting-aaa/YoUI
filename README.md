@@ -12,7 +12,7 @@
 - [快速开始](docs/getting-started.md)：环境准备、构建、运行第一个窗口和离屏截图。
 - [使用指南](docs/guide.md)：布局、控件事件、主题、列表、模态、自定义绘制和资源加载。
 - [API 文档](docs/api/README.md)：C# UI、渲染、Windows 宿主、资源、编辑器、Rust 与 C ABI。
-- [组件图库与交互示例](docs/component-gallery.md)：可切换的控件、搜索选择与布局演示，支持可复现截图。
+- [组件图库与交互示例](docs/component-gallery.md)：可切换的控件、搜索选择、布局与渲染基础演示，支持可复现截图。
 - [Editor 使用与导出](docs/editor.md)：可视化编辑、配置和 C# 导出、插件开发。
 - [常见问题](docs/troubleshooting.md)：构建、DLL、布局、资源和导出问题。
 - [Linux 开发验证](docs/linux-development.md)：原生库构建、C# 编译及无 GPU 逻辑测试；新增 [Linux X11 实验宿主](docs/linux-window.md)，真实窗口验收仍待完成。
