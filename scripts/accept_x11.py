@@ -179,6 +179,30 @@ class XEvent(ctypes.Union):
     _fields_ = [("client", ClientMessage), ("pad", ctypes.c_long * 24)]
 
 
+class XWindowAttributes(ctypes.Structure):
+    # Public Xlib ABI, including the trailing fields written by XGetWindowAttributes.
+    _fields_ = [("x", ctypes.c_int), ("y", ctypes.c_int), ("width", ctypes.c_int),
+                ("height", ctypes.c_int), ("border_width", ctypes.c_int), ("depth", ctypes.c_int),
+                ("visual", ctypes.c_void_p), ("root", ctypes.c_ulong), ("class_", ctypes.c_int),
+                ("bit_gravity", ctypes.c_int), ("win_gravity", ctypes.c_int),
+                ("backing_store", ctypes.c_int), ("backing_planes", ctypes.c_ulong),
+                ("backing_pixel", ctypes.c_ulong), ("save_under", ctypes.c_int),
+                ("colormap", ctypes.c_ulong), ("map_installed", ctypes.c_int),
+                ("map_state", ctypes.c_int), ("all_event_masks", ctypes.c_long),
+                ("your_event_mask", ctypes.c_long), ("do_not_propagate_mask", ctypes.c_long),
+                ("override_redirect", ctypes.c_int), ("screen", ctypes.c_void_p)]
+
+
+class XErrorEvent(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_int), ("display", ctypes.c_void_p),
+                ("resourceid", ctypes.c_ulong), ("serial", ctypes.c_ulong),
+                ("error_code", ctypes.c_ubyte), ("request_code", ctypes.c_ubyte),
+                ("minor_code", ctypes.c_ubyte)]
+
+
+XErrorHandler = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(XErrorEvent))
+
+
 class XImageHeader(ctypes.Structure):
     # The fields preceding XImage's function pointers are public Xlib ABI.
     _fields_ = [("width", ctypes.c_int), ("height", ctypes.c_int), ("xoffset", ctypes.c_int),
@@ -217,6 +241,9 @@ class XlibNative:
             "XCreateSimpleWindow": (window, [pointer, window, ctypes.c_int, ctypes.c_int, ctypes.c_uint,
                                              ctypes.c_uint, ctypes.c_uint, ctypes.c_ulong, ctypes.c_ulong]),
             "XMapWindow": (ctypes.c_int, [pointer, window]),
+            "XGetWindowAttributes": (ctypes.c_int, [pointer, window, ctypes.POINTER(XWindowAttributes)]),
+            "XGetInputFocus": (ctypes.c_int, [pointer, ctypes.POINTER(window), ctypes.POINTER(ctypes.c_int)]),
+            "XSetErrorHandler": (pointer, [pointer]),
             "XSetInputFocus": (ctypes.c_int, [pointer, window, ctypes.c_int, ctypes.c_ulong]),
             "XInternAtom": (ctypes.c_ulong, [pointer, ctypes.c_char_p, ctypes.c_int]),
             "XSendEvent": (ctypes.c_int, [pointer, window, ctypes.c_int, ctypes.c_long, ctypes.POINTER(XEvent)]),
@@ -239,15 +266,76 @@ class XlibNative:
             raise ValueError(f"Cannot open DISPLAY={display!r}; no native-window checks were run")
         self.root = self.lib.XDefaultRootWindow(self.display)
 
-    def focus_away(self) -> None:
-        if not self.sink:
-            self.sink = self.lib.XCreateSimpleWindow(self.display, self.root, 0, 0, 8, 8, 0, 0, 0)
-            if not self.sink:
-                raise ValueError("Could not create an X11 focus-loss test window")
-            self.lib.XMapWindow(self.display, self.sink)
+    def focus_away(self, timeout: float = 5.0) -> None:
+        # XSync only drains this client's requests: a WM may still be handling
+        # MapRequest. Wait for IsViewable (including mapped ancestors), not a
+        # fixed delay or just MapNotify. The parent RPC deadline also bounds
+        # Xlib calls if the server itself stops responding.
+        deadline = time.monotonic() + timeout
+        errors = []
+
+        @XErrorHandler
+        def on_error(_display, event):
+            error = event.contents
+            errors.append(f"X11 error {error.error_code}, request {error.request_code}, "
+                          f"resource {error.resourceid}, serial {error.serial}")
+            return 0
+
+        previous = self.lib.XSetErrorHandler(ctypes.cast(on_error, ctypes.c_void_p))
+
+        def sync():
             self.lib.XSync(self.display, 0)
-        self.lib.XSetInputFocus(self.display, self.sink, 2, 0)  # RevertToParent, CurrentTime
-        self.lib.XSync(self.display, 0)
+            if errors:
+                raise ValueError("Focus-loss sink: " + "; ".join(errors))
+
+        def wait(predicate, description):
+            while True:
+                if predicate():
+                    return
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ValueError("Timed out waiting for focus-loss sink " + description)
+                time.sleep(min(.01, remaining))
+
+        def viewable():
+            attributes = XWindowAttributes()
+            status = self.lib.XGetWindowAttributes(self.display, self.sink, ctypes.byref(attributes))
+            sync()
+            if not status:
+                raise ValueError("Cannot query focus-loss sink window attributes")
+            return attributes.map_state == 2  # IsViewable
+
+        def focused():
+            window, revert = ctypes.c_ulong(), ctypes.c_int()
+            self.lib.XGetInputFocus(self.display, ctypes.byref(window), ctypes.byref(revert))
+            sync()
+            return window.value == self.sink
+
+        try:
+            sync()
+            if not self.sink:
+                self.sink = self.lib.XCreateSimpleWindow(self.display, self.root, 0, 0, 8, 8, 0, 0, 0)
+                sync()
+                if not self.sink:
+                    raise ValueError("Could not create an X11 focus-loss test window")
+                self.lib.XMapWindow(self.display, self.sink)
+                sync()
+            wait(viewable, "to become IsViewable")
+            self.lib.XSetInputFocus(self.display, self.sink, 2, 0)  # RevertToParent, CurrentTime
+            sync()
+            wait(focused, "to own input focus")
+        except BaseException:
+            if self.sink:
+                self.lib.XDestroyWindow(self.display, self.sink)
+                self.sink = 0
+            raise
+        finally:
+            # Drain even cleanup errors while the callback is alive; restore the
+            # process-global handler only after every request has been handled.
+            try:
+                self.lib.XSync(self.display, 0)
+            finally:
+                self.lib.XSetErrorHandler(previous)
 
     def request_close(self, xid: int) -> None:
         event = XEvent()
