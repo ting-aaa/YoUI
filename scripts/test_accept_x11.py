@@ -18,6 +18,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 import zlib
@@ -211,15 +212,16 @@ class AcceptanceTests(unittest.TestCase):
                                        build_timeout_seconds=20, window_timeout_seconds=10,
                                        event_timeout_seconds=2, xdotool="fixture xdotool")
 
-    def fixture_run(self, fixture):
+    def fixture_run(self, fixture, cleanup_error=None):
         final = state()
         final.update(closed=True, closeRequests=2)
         result = dict(**accept.adapter_evidence(final["adapter"]), finalState=final)
         with patch.dict(os.environ, {"DISPLAY": ":fake"}), patch.object(accept.platform, "system", return_value="Linux"), \
-             patch.object(accept, "X11") as x11, patch.object(accept, "run_command", side_effect=fixture.run), \
+             patch.object(accept, "X11Worker") as x11, patch.object(accept, "run_command", side_effect=fixture.run), \
              patch.object(accept, "WindowSession", side_effect=fixture.session), \
              patch.object(accept, "exercise_window", return_value=result), contextlib.redirect_stdout(io.StringIO()):
             x11.return_value.library = "fixture libX11"
+            x11.return_value.close.return_value = cleanup_error
             with patch.dict(os.environ):
                 os.environ.pop("RUSTUP_TOOLCHAIN", None)
                 code = accept.run_acceptance(self.args, self.root)
@@ -258,7 +260,7 @@ class AcceptanceTests(unittest.TestCase):
                     self.assertGreater(timeout, 0)
 
     def test_no_display_fails_without_native_tools_or_build(self):
-        with patch.dict(os.environ), patch.object(accept, "X11") as x11, \
+        with patch.dict(os.environ), patch.object(accept, "X11Worker") as x11, \
              patch.object(accept.subprocess, "Popen") as popen, contextlib.redirect_stdout(io.StringIO()):
             os.environ.pop("DISPLAY", None)
             code = accept.run_acceptance(self.args, self.root)
@@ -270,14 +272,14 @@ class AcceptanceTests(unittest.TestCase):
         self.assertEqual(result["checks"], [])
 
     def test_unopenable_display_fails_before_build(self):
-        with patch.dict(os.environ, {"DISPLAY": ":fixture"}), patch.object(accept, "X11", side_effect=ValueError("Cannot open display")), \
+        with patch.dict(os.environ, {"DISPLAY": ":fixture"}), patch.object(accept, "X11Worker", side_effect=ValueError("Cannot open display")), \
              patch.object(accept.subprocess, "Popen") as popen, contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(accept.run_acceptance(self.args, self.root), 1)
         popen.assert_not_called()
 
     def test_existing_even_empty_output_is_rejected(self):
         self.args.output.mkdir()
-        with patch.object(accept, "X11") as x11, contextlib.redirect_stderr(io.StringIO()):
+        with patch.object(accept, "X11Worker") as x11, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(accept.run_acceptance(self.args, self.root), 2)
         x11.assert_not_called()
         self.assertEqual(list(self.args.output.iterdir()), [])
@@ -290,6 +292,12 @@ class AcceptanceTests(unittest.TestCase):
         self.assertIn("build-native", result["error"])
         self.assertEqual(fixture.sessions, [])
         self.assertFalse(any(command[:2] == ["dotnet", "build"] for command, _, _ in fixture.commands))
+
+    def test_xlib_shutdown_failure_cannot_leave_an_acceptance_pass(self):
+        code, result = self.fixture_run(Fixture(self.root), cleanup_error="fixture hung Xlib close")
+        self.assertEqual(code, 1)
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("Xlib cleanup failed", result["error"])
 
     def test_cli_requires_explicit_configuration_and_vulkan(self):
         for arguments in ([], ["--backend", "vulkan"], ["--configuration", "Release"],
@@ -356,7 +364,7 @@ class DriverTests(unittest.TestCase):
             def XSync(self, *_):
                 pass
 
-        x11 = accept.X11.__new__(accept.X11)
+        x11 = accept.XlibNative.__new__(accept.XlibNative)
         x11.display, x11.lib = 1, Library()
         x11.request_close(12345)
         self.assertEqual(observed, [(12345, 0, 0, 33, 42, 32, 43, 0)])
@@ -384,7 +392,7 @@ class DriverTests(unittest.TestCase):
             path = Path(directory) / "native.png"
             small = {**state(), "width": 4, "height": 4}
             for uniform in (False, True):
-                x11 = accept.X11.__new__(accept.X11)
+                x11 = accept.XlibNative.__new__(accept.XlibNative)
                 x11.display, x11.lib = 1, Library(uniform)
                 if uniform:
                     with self.assertRaisesRegex(ValueError, "fewer than eight"):
@@ -394,6 +402,112 @@ class DriverTests(unittest.TestCase):
                     self.assertEqual(result["distinctColorsAtLeast"], 16)
                     self.assertEqual(accept.validate_frame(path, small)["width"], 4)
                 self.assertEqual(x11.lib.destroyed, 1)
+
+
+class WorkerTimeoutTests(unittest.TestCase):
+    # This child deliberately never opens Xlib or a display. It blocks forever
+    # where the real worker could be stuck inside an uninterruptible Xlib call.
+    BLOCKING = """
+import json, sys, time
+for line in sys.stdin:
+    request = json.loads(line)
+    if request['operation'] == 'open':
+        print(json.dumps(dict(id=request['id'], ok=True, result=dict(library='fake Xlib'))), flush=True)
+    else:
+        time.sleep(3600)
+"""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="youi-xlib-worker-")
+        self.addCleanup(self.temporary.cleanup)
+        self.folder = Path(self.temporary.name)
+        self.report = dict(status="running", commands=[])
+
+    def create(self, source):
+        return accept.X11Worker(":never-opened", root=self.folder, output=self.folder, env=dict(os.environ),
+                                report=self.report, event_timeout=.5, window_timeout=5,
+                                worker_command=[sys.executable, "-u", "-c", source])
+
+    def assert_reaped(self):
+        record = self.report["commands"][0]
+        self.assertEqual(record["exitCode"], -accept.signal.SIGKILL)
+        self.assertIsNone(record["cleanupError"])
+        with self.assertRaises(ProcessLookupError):
+            os.kill(record["pid"], 0)
+
+    def test_indefinitely_blocked_open_is_killed_and_reaped_without_display(self):
+        started = time.monotonic()
+        with self.assertRaisesRegex(ValueError, "Xlib open: timeout"), patch.object(accept.os, "killpg", wraps=os.killpg) as kill:
+            self.create("import sys,time; sys.stdin.readline(); time.sleep(3600)")
+        self.assertLess(time.monotonic() - started, 3)
+        kill.assert_called_once_with(self.report["commands"][0]["pid"], accept.signal.SIGKILL)
+        self.assertEqual(self.report["xlibOperations"][0]["status"], "timeout")
+        self.assert_reaped()
+
+    def test_blocked_worker_cannot_produce_a_top_level_acceptance_pass(self):
+        original = accept.X11Worker
+
+        def factory(display, **kwargs):
+            return original(display, **kwargs, worker_command=[sys.executable, "-u", "-c",
+                            "import sys,time; sys.stdin.readline(); time.sleep(3600)"])
+
+        args = argparse.Namespace(output=self.folder / "fresh", configuration="Debug", backend="vulkan",
+                                  event_timeout_seconds=.2, window_timeout_seconds=5,
+                                  build_timeout_seconds=5, xdotool="unused")
+        with patch.dict(os.environ, {"DISPLAY": ":never-opened"}), patch.object(accept, "X11Worker", side_effect=factory), \
+             patch.object(accept, "run_command") as command, contextlib.redirect_stdout(io.StringIO()):
+            os.environ.pop("RUSTUP_TOOLCHAIN", None)
+            code = accept.run_acceptance(args, self.folder)
+        command.assert_not_called()
+        result = json.loads((args.output / "result.json").read_text())
+        self.assertEqual(code, 1)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["checks"], [])
+        self.assertEqual(result["commands"][0]["status"], "timeout")
+        self.assertEqual(result["commands"][0]["exitCode"], -accept.signal.SIGKILL)
+
+    def test_indefinitely_blocked_capture_uses_remaining_window_budget(self):
+        worker = self.create(self.BLOCKING)
+        worker.bind_deadline(time.monotonic() + .08)
+        started = time.monotonic()
+        try:
+            with self.assertRaisesRegex(ValueError, "Xlib capture-window: timeout"):
+                worker.capture_window(state(), self.folder / "never-produced.png")
+        finally:
+            worker.close()
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertLessEqual(self.report["xlibOperations"][-1]["timeoutSeconds"], .08)
+        self.assertEqual(self.report["xlibOperations"][-1]["status"], "timeout")
+        self.assertFalse((self.folder / "never-produced.png").exists())
+        self.assert_reaped()
+
+    def test_indefinitely_blocked_close_returns_failure_and_reaps_worker(self):
+        worker = self.create(self.BLOCKING)
+        worker.bind_deadline(time.monotonic() + .08)
+        started = time.monotonic()
+        error = worker.close()
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertIn("Xlib close: timeout", error)
+        self.assertEqual(self.report["commands"][0]["status"], "failed")
+        self.assertEqual(self.report["xlibOperations"][-1]["status"], "timeout")
+        self.assert_reaped()
+
+    def test_normal_pipe_rpc_worker_is_reaped_cleanly(self):
+        source = """
+import json, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    result = dict(library='fake Xlib') if request['operation'] == 'open' else None
+    print(json.dumps(dict(id=request['id'], ok=True, result=result)), flush=True)
+    if request['operation'] == 'close':
+        break
+"""
+        worker = self.create(source)
+        self.assertIsNone(worker.close())
+        self.assertEqual(self.report["commands"][0]["status"], "passed")
+        self.assertEqual(self.report["commands"][0]["exitCode"], 0)
+        self.assertTrue(worker.process.stdin.closed)
+        self.assertTrue(worker.process.stdout.closed)
 
 
 class ValidationTests(unittest.TestCase):

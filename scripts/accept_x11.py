@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import selectors
 import signal
 import struct
 import subprocess
@@ -199,8 +200,8 @@ def save_rgb_png(path: Path, width: int, height: int, pixels: bytes) -> None:
                      + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
-class X11:
-    """Minimal Xlib calls; input itself is sent through xdotool's XTest path."""
+class XlibNative:
+    """Worker-only Xlib calls. Never instantiate in the acceptance parent."""
     def __init__(self, display: str):
         self.library = ctypes.util.find_library("X11")
         if not self.library:
@@ -320,8 +321,209 @@ class X11:
             self.display = None
 
 
+def xlib_worker_main() -> int:
+    """Pipe RPC worker: an unresponsive X server can only block this process."""
+    native = None
+    try:
+        for line in sys.stdin:
+            request = strict_json(line)
+            identifier, operation, arguments = request["id"], request["operation"], request["arguments"]
+            try:
+                if operation == "open" and native is None:
+                    native = XlibNative(arguments["display"])
+                    result = dict(library=native.library)
+                elif native is None:
+                    raise ValueError("Xlib worker has no open display")
+                elif operation == "focus-away":
+                    result = native.focus_away()
+                elif operation == "request-close":
+                    result = native.request_close(arguments["xid"])
+                elif operation == "outside-point":
+                    result = native.outside_point(arguments["state"])
+                elif operation == "capture-window":
+                    result = native.capture_window(arguments["state"], Path(arguments["path"]))
+                elif operation == "close":
+                    result = native.close()
+                    native = None
+                else:
+                    raise ValueError("Unsupported Xlib worker operation")
+                response = dict(id=identifier, ok=True, result=result)
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                response = dict(id=identifier, ok=False, error=str(exc))
+            print(json.dumps(response, allow_nan=False), flush=True)
+            if operation == "close":
+                return 0
+    finally:
+        # The parent's process-group deadline also bounds a hung close here.
+        if native:
+            native.close()
+    return 0
+
+
+class X11Worker:
+    """Own an Xlib subprocess and bound every pipe operation in the parent."""
+    def __init__(self, display: str, *, root: Path, output: Path, env: dict, report: dict,
+                 event_timeout: float, window_timeout: float, worker_command: list[str] | None = None):
+        self.output, self.report = output, report
+        self.event_timeout = event_timeout
+        self.deadline = time.monotonic() + window_timeout
+        self.process = self.stream = None
+        self.identifier = 0
+        self.failed = False
+        command = worker_command or [sys.executable, str(Path(__file__).resolve()), "--xlib-worker"]
+        self.record = dict(name="xlib-worker", command=command, status="running", startedUtc=utc_now(),
+                           completedUtc=None, exitCode=None, log="xlib-worker.log",
+                           perOperationTimeoutSeconds=event_timeout)
+        report["commands"].append(self.record)
+        report.setdefault("xlibOperations", [])
+        write_report(output, report)
+        try:
+            self.stream = (output / self.record["log"]).open("w", encoding="utf-8")
+            self.process = subprocess.Popen(command, cwd=root, env=env, stdin=subprocess.PIPE,
+                                            stdout=subprocess.PIPE, stderr=self.stream, bufsize=0,
+                                            start_new_session=True)
+            self.record["pid"] = self.process.pid
+            os.set_blocking(self.process.stdin.fileno(), False)
+            os.set_blocking(self.process.stdout.fileno(), False)
+            opened = self.request("open", dict(display=display))
+            self.library = opened["library"]
+        except BaseException:
+            self.terminate()
+            self.close_files()
+            raise
+
+    def bind_deadline(self, deadline: float) -> None:
+        # Display probing precedes builds. The window's shared runtime budget
+        # begins once those builds finish; all subsequent RPCs use that budget.
+        self.deadline = deadline
+
+    def terminate(self) -> None:
+        if self.process is not None:
+            if self.process.poll() is None:
+                self.record["cleanupError"] = stop_process_tree(self.process)
+            self.record["exitCode"] = self.process.returncode
+        if self.record["status"] == "running":
+            self.record["status"] = "failed"
+        self.record["completedUtc"] = utc_now()
+
+    def close_files(self) -> None:
+        if self.process:
+            for pipe in (self.process.stdin, self.process.stdout):
+                if pipe:
+                    pipe.close()
+        if self.stream:
+            self.stream.close()
+
+    def request(self, operation: str, arguments: dict | None = None):
+        self.identifier += 1
+        budget = min(self.event_timeout, self.deadline - time.monotonic())
+        record = dict(operation=operation, status="running", startedUtc=utc_now(),
+                      completedUtc=None, timeoutSeconds=max(0, budget))
+        self.report["xlibOperations"].append(record)
+        deadline = time.monotonic() + max(0, budget)
+        try:
+            if self.failed:
+                raise ValueError("Xlib worker already failed")
+            if budget <= 0:
+                raise TimeoutError("no native-window runtime remains")
+            payload = (json.dumps(dict(id=self.identifier, operation=operation, arguments=arguments or {}),
+                                  allow_nan=False) + "\n").encode()
+            if len(payload) > 4096:
+                raise ValueError("Xlib request exceeds its bounded control-message size")
+            # Nonblocking writes matter too: a stuck worker may not read stdin.
+            with selectors.DefaultSelector() as selector:
+                selector.register(self.process.stdin, selectors.EVENT_WRITE)
+                sent = 0
+                while sent < len(payload):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or not selector.select(remaining):
+                        raise TimeoutError("request pipe did not become writable")
+                    try:
+                        sent += os.write(self.process.stdin.fileno(), payload[sent:])
+                    except BlockingIOError:
+                        continue
+                selector.unregister(self.process.stdin)
+                selector.register(self.process.stdout, selectors.EVENT_READ)
+                response = bytearray()
+                while b"\n" not in response:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or not selector.select(remaining):
+                        raise TimeoutError("worker did not reply")
+                    try:
+                        chunk = os.read(self.process.stdout.fileno(), 65536)
+                    except BlockingIOError:
+                        continue
+                    if not chunk:
+                        raise ValueError("Xlib worker closed its reply pipe before completing the operation")
+                    response.extend(chunk)
+                    if len(response) > 65536:
+                        raise ValueError("Xlib worker reply exceeds its size bound")
+            line, extra = bytes(response).split(b"\n", 1)
+            if extra:
+                raise ValueError("Xlib worker sent unsolicited reply data")
+            value = strict_json(line.decode("utf-8"))
+            if not isinstance(value, dict) or value.get("id") != self.identifier or type(value.get("ok")) is not bool:
+                raise ValueError("Invalid Xlib worker reply")
+            if not value["ok"]:
+                raise ValueError("Xlib worker: " + str(value.get("error", "operation failed")))
+            record["status"] = "passed"
+            return value.get("result")
+        except (OSError, ValueError, KeyboardInterrupt) as exc:
+            self.failed = True
+            record["status"] = "timeout" if isinstance(exc, TimeoutError) else "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+            record["error"] = str(exc)
+            self.record["status"] = record["status"]
+            self.terminate()
+            if isinstance(exc, KeyboardInterrupt):
+                raise
+            raise ValueError(f"Xlib {operation}: {record['status']} ({exc}); inspect xlib-worker.log") from exc
+        finally:
+            record["completedUtc"] = utc_now()
+            write_report(self.output, self.report)
+
+    def focus_away(self) -> None:
+        self.request("focus-away")
+
+    def request_close(self, xid: int) -> None:
+        self.request("request-close", dict(xid=xid))
+
+    def outside_point(self, state: dict) -> tuple[int, int]:
+        result = self.request("outside-point", dict(state={key: state[key] for key in ("xid", "width", "height")}))
+        if not isinstance(result, list) or len(result) != 2 or any(type(value) is not int for value in result):
+            raise ValueError("Xlib worker returned invalid pointer coordinates")
+        return tuple(result)
+
+    def capture_window(self, state: dict, path: Path) -> dict:
+        return self.request("capture-window", dict(state={key: state[key] for key in ("xid", "width", "height")}, path=str(path)))
+
+    def close(self) -> str | None:
+        error = None
+        shutdown_deadline = min(self.deadline, time.monotonic() + self.event_timeout)
+        try:
+            if self.process is not None and self.process.poll() is None and not self.failed:
+                self.request("close")
+                remaining = shutdown_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ValueError("Xlib worker shutdown exceeded the native-window runtime")
+                self.process.wait(timeout=remaining)
+                if self.process.returncode != 0:
+                    raise ValueError(f"Xlib worker exited {self.process.returncode} during shutdown")
+                self.record["status"] = "passed"
+            elif not self.failed:
+                raise ValueError("Xlib worker exited before its owned shutdown")
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            error = str(exc)
+            self.failed = True
+            self.record["status"] = "failed"
+        finally:
+            self.terminate()
+            self.close_files()
+            write_report(self.output, self.report)
+        return error
+
+
 class WindowSession:
-    def __init__(self, args, root: Path, output: Path, env: dict, report: dict, x11: X11):
+    def __init__(self, args, root: Path, output: Path, env: dict, report: dict, x11: X11Worker):
         self.args, self.root, self.output = args, root, output
         self.env, self.report, self.x11 = env, report, x11
         self.process = None
@@ -329,6 +531,7 @@ class WindowSession:
         self.state = None
         self.pointer_down = False
         self.deadline = time.monotonic() + args.window_timeout_seconds
+        self.x11.bind_deadline(self.deadline)
         self.record = None
 
     def remaining(self) -> float:
@@ -580,7 +783,8 @@ def run_acceptance(args: argparse.Namespace, root: Path = ROOT) -> int:
             raise ValueError("DISPLAY is required; no native-window checks were run")
         if env.get("RUSTUP_TOOLCHAIN"):
             raise ValueError("RUSTUP_TOOLCHAIN overrides the repository pin; unset it before acceptance")
-        x11 = X11(env["DISPLAY"])
+        x11 = X11Worker(env["DISPLAY"], root=root, output=output, env=env, report=report,
+                        event_timeout=args.event_timeout_seconds, window_timeout=args.window_timeout_seconds)
         report["versions"]["xlib"] = x11.library
         pins = [file_evidence(root / name, root) for name in ("global.json", "rust-toolchain.toml")]
         report["toolchainFiles"] = pins
@@ -632,7 +836,10 @@ def run_acceptance(args: argparse.Namespace, root: Path = ROOT) -> int:
         if session:
             session.cleanup()
         if x11:
-            x11.close()
+            cleanup_error = x11.close()
+            if cleanup_error is not None:
+                report["status"], code = "failed", 1
+                report["error"] = (report.get("error", "") + "; Xlib cleanup failed: " + cleanup_error).lstrip("; ")
         report["completedUtc"] = utc_now()
         report["artifacts"] = [file_evidence(path, output) for path in sorted((output / "sample").glob("*")) if path.is_file()]
         write_report(output, report)
@@ -661,4 +868,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(xlib_worker_main() if sys.argv[1:] == ["--xlib-worker"] else main())

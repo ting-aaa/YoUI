@@ -84,7 +84,9 @@ public sealed class DesktopWindow : IDisposable
     {
         Verify();
         if (closed || suspended) return;
-        LastFrame = Renderer.Render(Document.BuildFrame());
+        var frame = Document.BuildFrame();
+        if (closed || disposed) return; // Layout/paint callbacks may dispose the host.
+        LastFrame = Renderer.Render(frame);
         RenderedFrames++;
     }
     public void PumpEvents()
@@ -101,19 +103,22 @@ public sealed class DesktopWindow : IDisposable
             PumpEvents();
             if (closed) break;
             tick?.Invoke();
+            if (closed) break; // Tick/input callbacks may dispose the native window.
             if (Document.NeedsRender && !suspended) RenderNow();
+            if (closed) break;
             // Wake for native input without spinning while idle, hidden or minimized.
             if (Sdl.SDL_WaitEventTimeout(out var value, tick == null ? 100 : 16) != 0) Process(value);
         }
     }
     private void CancelPointer()
     {
+        if (disposed) return;
         if (pointerDown) { Sdl.SDL_CaptureMouse(0); pointerDown = false; }
         Document.CancelPointer();
     }
     private void RequestClose()
     {
-        if (Closing?.Invoke() == false) return;
+        if (Closing?.Invoke() == false || closed) return;
         CancelPointer();
         closed = true; // Native window/display remain alive until the renderer has been destroyed.
     }
@@ -149,7 +154,9 @@ public sealed class DesktopWindow : IDisposable
                 case 1: case 8: case 9: // shown/maximized/restored
                     suspended = false; Resize(); Document.Root.Invalidate(); break;
                 case 2: case 7: // hidden/minimized
-                    suspended = true; focused = false; CancelPointer(); Document.Dispatch(new(EventKind.Composition) { Text = "" }); break;
+                    suspended = true; focused = false; CancelPointer();
+                    if (!closed) Document.Dispatch(new(EventKind.Composition) { Text = "" });
+                    break;
                 case 3: Document.Root.Invalidate(); break; // exposed
                 case 5: case 6: Resize(); break;
                 case 11:
@@ -157,7 +164,9 @@ public sealed class DesktopWindow : IDisposable
                     break;
                 case 12: focused = true; break;
                 case 13:
-                    focused = false; CancelPointer(); Document.Dispatch(new(EventKind.Composition) { Text = "" }); break;
+                    focused = false; CancelPointer();
+                    if (!closed) Document.Dispatch(new(EventKind.Composition) { Text = "" });
+                    break;
                 case 14: RequestClose(); break;
             }
             return;
@@ -171,6 +180,7 @@ public sealed class DesktopWindow : IDisposable
                 Document.Dispatch(new(EventKind.PointerMove) { Position = new(value.X, value.Y) }); break;
             case 0x401 when value.Button == 1:
                 if (pointerDown) CancelPointer();
+                if (closed) return;
                 Sdl.Check(Sdl.SDL_CaptureMouse(1)); pointerDown = true;
                 try { Document.Dispatch(new(EventKind.PointerDown) { Position = new(value.X, value.Y), Shift = shift, Control = control }); }
                 catch { CancelPointer(); throw; }
@@ -201,6 +211,7 @@ public sealed class DesktopWindow : IDisposable
     {
         if (disposed) return;
         Verify();
+        closed = true; // Terminal before cleanup: event/tick/paint callbacks can dispose synchronously.
         // Do not invalidate native handles if renderer disposal throws (e.g. a wrong-thread call).
         renderer?.Dispose(); renderer = null;
         Release(); disposed = true;

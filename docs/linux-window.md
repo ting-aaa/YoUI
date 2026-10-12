@@ -44,6 +44,20 @@ exercise that X11 route, not a native Wayland implementation. Nothing in the
 runner starts a display, changes its security settings, or circumvents an
 unavailable or denied display connection.
 
+### ABI references
+
+The LP64 interop layout and lifetime contracts are grounded in these upstream
+definitions, with the runtime version checked before the host uses them:
+
+- SDL2 [`SDL_GetWindowWMInfo`](https://wiki.libsdl.org/SDL2/SDL_GetWindowWMInfo)
+  and [`SDL_SysWMinfo`](https://wiki.libsdl.org/SDL2/SDL_SysWMinfo).
+- SDL 2.32.4 [`SDL_events.h`](https://raw.githubusercontent.com/libsdl-org/SDL/release-2.32.4/include/SDL_events.h),
+  including the event union and precise mouse-wheel fields introduced in 2.0.18.
+- SDL2 [`SDL_VideoInit`](https://wiki.libsdl.org/SDL2/SDL_VideoInit) and
+  [`SDL_CaptureMouse`](https://wiki.libsdl.org/SDL2/SDL_CaptureMouse).
+- raw-window-handle 0.6.2
+  [`XlibWindowHandle`](https://docs.rs/raw-window-handle/0.6.2/raw_window_handle/struct.XlibWindowHandle.html).
+
 ## Run the sample
 
 Build the native library before the matching managed configuration:
@@ -142,9 +156,22 @@ has a 120-second total bound and individual command/state waits default to
 15 seconds. These are configurable with `--build-timeout-seconds`,
 `--window-timeout-seconds`, and `--event-timeout-seconds`. The sample itself has
 a two-minute acceptance watchdog, so increasing the runner's window timeout
-does not extend that watchdog. Subprocesses have their own process groups;
-timeouts, interruption and failed window checks terminate the owned groups and
-retain logs. An outstanding button press is released during cleanup.
+does not extend that watchdog.
+
+All Xlib calls run in an owned subprocess, including display open, focus,
+coordinate queries, `XSync`, pixel capture, and display close. The parent uses
+nonblocking stdin/stdout pipes for requests and responses; it makes no direct
+Xlib calls. Display probing before builds uses the lesser of the event and
+window bounds. Once the sample starts, each operation is limited by both the
+event bound and the remaining shared window runtime. A hung open, capture or
+close cannot keep the parent waiting indefinitely: it kills the worker's
+process group, reaps it, and records failure. `xlib-worker.log` and
+`xlibOperations` in the report preserve worker diagnostics and operation status.
+
+Other subprocesses also have their own process groups; timeouts, interruption
+and failed window checks terminate the owned groups and retain logs. Forced
+termination has a separate bounded reap wait, with any cleanup failure
+recorded. An outstanding button press is released during cleanup.
 
 ## Runner and no-display tests
 
@@ -155,7 +182,9 @@ uv run scripts/test_accept_x11.py
 These standard-library tests cover CLI requirements, new-output ownership,
 Debug/Release build ordering and profile selection, metadata, failed builds,
 missing/unopenable displays, process-group termination, state/adapter/PNG
-validation, and a fake OS-input sequence. They do not start SDL, open an X
+validation, and a fake OS-input sequence. Real subprocess fixtures deliberately
+block forever at simulated Xlib open/capture/close operations to verify timeout,
+kill/reap behavior and failure reporting without touching a display. They do not start SDL, open an X
 display, render a native surface, or establish native acceptance. Keep their
 results separate from `scripts/verify.ps1` logical/headless GPU evidence and
 from successful native-window runner artifacts.
