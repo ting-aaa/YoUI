@@ -104,6 +104,26 @@ internal static class TexturedDrawingTests
             Check(target.Commands.Length == 6 && c.Rect == new Rect(6, 9, 24, 15) && c.Reserved0 == 12 && c.Reserved1 == 27);
             Check(c.Color2 == original.Color2 && c.Radius == .6f && c.FontSize == .8f);
         });
+        test("mixed text and textured geometry retain independent flags and UVs through transforms", () =>
+        {
+            using var image = Image(); var source = new DrawList(); var target = new DrawList();
+            source.Text(new(1, 2, 40, 20), "office אבג", new(1, 1, 1), 12, bold: true, wrap: false, clip: false);
+            source.NineSlice(new(5, 7, 200, 160), image, 10, 20, 30, 10);
+            target.Text(new(0, 0, 1, 1), "prefix", new(1, 1, 1));
+            target.Append(source, new(10, 20), 2);
+            Check(target.Commands.Length == 20 && target.Commands[1].Flags == 7);
+            Check(target.Commands[1].Rect == new Rect(12, 24, 80, 40) && target.Commands[1].FontSize == 24);
+            Check(System.Text.Encoding.UTF8.GetString(target.TextBytes.Slice((int)target.Commands[1].TextOffset, (int)target.Commands[1].TextLength)) == "office אבג");
+            for (int i = 1; i < source.Commands.Length; i++)
+            {
+                var original = source.Commands[i]; var transformed = target.Commands[i + 1];
+                Check(transformed.Flags == 41 && transformed.Color2 == original.Color2 && transformed.Radius == original.Radius && transformed.FontSize == original.FontSize);
+                Check(transformed.Reserved0 == original.Reserved0 * 2 + 10 && transformed.Reserved1 == original.Reserved1 * 2 + 20);
+            }
+            source.CopyScaledTo(target, 3);
+            Check(target.Commands.Length == 19 && target.Commands[0].Flags == 7 && target.Commands[0].FontSize == 36);
+            Check(target.Commands[1].Color2 == source.Commands[1].Color2 && target.Commands[1].FontSize == source.Commands[1].FontSize);
+        });
         test("nine-slice uses source pixel borders and emits row-major triangles", () =>
         {
             using var image = Image(); var list = new DrawList(); var tint = new Color(.2f, .4f, .6f, .5f);

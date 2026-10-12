@@ -10,6 +10,10 @@
 
 返回给定字号、最大换行宽度和粗体设置下的文字尺寸。测量单位须与文档一致：`DesktopWindow` 使用内部 DIP 适配器；直接使用 NativeRenderer 时是物理像素。逻辑测试可自行实现，不代表 GPU 塑形已验证。
 
+## ITextLayoutProvider / TextLayout
+
+`ITextLayoutProvider : ITextMeasurer` 新增 `TextLayout Layout(string text, float size, float width, bool bold = false, bool wrap = true)`。NativeRenderer 和 Windows DIP 适配器实现此接口，返回与绘制共源的 UTF-16 字素 advance 几何。`TextLayout.HitTest`、`GetCaret`、`GetSelection` 处理命中、affinity 和选择矩形；返回快照独立于 renderer 生命周期。完整成员、构造验证、单位和边界见 [A08 文字输入](../text-input.md)。
+
 ## DrawList
 
 `sealed class DrawList`，`new DrawList()` 创建可复用命令列表和 UTF-8 缓冲区。
@@ -20,7 +24,7 @@
 | `ReadOnlySpan<byte> TextBytes { get; }` | 当前帧文本的 UTF-8 字节视图 |
 | `void Clear()` | 重置命令数和文本长度，复用容量 |
 | `void Rectangle(Rect rect, Color color, float radius = 0, Color? gradientEnd = null)` | 圆角矩形；gradientEnd 非空时作纵向渐变 |
-| `void Text(Rect rect, string value, Color color, float size = 14, bool bold = false)` | 追加文字和 UTF-8；rect 决定布局宽度与文字裁剪区域 |
+| `void Text(Rect rect, string value, Color color, float size = 14, bool bold = false, bool wrap = true, bool clip = true)` | 追加文字和 UTF-8；rect 决定布局宽度；wrap=false 禁止自动换行，clip=false 仅保留 clip stack 裁剪 |
 | `void PushClip(Rect rect)` / `PopClip()` | 压入/弹出矩形裁剪，嵌套求交 |
 | `void BeginLayer(float opacity)` / `EndLayer()` | 隔离层，整体透明度；有限 opacity 钳制到 0..1 |
 | `void Triangle(Vector2 a, Vector2 b, Vector2 c, Color color)` | 任意平色三角形 |
@@ -54,7 +58,7 @@ PushClip / PopClip 与 BeginLayer / EndLayer 必须保持平衡。保持范围�
 
 ## NativeRenderer
 
-`sealed class NativeRenderer : IDisposable, ITextMeasurer`。
+`sealed class NativeRenderer : IDisposable, ITextLayoutProvider`。
 
 `NativeRenderer(uint width, uint height, nint window = 0)`：
 
@@ -77,7 +81,7 @@ Render 同步借用命令与文本到返回为止，GPU 执行仍是异步。不
 
 原生失败被转为 `InvalidOperationException("YoUI native (status): ...")`。DLL 找不到、位数不匹配或入口不存在也可能直接抛 .NET 加载异常。具体错误码和容量限制见[原生 API](native.md)。
 
-Measure 使用 renderer 的文字系统及共享图集，可能上传字形；不是无 GPU 的纯测量。当前没有 C# 字体家族、字体注册、磁盘图片解码或像素直接读回 API。
+Measure / Layout 使用 renderer 的文字系统，生成布局但不上传字形；NativeRenderer 的构造仍需要图形适配器。当前没有 C# 字体家族、字体注册、磁盘图片解码或像素直接读回 API。
 
 ## NativeImage
 
@@ -137,3 +141,18 @@ renderer.SavePng("artifacts/direct-render.png");
 ```
 
 PNG 导出目前直接保存 sRGB 渲染目标中的预乘内容，没有反预乘处理。对透明背景截图，不要假定它能作为非预乘 RGBA 图片直接回传 UploadImage；需要普通截图时先绘制不透明背景，如本例。
+
+## A07 资源预算与快照
+
+`new NativeRenderer(width, height, window, budget)` 接受 `ResourceBudget`；原构造函数保持不变。
+`ResourceBudget.Default` 的 `MaxTextureBytes` 为 528 MiB，`MaxInstanceBufferBytes` 为 256 MiB。
+`ResourceBudget` 属性返回创建配置，`ResourceUsage` 属性返回 `AtlasBytes`、`OutputBytes`、`LayerBytes`、`InstanceBufferBytes`、`LayerCount`（及为 0 的 `Reserved`）。查询遵循原有 owner-thread / disposed 检查。
+
+```csharp
+var budget = new ResourceBudget(32UL * 1024 * 1024, 4UL * 1024 * 1024);
+using var renderer = new NativeRenderer(640, 480, 0, budget);
+Console.WriteLine(renderer.ResourceUsage.AtlasBytes); // 16777216
+```
+
+快照按 GPU 对象保留容量计数，不是 live image 大小、FrameStats.UploadBytes 或驱动实际显存；释放图像不缩小 atlas，空帧不回收高水位层/缓冲。新属性/构造函数需要匹配的新 native binary；旧 ABI v1 缺少新增符号时明确报错。
+创建、resize、帧增长的拒绝行为与排除项见 [资源预算](../resource-budgets.md)。

@@ -204,6 +204,33 @@ Test("Editor preview is the runtime and does not mutate authored state; idle reu
     Click(doc, new(bounds.X + 20, bounds.Y + 15)); Require(((Toggle)shell.Canvas.Instance.Nodes[toggle.Id]).Value != toggle.Checked); Require(UiAssetJson.Serialize(shell.Session.Asset) == before);
     shell.TogglePreview(); Require(((Toggle)shell.Canvas.Instance.Nodes[toggle.Id]).Value == toggle.Checked);
 });
+Test("Preview text layout shapes at final zoom and maps pointer geometry back to runtime", () =>
+{
+    var asset = new UiAsset(); var node = new UiNode { Kind = NodeKind.TextBox, X = 20, Y = 20, Width = 220, Height = 44, Text = "abcdef" }; asset.Root.Children = [node];
+    var canvas = new EditorCanvas(new EditorSession(asset)); var provider = new PreviewLayoutProbe(); var doc = new UiDocument(canvas, provider, 1000, 900);
+    canvas.SetZoom(.5f); canvas.SetPreview(true); doc.BuildFrame();
+    Require(canvas.Runtime.TextMeasurer is ITextLayoutProvider, "preview preserves precise layout capability");
+    var proxy = (ITextLayoutProvider)canvas.Runtime.TextMeasurer;
+    var layout = proxy.Layout("abc", 14, 80, bold: true, wrap: false);
+    Require(provider.LastSize == 7 && provider.LastWidth == 40 && provider.LastBold && !provider.LastWrap, "preview forwards scaled font and width with shaping options");
+    Require(Math.Abs(layout.Cells[0].Bounds.Width - 7.75f) < .001f && Math.Abs(layout.Cells[0].Bounds.Height - 18.9f) < .001f, "shaped pixel geometry is divided back to runtime coordinates");
+    var input = (TextBox)canvas.Instance.Nodes[node.Id]; canvas.Runtime.Focus(input); input.Select(0, 0); canvas.Invalidate();
+    DrawCommand InputCommand()
+    {
+        var frame = doc.BuildFrame();
+        return frame.Commands.ToArray().Single(c => c.Kind == 1 && Encoding.UTF8.GetString(frame.TextBytes.Slice((int)c.TextOffset, (int)c.TextLength)) == input.Text);
+    }
+    var command = InputCommand();
+    Require(command.FontSize == 7 && (command.Flags & 6) == 6, "preview composition preserves scaled no-wrap viewport-clipped text command");
+    var cell = proxy.Layout(input.Text, 14, input.Bounds.Width - 28, wrap: false).Cells[1];
+    var position = new Vector2(command.Rect.X + cell.Bounds.Right * canvas.Zoom, command.Rect.Y + cell.Bounds.Height * canvas.Zoom * .5f);
+    Click(doc, position); Require(input.CaretIndex == 2, "preview routed pointer selects the matching shaped runtime boundary");
+    int calls = provider.LayoutCalls; canvas.SetZoom(2); command = InputCommand();
+    Require(provider.LayoutCalls > calls && provider.LastSize == 28 && provider.LastWidth == (input.Bounds.Width - 28) * 2 && !provider.LastWrap, "zoom change refreshes nested geometry at new final scale");
+    Require(command.FontSize == 28, "draw font scale matches the new shaping scale");
+    calls = provider.LayoutCalls; doc.Resize(1100, 920); InputCommand();
+    Require(provider.LayoutCalls > calls, "outer arrangement refreshes nested geometry for provider or DPI changes");
+});
 Test("Global undo during a canvas drag cancels the transaction and subsequent moves remain idle", () =>
 {
     var shell = new EditorShell(); var doc = Doc(shell); doc.BuildFrame(); var n = shell.Session.Asset.Root.Children[1]; var b = shell.Canvas.NodeBounds(n.Id); var p = new Vector2(b.X + 20, b.Y + 20);
@@ -264,4 +291,18 @@ sealed class BadExporter : IUiExporter
 {
     public string Id => "bad"; public string DisplayName => "Bad";
     public IReadOnlyList<ExportFile> Export(ExportContext context) => [new("../escape.txt", "bad")];
+}
+
+// Test-only shaped geometry has a fractional pixel component to expose incorrect zoom reuse.
+sealed class PreviewLayoutProbe : ITextLayoutProvider
+{
+    public float LastSize, LastWidth; public bool LastBold, LastWrap; public int LayoutCalls;
+    public (float Width, float Height) Measure(string text, float size, float width, bool bold = false) => (Math.Min(width, text.Length * size * .5f), size * 1.35f);
+    public TextLayout Layout(string text, float size, float width, bool bold = false, bool wrap = true)
+    {
+        LastSize = size; LastWidth = width; LastBold = bold; LastWrap = wrap; LayoutCalls++;
+        int[] starts = System.Globalization.StringInfo.ParseCombiningCharacters(text); float advance = size * .5f + .375f, height = size * 1.35f;
+        var cells = starts.Select((start, index) => new TextCell(start, index + 1 < starts.Length ? starts[index + 1] : text.Length, 0, new(index * advance, 0, advance, height))).ToArray();
+        return new(text, cells.Length == 0 ? [new(0, 0, 0, new(0, 0, 0, height))] : cells);
+    }
 }

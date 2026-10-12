@@ -29,6 +29,7 @@
 | [HelloYoUI](examples/HelloYoUI/Program.cs) | 最小交互窗口，也支持离屏输出 PNG；[项目文件](examples/HelloYoUI/HelloYoUI.csproj) |
 | [welcome.youi.json](examples/welcome.youi.json) | 可直接打开或加载的版本 1 资源 |
 | [YoUI.Showcase](../samples/YoUI.Showcase/Program.cs) | 综合控件、虚拟列表、截图、窗口检查与性能探针 |
+| [Component gallery](component-gallery.md) | Showcase 的 `--gallery` 入口：控件状态、模型、搜索选择与布局属性编辑 |
 | [InventoryExporter](../samples/YoUI.Exporter.Sample/InventoryExporter.cs) | 可构建的本地导出插件 |
 | [render_scene.rs](../native/youi-render/examples/render_scene.rs) | 绕过 C# UI，直接提交原生绘制命令 |
 | [scene_graph.rs](../native/youi-scene/examples/scene_graph.rs) | 独立场景树、变换与共享网格 |
@@ -47,3 +48,13 @@ cargo doc --workspace --no-deps --locked
 ```
 
 输出入口为 `target/doc/youi_render/index.html` 和 `target/doc/youi_scene/index.html`，需先执行上述命令才会存在。
+
+- [A07 渲染器资源预算](resource-budgets.md)：创建时上限、保留分配快照与失败边界。
+
+- [A08 文字命中与单行输入](text-input.md)：共源塑形几何、Unicode 边界、拖选和平台限制。
+
+[A09 布局失效与更新边界](layout-updates.md)：待处理阶段、有限次收敛、重入拒绝与失败重试；保留整棵可见树布局。
+
+- [A10 外部自定义控件契约与独立程序集示例](custom-components.md)
+
+- [A12 CPU 帧分析与导出](profiling.md)、[离屏平台验收流程](platform-acceptance.md)

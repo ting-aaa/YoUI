@@ -1,6 +1,6 @@
 //! Versioned C ABI. Never retain caller memory. Handles are checked registry IDs.
 //! Calls are serialized, and errors/panics are contained at this boundary.
-use crate::{Command, FrameStats, Renderer};
+use crate::{Command, FrameStats, Renderer, ResourceBudget, ResourceUsage, TextCell};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -31,6 +31,12 @@ fn with_engine(id: u64, f: impl FnOnce(&mut Renderer) -> Result<(), String>) -> 
         .get_mut(&id)
         .ok_or("invalid or disposed renderer handle")?)
 }
+fn checked_pointer<T>(ptr: *const T, name: &str) -> Result<(), String> {
+    if ptr.is_null() || !(ptr as usize).is_multiple_of(std::mem::align_of::<T>()) {
+        return Err(format!("null or misaligned {name} pointer"));
+    }
+    Ok(())
+}
 unsafe fn bytes<'a>(ptr: *const u8, len: u32) -> Result<&'a [u8], String> {
     if len == 0 {
         return Ok(&[]);
@@ -48,16 +54,42 @@ pub extern "C" fn youi_abi_version() -> u32 {
 pub extern "C" fn youi_command_size() -> u32 {
     std::mem::size_of::<Command>() as u32
 }
+#[no_mangle]
+pub extern "C" fn youi_resource_budget_size() -> u32 {
+    std::mem::size_of::<ResourceBudget>() as u32
+}
+#[no_mangle]
+pub extern "C" fn youi_resource_usage_size() -> u32 {
+    std::mem::size_of::<ResourceUsage>() as u32
+}
+/// Additive v1 geometry ABI. Older v1 libraries may not export this symbol.
+#[no_mangle]
+pub extern "C" fn youi_text_cell_size() -> u32 {
+    std::mem::size_of::<TextCell>() as u32
+}
 /// # Safety
 /// out must be writable; a nonzero window handle must outlive the renderer.
 #[no_mangle]
 pub unsafe extern "C" fn youi_create(w: u32, h: u32, hwnd: isize, out: *mut u64) -> i32 {
+    youi_create_with_budget(w, h, hwnd, &ResourceBudget::default(), out)
+}
+/// Creates a renderer using explicit retained-resource ceilings, in bytes.
+/// # Safety
+/// budget must be readable and aligned; out must be writable and aligned.
+/// A nonzero window handle must outlive the renderer. No caller memory is retained.
+#[no_mangle]
+pub unsafe extern "C" fn youi_create_with_budget(
+    w: u32,
+    h: u32,
+    hwnd: isize,
+    budget: *const ResourceBudget,
+    out: *mut u64,
+) -> i32 {
     guard(|| {
-        if out.is_null() {
-            return Err("null result pointer".into());
-        }
+        checked_pointer(out, "result")?;
         *out = 0;
-        let renderer = Renderer::new(w, h, hwnd)?;
+        checked_pointer(budget, "resource budget")?;
+        let renderer = Renderer::new_with_budget(w, h, hwnd, *budget)?;
         let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         ENGINES
             .get_or_init(Default::default)
@@ -66,6 +98,30 @@ pub unsafe extern "C" fn youi_create(w: u32, h: u32, hwnd: isize, out: *mut u64)
             .insert(id, renderer);
         *out = id;
         Ok(())
+    })
+}
+/// # Safety
+/// out must reference a writable, aligned ResourceUsage. It is unchanged on error.
+#[no_mangle]
+pub unsafe extern "C" fn youi_resource_usage(id: u64, out: *mut ResourceUsage) -> i32 {
+    guard(|| {
+        checked_pointer(out, "resource usage output")?;
+        with_engine(id, |e| {
+            *out = e.resource_usage();
+            Ok(())
+        })
+    })
+}
+/// # Safety
+/// out must reference a writable, aligned ResourceBudget. It is unchanged on error.
+#[no_mangle]
+pub unsafe extern "C" fn youi_resource_budget(id: u64, out: *mut ResourceBudget) -> i32 {
+    guard(|| {
+        checked_pointer(out, "resource budget output")?;
+        with_engine(id, |e| {
+            *out = e.resource_budget();
+            Ok(())
+        })
     })
 }
 #[no_mangle]
@@ -168,6 +224,63 @@ pub unsafe extern "C" fn youi_measure(
         })
     })
 }
+/// Copies grapheme advance cells from the renderer's cached paint layout.
+/// flags bit 0 selects bold, bit 1 disables wrapping; other bits are invalid.
+///
+/// `capacity` and `count` are cell counts, not bytes. A zero-capacity call is a
+/// successful sizing query and ignores `cells`. On a nonzero insufficient
+/// capacity, returns -1, reports the required count, and writes no cells. On any
+/// other error both outputs are unchanged. No caller memory is retained.
+/// # Safety
+/// text must reference len readable UTF-8 bytes (NULL is allowed for len zero).
+/// count must be writable and naturally aligned. For nonzero capacity, cells
+/// must be writable and naturally aligned for capacity TextCells. Outputs must
+/// not overlap each other or the text buffer. As with other ABI functions, the
+/// caller is responsible for backing allocation validity and lifetime.
+#[no_mangle]
+pub unsafe extern "C" fn youi_text_cells(
+    id: u64,
+    text: *const u8,
+    len: u32,
+    size: f32,
+    max_width: f32,
+    flags: u32,
+    cells: *mut TextCell,
+    capacity: u32,
+    count: *mut u32,
+) -> i32 {
+    guard(|| {
+        checked_pointer(count, "text cell count")?;
+        if capacity != 0 {
+            checked_pointer(cells, "text cell output")?;
+        }
+        if flags & !3 != 0 {
+            return Err("invalid text geometry flags".into());
+        }
+        let text = std::str::from_utf8(bytes(text, len)?).map_err(|e| e.to_string())?;
+        with_engine(id, |e| {
+            let layout = e.text_cells(text, size, max_width, flags & 1 != 0, flags & 2 == 0)?;
+            copy_text_cells(&layout, cells, capacity, count)
+        })
+    })
+}
+unsafe fn copy_text_cells(
+    layout: &[TextCell],
+    cells: *mut TextCell,
+    capacity: u32,
+    count: *mut u32,
+) -> Result<(), String> {
+    let required = u32::try_from(layout.len()).map_err(|_| "text cell count overflow")?;
+    *count = required;
+    if capacity == 0 {
+        return Ok(());
+    }
+    if capacity < required {
+        return Err("insufficient text cell capacity".into());
+    }
+    std::ptr::copy_nonoverlapping(layout.as_ptr(), cells, layout.len());
+    Ok(())
+}
 /// # Safety
 /// path must reference len bytes of UTF-8.
 #[no_mangle]
@@ -215,6 +328,92 @@ pub unsafe extern "C" fn youi_adapter_name(
 mod tests {
     use super::*;
     #[test]
+    fn resource_struct_layout_is_stable() {
+        assert_eq!(youi_abi_version(), 0x0001_0000);
+        assert_eq!(youi_resource_budget_size(), 16);
+        assert_eq!(youi_resource_usage_size(), 40);
+        assert_eq!(std::mem::offset_of!(ResourceBudget, max_texture_bytes), 0);
+        assert_eq!(
+            std::mem::offset_of!(ResourceBudget, max_instance_buffer_bytes),
+            8
+        );
+        assert_eq!(std::mem::offset_of!(ResourceUsage, atlas_bytes), 0);
+        assert_eq!(std::mem::offset_of!(ResourceUsage, output_bytes), 8);
+        assert_eq!(std::mem::offset_of!(ResourceUsage, layer_bytes), 16);
+        assert_eq!(
+            std::mem::offset_of!(ResourceUsage, instance_buffer_bytes),
+            24
+        );
+        assert_eq!(std::mem::offset_of!(ResourceUsage, layer_count), 32);
+        assert_eq!(std::mem::offset_of!(ResourceUsage, reserved), 36);
+    }
+    #[test]
+    fn resource_outputs_are_unchanged_for_invalid_handles() {
+        let mut budget = ResourceBudget::default();
+        let expected_budget = budget;
+        let mut usage = ResourceUsage {
+            atlas_bytes: 1,
+            output_bytes: 2,
+            layer_bytes: 3,
+            instance_buffer_bytes: 4,
+            layer_count: 5,
+            reserved: 6,
+        };
+        let expected_usage = usage;
+        unsafe {
+            assert_eq!(youi_resource_budget(u64::MAX, &mut budget), -1);
+            assert_eq!(youi_resource_usage(u64::MAX, &mut usage), -1);
+        }
+        assert_eq!(budget, expected_budget);
+        assert_eq!(usage, expected_usage);
+    }
+    #[test]
+    fn resource_pointers_are_checked_before_dereferencing() {
+        let budget = ResourceBudget::default();
+        let mut handle = u64::MAX;
+        let mut storage = [0_u64; 8];
+        let misaligned = unsafe { storage.as_mut_ptr().cast::<u8>().add(1) };
+        unsafe {
+            assert_eq!(
+                youi_create_with_budget(10, 10, 0, std::ptr::null(), &mut handle),
+                -1
+            );
+            assert_eq!(handle, 0);
+            handle = u64::MAX;
+            assert_eq!(
+                youi_create_with_budget(10, 10, 0, misaligned.cast(), &mut handle),
+                -1
+            );
+            assert_eq!(handle, 0);
+            assert_eq!(
+                youi_create_with_budget(10, 10, 0, &budget, std::ptr::null_mut()),
+                -1
+            );
+            assert_eq!(
+                youi_create_with_budget(10, 10, 0, &budget, misaligned.cast()),
+                -1
+            );
+            assert_eq!(youi_create(10, 10, 0, misaligned.cast()), -1);
+            assert_eq!(youi_resource_budget(0, std::ptr::null_mut()), -1);
+            assert_eq!(youi_resource_budget(0, misaligned.cast()), -1);
+            assert_eq!(youi_resource_usage(0, std::ptr::null_mut()), -1);
+            assert_eq!(youi_resource_usage(0, misaligned.cast()), -1);
+        }
+        assert_eq!(storage, [0; 8]);
+    }
+    #[test]
+    fn invalid_budget_resets_handle_without_creating_a_gpu_device() {
+        let mut handle = u64::MAX;
+        let budget = ResourceBudget {
+            max_texture_bytes: 0,
+            max_instance_buffer_bytes: 0,
+        };
+        unsafe {
+            assert_eq!(youi_create_with_budget(10, 10, 0, &budget, &mut handle), -1);
+        }
+        assert_eq!(handle, 0);
+    }
+    #[test]
     fn invalid_handle_is_error() {
         assert_eq!(youi_resize(u64::MAX, 10, 10), -1);
         assert_eq!(youi_destroy(u64::MAX), -1);
@@ -235,5 +434,155 @@ mod tests {
                 -1
             );
         }
+    }
+    #[test]
+    fn text_cell_abi_layout_and_transactional_copy() {
+        assert_eq!(youi_text_cell_size(), 32);
+        assert_eq!(std::mem::align_of::<TextCell>(), 4);
+        assert_eq!(std::mem::offset_of!(TextCell, start), 0);
+        assert_eq!(std::mem::offset_of!(TextCell, end), 4);
+        assert_eq!(std::mem::offset_of!(TextCell, line), 8);
+        assert_eq!(std::mem::offset_of!(TextCell, flags), 12);
+        assert_eq!(std::mem::offset_of!(TextCell, x), 16);
+        assert_eq!(std::mem::offset_of!(TextCell, y), 20);
+        assert_eq!(std::mem::offset_of!(TextCell, width), 24);
+        assert_eq!(std::mem::offset_of!(TextCell, height), 28);
+        let cells = [
+            TextCell {
+                end: 1,
+                width: 5.,
+                ..TextCell::default()
+            },
+            TextCell {
+                start: 1,
+                end: 3,
+                x: 5.,
+                width: 8.,
+                ..TextCell::default()
+            },
+        ];
+        let sentinel = TextCell {
+            start: 999,
+            ..TextCell::default()
+        };
+        let mut output = [sentinel; 3];
+        let mut count = 77;
+        unsafe {
+            assert_eq!(
+                guard(|| copy_text_cells(&cells, std::ptr::null_mut(), 0, &mut count)),
+                0
+            );
+            assert_eq!(count, 2);
+            assert_eq!(
+                guard(|| copy_text_cells(&cells, output.as_mut_ptr(), 1, &mut count)),
+                -1
+            );
+            assert_eq!(count, 2);
+            assert_eq!(output, [sentinel; 3]);
+            assert_eq!(
+                guard(|| copy_text_cells(&cells, output.as_mut_ptr(), 3, &mut count)),
+                0
+            );
+            assert_eq!(count, 2);
+            assert_eq!(&output[..2], &cells);
+            assert_eq!(output[2], sentinel);
+        }
+    }
+
+    #[test]
+    fn text_cell_abi_rejects_malformed_input_without_mutating_outputs() {
+        let sentinel = TextCell {
+            start: 999,
+            ..TextCell::default()
+        };
+        let mut cell = sentinel;
+        let mut count = 77;
+        let mut storage = [0_u64; 8];
+        let misaligned = unsafe { storage.as_mut_ptr().cast::<u8>().add(1) };
+        unsafe {
+            for (text, len, flags) in [
+                (std::ptr::null(), 1, 0),
+                (b"x".as_ptr(), 16 * 1024 * 1024 + 1, 0),
+                (b"\xff".as_ptr(), 1, 0),
+                (b"x".as_ptr(), 1, 4),
+                (b"x".as_ptr(), 1, 0),
+            ] {
+                assert_eq!(
+                    youi_text_cells(
+                        u64::MAX,
+                        text,
+                        len,
+                        16.,
+                        200.,
+                        flags,
+                        &mut cell,
+                        1,
+                        &mut count
+                    ),
+                    -1
+                );
+                assert_eq!(cell, sentinel);
+                assert_eq!(count, 77);
+            }
+            assert_eq!(
+                youi_text_cells(
+                    0,
+                    std::ptr::null(),
+                    0,
+                    16.,
+                    200.,
+                    0,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null_mut()
+                ),
+                -1
+            );
+            assert_eq!(
+                youi_text_cells(
+                    0,
+                    std::ptr::null(),
+                    0,
+                    16.,
+                    200.,
+                    0,
+                    std::ptr::null_mut(),
+                    1,
+                    &mut count
+                ),
+                -1
+            );
+            assert_eq!(
+                youi_text_cells(
+                    0,
+                    std::ptr::null(),
+                    0,
+                    16.,
+                    200.,
+                    0,
+                    misaligned.cast(),
+                    1,
+                    &mut count
+                ),
+                -1
+            );
+            assert_eq!(
+                youi_text_cells(
+                    0,
+                    std::ptr::null(),
+                    0,
+                    16.,
+                    200.,
+                    0,
+                    &mut cell,
+                    1,
+                    misaligned.cast()
+                ),
+                -1
+            );
+        }
+        assert_eq!(cell, sentinel);
+        assert_eq!(count, 77);
+        assert_eq!(storage, [0; 8]);
     }
 }

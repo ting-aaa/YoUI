@@ -113,61 +113,169 @@ public sealed class Slider : Element
     }
 }
 
-/// <summary>Single-line grapheme editing, keyboard selection, clipboard, undo and IME.</summary>
+/// <summary>Single-line grapheme editing with shaped pointer selection; IME preview/commit is host-driven.</summary>
 public sealed class TextBox : Element
 {
+    private const float FontSize = 14;
     private string text = "", composition = "";
     private int cursor, anchor;
-    private readonly List<(string Text, int Cursor, int Anchor)> undo = [], redo = [];
+    private TextAffinity affinity = TextAffinity.Downstream;
+    private bool dragging;
+    private float scroll;
+    private readonly List<(string Text, int Cursor, int Anchor, TextAffinity Affinity)> undo = [], redo = [];
     public TextBox() { Height = 44; HitTestVisible = Focusable = true; Role = "textbox"; ClipToBounds = true; }
     public string Placeholder { get; init; } = "Search…";
     public event Action<string>? Changed;
-    public string Text { get => text; set { value ??= ""; if (Set(ref text, value, DirtyFlags.Paint | DirtyFlags.Semantics)) { cursor = anchor = text.Length; composition = ""; undo.Clear(); redo.Clear(); Changed?.Invoke(text); } } }
-    public override string SemanticValue => Text;
-    public string SelectedText => text[Math.Min(cursor, anchor)..Math.Max(cursor, anchor)];
-    private int Previous() => StringInfo.ParseCombiningCharacters(text).LastOrDefault(i => i < cursor);
-    private int Next() => StringInfo.ParseCombiningCharacters(text).FirstOrDefault(i => i > cursor, text.Length);
-    private void Remember() { undo.Add((text, cursor, anchor)); if (undo.Count > 100) undo.RemoveAt(0); redo.Clear(); }
-    private void ReplaceSelection(string inserted)
+    public string Text
     {
-        Remember(); int begin = Math.Min(cursor, anchor), end = Math.Max(cursor, anchor);
-        text = text.Remove(begin, end - begin).Insert(begin, inserted); cursor = anchor = begin + inserted.Length; composition = ""; Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics); Changed?.Invoke(text);
+        get => text;
+        set
+        {
+            value = TextBoundary.SingleLine(value);
+            if (!Set(ref text, value, DirtyFlags.Paint | DirtyFlags.Semantics)) return;
+            cursor = anchor = text.Length; affinity = TextAffinity.Upstream; composition = ""; dragging = false;
+            scroll = 0; undo.Clear(); redo.Clear(); Changed?.Invoke(text);
+        }
     }
-    private void Restore(List<(string Text, int Cursor, int Anchor)> from, List<(string Text, int Cursor, int Anchor)> to)
+    public override string SemanticValue => Text;
+    public int CaretIndex => cursor;
+    public int SelectionStart => Math.Min(cursor, anchor);
+    public int SelectionLength => Math.Abs(cursor - anchor);
+    public string SelectedText => text[SelectionStart..(SelectionStart + SelectionLength)];
+    /// <summary>UTF-16 range; negative length makes a backward selection. Clamps and expands partial graphemes.</summary>
+    public void Select(int start, int length)
     {
-        if (from.Count == 0) return; to.Add((text, cursor, anchor)); (text, cursor, anchor) = from[^1]; from.RemoveAt(from.Count - 1); composition = ""; Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics); Changed?.Invoke(text);
+        var stops = Stops(text);
+        int end = (int)Math.Clamp((long)start + length, 0, text.Length);
+        start = Math.Clamp(start, 0, text.Length);
+        if (length == 0) cursor = anchor = TextBoundary.Snap(stops, start, true);
+        else if (length > 0) { anchor = TextBoundary.Snap(stops, start, false); cursor = TextBoundary.Snap(stops, end, true); }
+        else { anchor = TextBoundary.Snap(stops, start, true); cursor = TextBoundary.Snap(stops, end, false); }
+        affinity = length < 0 ? TextAffinity.Downstream : TextAffinity.Upstream;
+        composition = ""; dragging = false; Invalidate();
+    }
+    private int[] Stops(string value) => Layout(value, VisualBounds)?.CaretStops.ToArray() ?? TextBoundary.Stops(value);
+    private int Previous() => Stops(text).LastOrDefault(i => i < cursor);
+    private int Next() => Stops(text).FirstOrDefault(i => i > cursor, text.Length);
+    private void NormalizeSelection()
+    {
+        var stops = Stops(text);
+        if (cursor == anchor) cursor = anchor = TextBoundary.Snap(stops, cursor, true);
+        else
+        {
+            bool forward = cursor > anchor;
+            cursor = TextBoundary.Snap(stops, cursor, forward); anchor = TextBoundary.Snap(stops, anchor, !forward);
+        }
+    }
+    private void Remember() { undo.Add((text, cursor, anchor, affinity)); if (undo.Count > 100) undo.RemoveAt(0); redo.Clear(); }
+    private void ReplaceSelection(string inserted, int? rangeStart = null, int? rangeEnd = null)
+    {
+        int begin = rangeStart ?? SelectionStart, end = rangeEnd ?? (SelectionStart + SelectionLength);
+        if (inserted.Length == 0 && begin == end) return;
+        string next = text.Remove(begin, end - begin).Insert(begin, inserted);
+        var stops = Stops(next); // Query before mutating text or history if the provider fails.
+        Remember(); text = next;
+        // An insertion/deletion can join neighboring graphemes (combining marks, ZWJ, regional indicators).
+        cursor = anchor = TextBoundary.Snap(stops, begin + inserted.Length, true);
+        affinity = TextAffinity.Upstream; composition = "";
+        Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics); Changed?.Invoke(text);
+    }
+    private void Restore(List<(string Text, int Cursor, int Anchor, TextAffinity Affinity)> from, List<(string Text, int Cursor, int Anchor, TextAffinity Affinity)> to)
+    {
+        if (from.Count == 0) return;
+        var state = from[^1]; var stops = Stops(state.Text);
+        int restoredCursor = TextBoundary.Snap(stops, state.Cursor, state.Cursor >= state.Anchor);
+        int restoredAnchor = state.Cursor == state.Anchor ? restoredCursor : TextBoundary.Snap(stops, state.Anchor, state.Anchor > state.Cursor);
+        to.Add((text, cursor, anchor, affinity));
+        (text, cursor, anchor, affinity) = (state.Text, restoredCursor, restoredAnchor, state.Affinity); from.RemoveAt(from.Count - 1);
+        composition = ""; Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics); Changed?.Invoke(text);
+    }
+    private static float ContentWidth(Rect b) => Math.Max(1, b.Width - 28);
+    private static float TextY(Rect b) => b.Y + Math.Max(2, (b.Height - 20) / 2);
+    private TextLayout? Layout(string value, Rect bounds)
+    {
+        if (Document?.TextMeasurer is not ITextLayoutProvider provider) return null;
+        // Providers may change scale/font configuration between paints (for example DPI changes).
+        // NativeRenderer owns the shaping cache; do not retain a snapshot across provider changes.
+        return provider.Layout(value, FontSize, ContentWidth(bounds), wrap: false);
+    }
+    private void EnsureCaretVisible(TextLayout layout, int index, Rect b)
+    {
+        var caret = layout.GetCaret(new(index, affinity)); float width = ContentWidth(b);
+        float left = Math.Min(0, layout.Cells.Min(c => c.Bounds.X));
+        float right = Math.Max(width, layout.Cells.Max(c => c.Bounds.Right) + caret.Width);
+        if (caret.X < scroll) scroll = caret.X;
+        else if (caret.Right > scroll + width) scroll = caret.Right - width;
+        scroll = Math.Clamp(scroll, left, Math.Max(left, right - width));
+    }
+    private void MovePointer(System.Numerics.Vector2 point, bool extend)
+    {
+        if (!float.IsFinite(point.X) || !float.IsFinite(point.Y)) return;
+        var bounds = VisualBounds; var layout = Layout(text, bounds);
+        if (layout == null) return; // ITextMeasurer alone does not promise pointer/caret geometry.
+        EnsureCaretVisible(layout, cursor, bounds);
+        var position = layout.HitTest(new(point.X - bounds.X - 14 + scroll, point.Y - TextY(bounds)));
+        cursor = position.Index; affinity = position.Affinity;
+        if (!extend) anchor = cursor;
+        EnsureCaretVisible(layout, cursor, bounds); Invalidate();
+    }
+    protected override void OnDocumentChanged(UiDocument? previous, UiDocument? current)
+    {
+        dragging = false; composition = ""; scroll = 0;
+        if (current != null) NormalizeSelection();
     }
     protected override void OnEvent(UiEvent e)
     {
         switch (e.Kind)
         {
-            case EventKind.PointerDown: cursor = anchor = text.Length; Invalidate(); break;
-            case EventKind.Blur: composition = ""; Invalidate(); break;
-            case EventKind.Composition: composition = e.Text; Invalidate(); break;
+            case EventKind.PointerDown:
+                if (composition.Length == 0 && Document?.TextMeasurer is ITextLayoutProvider && float.IsFinite(e.Position.X) && float.IsFinite(e.Position.Y))
+                {
+                    MovePointer(e.Position, e.Shift); dragging = true; e.CapturePointer = true;
+                }
+                e.Handled = true; break;
+            case EventKind.PointerMove:
+                if (dragging) { MovePointer(e.Position, true); e.Handled = true; }
+                break;
+            case EventKind.PointerUp:
+                if (dragging) { MovePointer(e.Position, true); dragging = false; e.Handled = true; }
+                break;
+            case EventKind.PointerCancel: dragging = false; break;
+            case EventKind.Blur: dragging = false; composition = ""; Invalidate(); break;
+            case EventKind.Composition:
+                composition = TextBoundary.SingleLine(e.Text); dragging = false; Invalidate(); e.Handled = true; break;
             case EventKind.TextInput:
-                if (e.Text.Length == 0 || e.Text.Any(char.IsControl)) break;
-                ReplaceSelection(e.Text); break;
+                var inserted = TextBoundary.SingleLine(e.Text);
+                if (inserted.Length > 0) ReplaceSelection(inserted);
+                e.Handled = true; break;
             case EventKind.KeyDown:
                 if (composition.Length > 0) break;
                 if (e.Control)
                 {
                     switch (e.Key)
                     {
-                        case 65: anchor = 0; cursor = text.Length; break;
+                        case 65: anchor = 0; cursor = text.Length; affinity = TextAffinity.Upstream; break;
                         case 67: if (cursor != anchor) Document?.Clipboard?.SetText(SelectedText); break;
                         case 88: if (cursor != anchor && Document?.Clipboard != null) { Document.Clipboard.SetText(SelectedText); ReplaceSelection(""); } break;
-                        case 86: if (Document?.Clipboard != null) ReplaceSelection(new string(Document.Clipboard.GetText().Where(c => !char.IsControl(c)).ToArray())); break;
+                        case 86:
+                            if (Document?.Clipboard != null)
+                            {
+                                var pasted = TextBoundary.SingleLine(Document.Clipboard.GetText());
+                                if (pasted.Length > 0) ReplaceSelection(pasted);
+                            }
+                            break;
                         case 90: if (e.Shift) Restore(redo, undo); else Restore(undo, redo); break;
                         case 89: Restore(redo, undo); break;
                         default: return;
                     }
                     e.Handled = true; Invalidate(); break;
                 }
-                if (e.Key == 8 && (cursor > 0 || cursor != anchor)) { if (anchor == cursor) anchor = Previous(); ReplaceSelection(""); }
-                else if (e.Key == 46 && (cursor < text.Length || cursor != anchor)) { if (anchor == cursor) anchor = Next(); ReplaceSelection(""); }
+                if (e.Key == 8 && (cursor > 0 || cursor != anchor)) ReplaceSelection("", cursor == anchor ? Previous() : SelectionStart, SelectionStart + SelectionLength);
+                else if (e.Key == 46 && (cursor < text.Length || cursor != anchor)) ReplaceSelection("", SelectionStart, cursor == anchor ? Next() : SelectionStart + SelectionLength);
                 else if (e.Key is 37 or 39 or 36 or 35)
                 {
                     cursor = e.Key switch { 37 => !e.Shift && cursor != anchor ? Math.Min(cursor, anchor) : Previous(), 39 => !e.Shift && cursor != anchor ? Math.Max(cursor, anchor) : Next(), 36 => 0, _ => text.Length };
+                    affinity = e.Key is 37 or 36 ? TextAffinity.Downstream : TextAffinity.Upstream;
                     if (!e.Shift) anchor = cursor;
                 }
                 else break;
@@ -178,20 +286,22 @@ public sealed class TextBox : Element
     {
         list.Rectangle(b, (IsFocused ? theme.Accent : theme.Border).Opacity(opacity), 9);
         list.Rectangle(b.Inset(1), theme.Surface.Opacity(opacity), 8);
-        string value = text.Insert(cursor, composition);
-        float caretX = Document!.TextMeasurer.Measure(text[..cursor] + composition, 14, 100000).Width;
-        float scroll = Math.Max(0, caretX - Math.Max(1, b.Width - 32));
-        float textY = b.Y + Math.Max(2, (b.Height - 20) / 2);
+        string value = composition.Length == 0 ? text : text.Remove(SelectionStart, SelectionLength).Insert(SelectionStart, composition);
+        int displayCursor = composition.Length == 0 ? cursor : SelectionStart + composition.Length;
+        var layout = Layout(value, b);
+        if (layout != null) EnsureCaretVisible(layout, displayCursor, b);
+        float textY = TextY(b), textX = b.X + 14 - scroll;
         list.PushClip(new(b.X + 12, b.Y + 2, Math.Max(0, b.Width - 24), Math.Max(0, b.Height - 4)));
-        if (cursor != anchor && IsFocused)
+        if (layout != null && cursor != anchor && IsFocused && composition.Length == 0)
+            foreach (var rect in layout.GetSelection(anchor, cursor)) list.Rectangle(rect.Translate(new(textX, textY)), theme.Accent.Opacity(0.28f * opacity));
+        list.Text(new(textX, textY, ContentWidth(b), 24), value.Length == 0 ? Placeholder : value, (value.Length == 0 ? theme.Muted : theme.Text).Opacity(opacity), FontSize, wrap: false, clip: false);
+        if (layout != null && IsFocused)
         {
-            float x0 = Document.TextMeasurer.Measure(text[..Math.Min(cursor, anchor)], 14, 100000).Width;
-            float x1 = Document.TextMeasurer.Measure(text[..Math.Max(cursor, anchor)], 14, 100000).Width;
-            list.Rectangle(new(b.X + 14 + x0 - scroll, textY, x1 - x0, 20), theme.Accent.Opacity(0.28f * opacity));
+            list.Rectangle(layout.GetCaret(new(displayCursor, affinity)).Translate(new(textX, textY)), theme.Accent.Opacity(opacity));
+            if (composition.Length > 0)
+                foreach (var rect in layout.GetSelection(SelectionStart, displayCursor))
+                    list.Rectangle(new(textX + rect.X, textY + rect.Bottom - 1, rect.Width, 1), theme.Accent.Opacity(opacity));
         }
-        list.Text(new(b.X + 14 - scroll, textY, Math.Max(b.Width, caretX + 200), 24), value.Length == 0 ? Placeholder : value, (value.Length == 0 ? theme.Muted : theme.Text).Opacity(opacity), 14);
-        if (IsFocused) list.Rectangle(new(b.X + 14 + caretX - scroll, textY, 1.5f, 19), theme.Accent.Opacity(opacity));
-        if (composition.Length > 0) list.Rectangle(new(b.X + 14 - scroll, textY + 19, Math.Min(caretX, b.Width - 28), 1), theme.Accent.Opacity(opacity));
         list.PopClip();
     }
 }

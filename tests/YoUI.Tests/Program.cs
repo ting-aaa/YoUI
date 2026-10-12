@@ -2,6 +2,13 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using YoUI;
 
+if (args.Length != 0)
+{
+    if (args.Length == 1 && args[0] == "--gpu-resource-budget") { ResourceBudgetTests.RunGpu(); return; }
+    if (args.Length == 1 && args[0] == "--gpu-text-input") { TextInputTests.RunGpu(); return; }
+    throw new ArgumentException("Supported optional arguments: --gpu-resource-budget, --gpu-text-input");
+}
+
 int passed = 0;
 void Test(string name, Action run) { run(); Console.WriteLine("PASS " + name); passed++; }
 void Require(bool condition, string message = "assertion failed") { if (!condition) throw new Exception(message); }
@@ -9,6 +16,9 @@ UiDocument Doc(Element root, float w = 640, float h = 480) => new(root, new Test
 void Click(UiDocument doc, float x, float y) { doc.Dispatch(new(EventKind.PointerDown) { Position = new(x, y) }); doc.Dispatch(new(EventKind.PointerUp) { Position = new(x, y) }); }
 
 Test("ABI sizes and offsets", () => { Require(Marshal.SizeOf<DrawCommand>() == 80); Require(Marshal.OffsetOf<DrawCommand>(nameof(DrawCommand.Rect)).ToInt32() == 16); Require(Marshal.SizeOf<FrameStats>() == 48); });
+ResourceBudgetTests.RunLogic(Test, Require);
+TextInputTests.RunLogic(Test, Require);
+LayoutUpdateTests.Run(Test, Require);
 Test("stretched and centered RectTransform", () =>
 {
     Require(RectTransform.Stretch(10, 20, 30, 40).Resolve(new(0, 0, 200, 100)) == new Rect(10, 20, 160, 40));
@@ -148,12 +158,29 @@ Test("Toggle and Slider preserve direct access, notifications and clamp semantic
 });
 TexturedDrawingTests.Run(Test, Require);
 ShowcaseStateTests.Run(Test, Require);
+ComponentGalleryTests.Run(Test, Require);
 Console.WriteLine($"{passed} managed tests passed");
 
 // Logic-test fixture only. Production measurement always comes from COSMIC Text.
-sealed class TestMeasurer : ITextMeasurer
+sealed class TestMeasurer : ITextLayoutProvider
 {
     public (float Width, float Height) Measure(string text, float size, float width, bool bold = false) => (Math.Min(width, text.Length * size * 0.5f), Math.Max(1, MathF.Ceiling(text.Length * size * 0.5f / Math.Max(1, width))) * size * 1.35f);
+    // Deliberately monospaced fixture geometry. This is not shaping or production fallback.
+    public TextLayout Layout(string text, float size, float width, bool bold = false, bool wrap = true)
+    {
+        var cells = new List<TextCell>(); int[] starts = System.Globalization.StringInfo.ParseCombiningCharacters(text);
+        float x = 0, y = 0, advance = size * .5f, height = size * 1.35f; int line = 0;
+        for (int index = 0; index < starts.Length; index++)
+        {
+            int start = starts[index], end = index + 1 < starts.Length ? starts[index + 1] : text.Length;
+            bool newline = text.AsSpan(start, end - start).Contains('\n') || text.AsSpan(start, end - start).Contains('\r');
+            if (wrap && !newline && x > 0 && x + advance > width) { line++; x = 0; y += height; }
+            cells.Add(new(start, end, line, new(x, y, newline ? 0 : advance, height)));
+            if (newline) { line++; x = 0; y += height; } else x += advance;
+        }
+        if (text.Length == 0 || text.EndsWith('\n') || text.EndsWith('\r')) cells.Add(new(text.Length, text.Length, line, new(x, y, 0, height)));
+        return new(text, cells);
+    }
 }
 sealed class TestClipboard : IClipboard { public string Value = ""; public string GetText() => Value; public void SetText(string text) => Value = text; }
 

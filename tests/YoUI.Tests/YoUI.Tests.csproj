@@ -1,8 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
-  <ItemGroup><ProjectReference Include="../../managed/YoUI/YoUI.csproj" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../managed/YoUI/YoUI.csproj" />
+    <ProjectReference Include="../../samples/YoUI.Components.Sample/YoUI.Components.Sample.csproj" />
+  </ItemGroup>
   <ItemGroup>
     <Compile Include="../../samples/YoUI.Showcase/Showcase.cs" Link="Showcase/Showcase.cs" />
     <Compile Include="../../samples/YoUI.Showcase/ShowcaseState.cs" Link="Showcase/ShowcaseState.cs" />
+    <Compile Include="../../samples/YoUI.Showcase/ComponentGallery.cs" Link="Showcase/ComponentGallery.cs" />
   </ItemGroup>
+  <Import Project="../../scripts/NativeLibrary.targets" />
 </Project>

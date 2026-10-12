@@ -60,7 +60,7 @@ origin = min + span * Pivot + Position - size * Pivot
 
 ## DirtyFlags
 
-`[Flags] enum DirtyFlags`：`None=0`、`Paint=1`、`Layout=2`、`Semantics=4`、`All=7`。布局失效同时触发绘制失效。
+`[Flags] enum DirtyFlags`：`None=0`、`Paint=1`、`Layout=2`、`Semantics=4`、`All=7`。布局失效同时触发绘制和语义失效。
 
 ## Element
 
@@ -74,13 +74,13 @@ origin = min + span * Pivot + Position - size * Pivot
 | `Parent` / `Document` | `Element? get` / `UiDocument? get` | 当前父节点与文档 |
 | `Children` | `IReadOnlyList<Element> get` | 只读列表视图；通过 Add/Remove/Clear 修改 |
 | `Bounds` / `DesiredSize` | `Rect get` / `Vector2 get` | 布局结果 / 测量结果；DesiredSize 可由派生类设置 |
-| `Dirty` / `LayoutRevision` | `DirtyFlags get` / `long get` | 节点脏标记 / 每次 Arrange 增加的计数 |
+| `Dirty` / `LayoutRevision` | `DirtyFlags get` / `long get` | 文档阶段待处理标记 / 每次基类 Arrange 增加的计数 |
 | `Visible` / `Enabled` | `bool`，均为 true | 隐藏则不布局/绘制/命中；禁用子树不接收输入，绘制时降低透明度 |
 | `HitTestVisible` | `bool`，false | 本节点可否成为指针目标；false 不阻止后代命中 |
 | `Focusable` | `bool get`，false | 派生类可设置；决定能否获得焦点 |
 | `IsHovered` / `IsFocused` | `bool get` | 当前悬停 / 焦点状态 |
 | `Role` | `string get`，`"group"` | 派生类可设置的语义角色 |
-| `AccessibleName` | `string`，空串 | 语义名称 |
+| `AccessibleName` | `string`，空串 | 语义名称；变化时请求 Semantics |
 | `SemanticValue` | `virtual string get`，空串 | 控件语义值 |
 
 隐藏/禁用不会立即完成所有焦点与捕获清理；后续输入分发会检查有效性，移除节点会触发清理。禁用透明度按层级相乘，因此多层禁用可能进一步变暗。
@@ -98,7 +98,7 @@ origin = min + span * Pivot + Position - size * Pivot
 | `ClipToBounds`（bool） | false | 对本节点和后代矩形裁剪 |
 | `InheritedOpacity`（float） | 1 | 累乘到后代图元；有限值钳制为 0..1 |
 | `CompositedOpacity`（float） | 1 | 小于 1 时创建隔离层并整体合成；有限值钳制为 0..1 |
-| `VisualOffset`（Vector2） | 零 | 视觉与命中平移，仅触发绘制；调用者提供有限值 |
+| `VisualOffset`（Vector2） | 零 | 视觉与命中平移，触发绘制和语义更新；调用者提供有限值 |
 | `VisualBounds`（Rect get） | 计算值 | Bounds 加上本节点及全部祖先 VisualOffset |
 
 ### 树和布局方法
@@ -170,21 +170,23 @@ origin = min + span * Pivot + Position - size * Pivot
 | `Element? Focused { get; }` | 当前焦点 |
 | `ITextMeasurer TextMeasurer { get; }` | 布局使用的文字测量器 |
 | `IClipboard? Clipboard` | 默认 null，自定义宿主可注入 |
-| `Theme Theme` | 默认 Theme.Dark；赋值使绘制失效 |
-| `bool NeedsRender { get; }` | 任意文档脏标记存在时为 true |
+| `Theme Theme` | 默认 Theme.Dark；不同有效值使绘制失效 |
+| `DirtyFlags PendingUpdates { get; }` | 尚未消费的文档阶段 |
+| `bool NeedsRender { get; }` | Layout 或 Paint 存在时为 true；不包含单独的 Semantics |
 | `int LayoutPasses / PaintPasses { get; }` | 实际布局 / 重建绘制命令的次数 |
 | `event Action<UiEvent>? PreviewInput` | 常规输入路由之前执行；不是平台 OS 消息事件 |
 
 | 方法 | 行为 |
 | --- | --- |
 | `void Resize(float width, float height)` | 更新文档尺寸并使全部失效；不调整 GPU 目标尺寸 |
-| `void EnsureLayout()` | 有 Layout 脏标记时测量并排列 |
-| `DrawList BuildFrame()` | 必要时布局/重绘，清除文档脏标记，返回复用的帧 |
+| `void EnsureLayout()` | 有 Layout 脏标记时最多测量并排列一次 |
+| `bool UpdateLayout(int maxPasses = 8)` | 最多执行指定次数布局；true 表示稳定，false 保留未完成工作；不绘制 |
+| `DrawList BuildFrame()` | 最多一次前置布局，必要时重绘并消费 Paint；保留 Semantics 和回调中的新失效，返回复用的帧 |
 | `void Dispatch(UiEvent e)` | 先布局，再 PreviewInput，再默认 Tab / 命中 / 路由 |
 | `void Focus(Element? element)` | null 清除焦点；非法、隐藏、禁用或非可聚焦目标不生效 |
 | `void SetModal(Element? element)` | 限制命中与焦点遍历范围；null 解除并尝试恢复原焦点 |
 | `void CancelPointer()` | 向被捕获控件发送 PointerCancel 并解除捕获 |
-| `IReadOnlyList<SemanticNode> Semantics()` | 返回当前可见且启用范围中的可聚焦节点与文字节点 |
+| `IReadOnlyList<SemanticNode> Semantics()` | 最多一次前置布局，消费 Semantics 并返回当前可见且启用范围中的可聚焦节点与文字节点 |
 
 BuildFrame 首先绘制主题背景，然后按树顺序绘制。返回值是缓存对象；调用方不应修改它。尺寸变化时，自定义宿主必须同时调整 renderer 和 document。
 
@@ -206,4 +208,4 @@ SetModal 要求目标属于本文档；它不改变 Visible、不创建遮罩、
 
 `Element.OnDocumentChanged(previous, current)` 在子树文档关联完成后调用。示例在加入文档时订阅，在移出时退订，并在重新加入时应用最新状态。它不是窗口生命周期或文档 Dispose API。
 
-文档在布局/绘制回调之前消费对应失效位，保留回调期间的新失效。每次实际布局都请求绘制，避免延后的布局复用旧绘制列表。失败的布局/绘制可在修正问题后重试。
+文档在布局/绘制/语义回调之前消费整棵树对应失效位，保留回调期间的新失效。每次实际布局都请求绘制和语义更新；失败阶段恢复待处理工作。同一文档的更新回调中不能嵌套更新。完整的有限次收敛、重入、隐藏节点和重挂契约见 [A09 布局更新](../layout-updates.md)。

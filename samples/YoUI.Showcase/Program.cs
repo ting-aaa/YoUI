@@ -8,34 +8,9 @@ using YoUI.Showcase;
 
 var artifactDir = Path.GetFullPath(Environment.GetEnvironmentVariable("YOUI_ARTIFACT_DIR") ?? Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts"));
 Directory.CreateDirectory(artifactDir);
+if (args.Contains("--gallery")) { GalleryRunner.Run(args, artifactDir); return; }
+if (args.Contains("--benchmark")) { BenchmarkRunner.Run(args, artifactDir); return; }
 var scene = new Showcase();
-if (args.Contains("--benchmark"))
-{
-    using var renderer = new NativeRenderer(1280, 820);
-    var document = new UiDocument(scene, renderer, 1280, 820);
-    scene.Motion.Value = true;
-    for (int n = 0; n < 30; n++) { scene.Step(n / 60f); renderer.Render(document.BuildFrame()); }
-    int layouts = document.LayoutPasses; long allocated = GC.GetAllocatedBytesForCurrentThread();
-    var prepare = new List<double>(); var submit = new List<double>(); var managed = new List<double>(); FrameStats stats = default;
-    for (int n = 0; n < 240; n++)
-    {
-        scene.Step((n + 30) / 60f); long start = Stopwatch.GetTimestamp(); var frame = document.BuildFrame(); managed.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        stats = renderer.Render(frame); prepare.Add(stats.PrepareMicroseconds / 1000.0); submit.Add(stats.SubmitMicroseconds / 1000.0);
-    }
-    long bytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
-    double Percentile(List<double> values, double p) { values.Sort(); return values[(int)((values.Count - 1) * p)]; }
-    var report = new { adapter = renderer.Adapter, runtime = RuntimeInformation.FrameworkDescription, os = RuntimeInformation.OSDescription, configuration =
-#if DEBUG
-        "Debug",
-#else
-        "Release",
-#endif
-        resolution = "1280x820", dataItems = scene.Library.ItemCount, realizedRows = scene.Library.RealizedCount, warmupFrames = 30, measuredFrames = 240, layoutPassesDuringAnimation = document.LayoutPasses - layouts,
-        managedBuildMedianMs = Percentile(managed, .5), managedBuildP95Ms = Percentile(managed, .95), nativePrepareMedianMs = Percentile(prepare, .5), nativePrepareP95Ms = Percentile(prepare, .95), nativeSubmitMedianMs = Percentile(submit, .5), nativeSubmitP95Ms = Percentile(submit, .95), managedAllocatedBytesPerFrame = bytes / 240, stats.Commands, stats.Instances, stats.DrawCalls, stats.Layers, stats.UploadBytes,
-        notes = "CPU measurements only; GPU execution time and presentation FPS are not measured. Managed allocations include benchmark bookkeeping; native allocations are not included. Scene has one full-size isolated layer." };
-    renderer.SavePng(Path.Combine(artifactDir, "benchmark-frame.png"));
-    string json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }); File.WriteAllText(Path.Combine(artifactDir, "benchmark.json"), json); Console.WriteLine(json); return;
-}
 if (args.Contains("--headless"))
 {
     using var renderer = new NativeRenderer(1280, 820);

@@ -29,8 +29,8 @@ bash scripts/verify-linux.sh Release
 ```
 
 - `Logic` 执行 Rust fmt、Clippy、非 ignored 测试，以及 C# 控件和编辑器测试。编辑器测试包含导出代码编译与插件逻辑。
-- `Gpu` 显式执行 `cargo test -p youi-render --test gpu ... -- --ignored --nocapture`，并通过 `--lib renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image ... -- --exact --ignored --nocapture` 执行文本驻留映射丢失后的像素回归。`All` 同样包含这两个检查。没有适配器、设备初始化失败或像素断言失败均返回失败，不跳过或输出通过。它还执行 Editor/Showcase 离屏、Showcase 基准和三个 Rust 示例（render_scene、scene_graph、textured_mesh）。
-- `Window` 执行 Editor 和 Showcase 的 `--smoke`；它需要 Windows 桌面与可用渲染设备，不等于覆盖所有手动输入、IME、无障碍或多显示器场景。
+- `Gpu` 显式执行 `cargo test -p youi-render --test gpu ... -- --ignored --nocapture`，并通过 `--lib renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image ... -- --exact --ignored --nocapture` 执行文本驻留映射丢失后的像素回归。`All` 同样包含这两个检查。没有适配器、设备初始化失败或像素断言失败均返回失败，不跳过或输出通过。它还执行 Editor/Showcase 离屏、Showcase 基准、组件图库的 `--gallery --headless`（含离屏截图及文档级输入 smoke）和三个 Rust 示例（render_scene、scene_graph、textured_mesh）。
+- `Window` 执行 Editor 和 Showcase 的 `--smoke`，以及图库的 `--gallery --smoke`；它需要 Windows 桌面与可用渲染设备，不等于覆盖所有手动输入、IME、无障碍或多显示器场景。
 - 所有 PowerShell 层都会先构建 Rust、Showcase、Editor、导出插件和 HelloYoUI。Debug/Release 同时应用到 Rust 构建、Clippy、测试、示例及 C# 项目；Cargo 输出固定到仓库 `target/`。
 - `All` 和 `Window` 在非 Windows 平台明确失败。其他层成功不会被表述为完整验收；Linux 编译不表示 Linux 窗口可用。
 - GPU 日志中的适配器身份是证据的一部分。软件适配器运行不能当作真实硬件 GPU 验收，截图仍需人工查看。不要把一次离屏或 smoke 通过推广为其他后端、机器或平台均通过。
@@ -55,6 +55,6 @@ bash scripts/test-verification.sh
 pwsh -NoProfile -File scripts/test-verification.ps1
 ```
 
-脚本回归使用临时仓库路径和假的命令，只验证编排：不同工作目录及含空格路径、Debug/Release 传播、GPU 集成测试及文本驻留单元测试的显式 ignored 调用（后者使用完整名称和 `--exact`）、textured_mesh 示例的精确参数与层归属、参数拒绝、每一步的错误传播和成功/失败记录。Windows 上还验证默认完整入口和窗口编排；非 Windows 上验证完整/窗口入口不会静默降级。这些模拟检查不计入 Rust、.NET、GPU 或窗口的真实通过数量。
+脚本回归使用临时仓库路径和假的命令，只验证编排：不同工作目录及含空格路径、Debug/Release 传播、GPU 集成测试及文本驻留单元测试的显式 ignored 调用（后者使用完整名称和 `--exact`）、参数拒绝、每一步的错误传播和成功/失败记录。Windows 上还验证默认完整入口和窗口编排；非 Windows 上验证完整/窗口入口不会静默降级。这些模拟检查不计入 Rust、.NET、GPU 或窗口的真实通过数量。
 
 真实原生库复制回归仍由 Linux 入口调用 `scripts/test-native-copy.sh` 完成，不用模拟文件替代。

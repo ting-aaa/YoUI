@@ -45,20 +45,27 @@ try {
         Invoke-Checked 'cargo' (@('test','--workspace') + $cargoOptions)
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Editor.Tests','-c',$Configuration,'-p:BuildInParallel=false')
+        Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Component.Tests','-c',$Configuration,'-p:BuildInParallel=false')
+        Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Profiling.Tests','-c',$Configuration,'-p:BuildInParallel=false')
     }
     if ($Layer -eq 'Gpu' -or $Layer -eq 'All') {
+        Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-resource-budget')
+        Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-text-input')
         Invoke-Checked 'cargo' (@('test','-p','youi-render','--test','gpu') + $cargoOptions + @('--','--ignored','--nocapture'))
         Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image') + $cargoOptions + @('--','--exact','--ignored','--nocapture'))
         Invoke-Checked 'dotnet' @('run','--project','tools/YoUI.Editor','-c',$Configuration,'--no-build','--','--headless')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--headless')
+        Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--gallery','--headless')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--benchmark')
         Invoke-Checked 'cargo' (@('run','-p','youi-render','--example','render_scene') + $cargoOptions + @('--','artifacts/render-scene.png'))
         Invoke-Checked 'cargo' (@('run','-p','youi-scene','--example','scene_graph') + $cargoOptions + @('--','artifacts/scene-graph.png'))
         Invoke-Checked 'cargo' (@('run','-p','youi-scene','--example','textured_mesh') + $cargoOptions + @('--','artifacts/textured-mesh.png'))
+        Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Component.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu')
     }
     if ($Layer -eq 'Window' -or $Layer -eq 'All') {
         Invoke-Checked 'dotnet' @('run','--project','tools/YoUI.Editor','-c',$Configuration,'--no-build','--','--smoke')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--smoke')
+        Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--gallery','--smoke')
     }
     $evidence.status = 'passed'
 } catch {
