@@ -15,7 +15,7 @@ narrow claim.
 
 ## Requirements and limits
 
-- A 64-bit Linux process and SDL2 2.0.22 or newer, discoverable as
+- A 64-bit Linux process and SDL2 2.24.0 or newer, discoverable as
   `libSDL2-2.0.so.0`.
 - An existing, accessible X11 `DISPLAY`, `libX11`, and a Vulkan-capable loader
   and device. Mesa software Vulkan is useful but remains software evidence.
@@ -36,7 +36,8 @@ narrow claim.
 - The host disables SDL's synthetic last-window `SDL_QUIT` so one native
   close request invokes `Closing` once. Independent `SDL_QUIT` requests still
   invoke `Closing`, including immediately after a veto. This requires the
-  [close hint added in SDL 2.0.22](https://wiki.libsdl.org/SDL2/SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE);
+  [close hint added in SDL 2.0.22](https://wiki.libsdl.org/SDL2/SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE)
+  and SDL 2.24.0's support for restoring an absent (null) hint value;
   older versions fail before video/window initialization.
   `SDL_QUIT_ON_LAST_WINDOW_CLOSE` must be unset or disabled (`0`/`false`).
   Existing disabled hints are borrowed unchanged. Otherwise the host writes

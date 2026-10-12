@@ -9,6 +9,13 @@ if (args.Length != 0 && !(args.Length == 1 && args[0] == "--native-init-failure"
     throw new ArgumentException("Usage: YoUI.Platform.Linux.Tests [--native-init-failure]");
 int checks = 0;
 void Check(bool value, string message) { if (!value) throw new Exception(message); checks++; }
+foreach (var (major, minor, patch, supported) in new[]
+{
+    (2, 0, 18, false), (2, 0, 22, false), (2, 0, 24, false),
+    (2, 23, 255, false), (2, 24, 0, true), (2, 30, 0, true), (3, 0, 0, false)
+})
+    Check(Sdl.IsSupportedVersion(new Sdl.Version { Major = (byte)major, Minor = (byte)minor, Patch = (byte)patch }) == supported,
+        $"supported SDL version boundary {major}.{minor}.{patch}");
 Check(Marshal.SizeOf<Sdl.Event>() == 56, "SDL event union size");
 Check(Marshal.SizeOf<Sdl.WindowInfo>() == 72, "SDL LP64 WM info size");
 Check(Marshal.OffsetOf<Sdl.Event>(nameof(Sdl.Event.Key)).ToInt32() == 20, "key offset");

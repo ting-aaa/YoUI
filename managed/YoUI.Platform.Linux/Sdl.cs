@@ -8,6 +8,8 @@ internal static unsafe class Sdl
 {
     private const string Library = "libSDL2-2.0.so.0";
     [StructLayout(LayoutKind.Sequential)] internal struct Version { public byte Major, Minor, Patch; }
+    // 2.24.0 first permits a null hint value, required to restore an absent hint.
+    internal static bool IsSupportedVersion(Version version) => version.Major == 2 && version.Minor >= 24;
     [StructLayout(LayoutKind.Explicit, Size = 72)] internal struct WindowInfo
     {
         [FieldOffset(0)] public Version Version;

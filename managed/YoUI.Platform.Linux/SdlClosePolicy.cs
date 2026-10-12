@@ -2,9 +2,10 @@ using System.Runtime.InteropServices;
 
 namespace YoUI.Platform.Linux;
 
-// SDL 2.0.22+ otherwise emits BOTH WINDOWEVENT_CLOSE and QUIT for the last
+// SDL otherwise emits BOTH WINDOWEVENT_CLOSE and QUIT for the last
 // window. Disable that synthesis at its source, not by discarding a later QUIT:
 // explicit quit requests must remain independently vetoable.
+// The host requires SDL 2.24.0+ so restoration of a null value is supported.
 internal sealed class SdlClosePolicy : IDisposable
 {
     internal const string Hint = "SDL_QUIT_ON_LAST_WINDOW_CLOSE";
