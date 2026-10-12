@@ -91,7 +91,7 @@ Measure / Layout 使用 renderer 的文字系统，生成布局但不上传字�
 
 RGBA 数据按行连续、每像素 4 字节，没有 stride 参数；单边须在 1..2046，总长度严格等于 `width × height × 4`。字形和图片共用 2048×2048 图集，实际可用容量可能更小。
 
-`Dispose()` 释放图像槽位。释放后 DrawList.Image 及纹理辅助方法立即拒绝该包装对象；已缓存的图像命令再次提交也会失败。只在原 renderer 上使用，不能跨 renderer 共享图像。推荐在 renderer 之前释放图像，尤其不要依赖终结器自动回收。
+`Dispose()` 释放图像槽位，其空闲区域可复用给较小或同尺寸图片/字形，不影响其他 live 资源，也不保证消除碎片。释放后 DrawList.Image 及纹理辅助方法立即拒绝该包装对象；已缓存的图像命令再次提交也会失败。只在原 renderer 上使用，不能跨 renderer 共享图像。推荐在 renderer 之前释放图像，尤其不要依赖终结器自动回收。
 
 ## FrameStats
 
