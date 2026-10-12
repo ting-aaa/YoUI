@@ -242,6 +242,9 @@ class XlibNative:
                                              ctypes.c_uint, ctypes.c_uint, ctypes.c_ulong, ctypes.c_ulong]),
             "XMapWindow": (ctypes.c_int, [pointer, window]),
             "XGetWindowAttributes": (ctypes.c_int, [pointer, window, ctypes.POINTER(XWindowAttributes)]),
+            "XQueryPointer": (ctypes.c_int, [pointer, window, ctypes.POINTER(window), ctypes.POINTER(window),
+                ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_uint)]),
             "XGetInputFocus": (ctypes.c_int, [pointer, ctypes.POINTER(window), ctypes.POINTER(ctypes.c_int)]),
             "XSetErrorHandler": (pointer, [pointer]),
             "XSetInputFocus": (ctypes.c_int, [pointer, window, ctypes.c_int, ctypes.c_ulong]),
@@ -298,6 +301,66 @@ class XlibNative:
         if not self.lib.XGetWindowAttributes(self.display, xid, ctypes.byref(attributes)):
             raise ValueError("Cannot query WM-managed client map state")
         return dict(xid=xid, wmState=state, mapState=attributes.map_state)
+
+    def input_snapshot(self, xid: int) -> dict:
+        """Observe focus and the actual topmost pointer path, including WM frames.
+
+        Keyboard focus and IsViewable alone do not establish a pointer recipient.
+        XQueryPointer on the root then each returned child follows the visible
+        hierarchy under the pointer; querying only the client can miss occlusion.
+        """
+        result = self.wm_state(xid)
+        focus, revert = ctypes.c_ulong(), ctypes.c_int()
+        self.lib.XGetInputFocus(self.display, ctypes.byref(focus), ctypes.byref(revert))
+        result.update(inputFocus=focus.value, focusRevert=revert.value, focusSink=self.sink)
+        atom = self.lib.XInternAtom(self.display, b"_NET_ACTIVE_WINDOW", 1)
+        active = None
+        if atom:
+            actual, count, remaining = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_ulong()
+            form, data = ctypes.c_int(), ctypes.c_void_p()
+            try:
+                status = self.lib.XGetWindowProperty(self.display, self.root, atom, 0, 1, 0, 33,
+                    ctypes.byref(actual), ctypes.byref(form), ctypes.byref(count),
+                    ctypes.byref(remaining), ctypes.byref(data))  # XA_WINDOW = 33
+                if status != 0:
+                    raise ValueError("Cannot query _NET_ACTIVE_WINDOW")
+                if actual.value:
+                    if actual.value != 33 or form.value != 32 or count.value != 1 or remaining.value or not data.value:
+                        raise ValueError("Malformed _NET_ACTIVE_WINDOW")
+                    active = ctypes.cast(data, ctypes.POINTER(ctypes.c_ulong))[0]
+            finally:
+                if data.value:
+                    self.lib.XFree(data)
+        result["activeWindow"] = active
+        left, top, child = ctypes.c_int(), ctypes.c_int(), ctypes.c_ulong()
+        if not self.lib.XTranslateCoordinates(self.display, xid, self.root, 0, 0,
+                ctypes.byref(left), ctypes.byref(top), ctypes.byref(child)):
+            raise ValueError("Cannot locate client origin")
+        result["clientOrigin"] = [left.value, top.value]
+        path = []
+        current = self.root
+        for _ in range(32):
+            root, child = ctypes.c_ulong(), ctypes.c_ulong()
+            rx, ry, wx, wy, mask = ctypes.c_int(), ctypes.c_int(), ctypes.c_int(), ctypes.c_int(), ctypes.c_uint()
+            if not self.lib.XQueryPointer(self.display, current, ctypes.byref(root), ctypes.byref(child),
+                    ctypes.byref(rx), ctypes.byref(ry), ctypes.byref(wx), ctypes.byref(wy), ctypes.byref(mask)):
+                raise ValueError("Pointer left the client's X11 screen")
+            path.append(current)
+            if not child.value:
+                result.update(pointerPath=path, pointerRoot=[rx.value, ry.value], pointerMask=mask.value)
+                return result
+            if child.value in path:
+                raise ValueError("Pointer hierarchy changed or contains a cycle")
+            current = child.value
+        raise ValueError("Pointer hierarchy exceeds diagnostic bound")
+
+    def capture_root(self, path: Path) -> dict:
+        screen = self.lib.XDefaultScreen(self.display)
+        result = self.capture_window(dict(xid=self.root,
+            width=self.lib.XDisplayWidth(self.display, screen),
+            height=self.lib.XDisplayHeight(self.display, screen)), path)
+        result["method"] = "XGetImage of X11 root (visible desktop, including occlusion)"
+        return result
 
     def wait_wm_state(self, xid: int, expected: int, timeout: float) -> dict:
         if expected not in (1, 3):
@@ -472,6 +535,10 @@ def xlib_worker_main() -> int:
                     result = native.focus_away()
                 elif operation == "request-close":
                     result = native.request_close(arguments["xid"])
+                elif operation == "input-snapshot":
+                    result = native.input_snapshot(arguments["xid"])
+                elif operation == "capture-root":
+                    result = native.capture_root(Path(arguments["path"]))
                 elif operation == "wait-wm-state":
                     result = native.wait_wm_state(arguments["xid"], arguments["expected"], arguments["timeout"])
                 elif operation == "outside-point":
@@ -602,7 +669,7 @@ class X11Worker:
                 raise ValueError("Invalid Xlib worker reply")
             if not value["ok"]:
                 raise ValueError("Xlib worker: " + str(value.get("error", "operation failed")))
-            if operation == "wait-wm-state":
+            if operation in ("wait-wm-state", "input-snapshot"):
                 record["observation"] = value.get("result")
             record["status"] = "passed"
             return value.get("result")
@@ -632,6 +699,14 @@ class X11Worker:
         if result != wanted or any(type(value) is not int for value in result.values()):
             raise ValueError("Xlib worker returned invalid WM_STATE evidence")
         return result
+
+    def input_snapshot(self, xid: int) -> dict:
+        result = self.request("input-snapshot", dict(xid=xid))
+        validate_input_snapshot(result, xid)
+        return result
+
+    def capture_root(self, path: Path) -> dict:
+        return self.request("capture-root", dict(path=str(path)))
 
     def outside_point(self, state: dict) -> tuple[int, int]:
         result = self.request("outside-point", dict(state={key: state[key] for key in ("xid", "width", "height")}))
@@ -746,6 +821,26 @@ class WindowSession:
         self.remaining()
         return dict(**result, **file_evidence(path, self.output))
 
+    def diagnose_input(self, label: str) -> None:
+        # Best effort, bounded by the same worker/session deadline. Diagnostics
+        # must never replace the original failed assertion or turn it into a pass.
+        record = dict(label=label, state=self.state, errors=[])
+        self.report.setdefault("inputDiagnostics", []).append(record)
+        try:
+            record["state"] = self.read()
+        except (OSError, ValueError, TypeError) as exc:
+            record["errors"].append(str(exc))
+        try:
+            record["observation"] = self.x11.input_snapshot(self.state["xid"])
+        except (OSError, ValueError, TypeError) as exc:
+            record["errors"].append(str(exc))
+        try:
+            path = self.output / "sample" / (label + "-desktop.png")
+            record["desktopCapture"] = dict(**self.x11.capture_root(path), **file_evidence(path, self.output))
+        except (OSError, ValueError, TypeError) as exc:
+            record["errors"].append(str(exc))
+        write_report(self.output, self.report)
+
     def finish(self) -> None:
         try:
             code = self.process.wait(timeout=min(self.args.event_timeout_seconds, self.remaining()))
@@ -774,6 +869,35 @@ class WindowSession:
 
 def count(state: dict, event: str) -> int:
     return state["eventCounts"].get(event, 0)
+
+
+def validate_input_snapshot(value: object, xid: int) -> None:
+    if not isinstance(value, dict) or value.get("xid") != xid:
+        raise ValueError("Invalid X11 input snapshot identity")
+    for key in ("xid", "mapState", "inputFocus", "focusRevert", "focusSink", "pointerMask"):
+        nonnegative_integer(value.get(key), key)
+    for key in ("wmState", "activeWindow"):
+        if value.get(key) is not None:
+            nonnegative_integer(value[key], key)
+    for key in ("clientOrigin", "pointerRoot"):
+        pair = value.get(key)
+        if not isinstance(pair, list) or len(pair) != 2 or any(type(n) is not int for n in pair):
+            raise ValueError("Invalid X11 input snapshot coordinates")
+    path = value.get("pointerPath")
+    if (not isinstance(path, list) or not 1 <= len(path) <= 32 or
+            any(type(n) is not int or n <= 0 for n in path) or len(set(path)) != len(path)):
+        raise ValueError("Invalid X11 pointer hierarchy")
+
+
+def pointer_ready(observation: dict, state: dict, element: str) -> bool:
+    validate_input_snapshot(observation, state["xid"])
+    rect = state[element]
+    x, y = (observation["pointerRoot"][i] - observation["clientOrigin"][i] for i in (0, 1))
+    return (observation["wmState"] == 1 and observation["mapState"] == 2
+        and observation["activeWindow"] == state["xid"] and observation["inputFocus"] == state["xid"]
+        and state["xid"] in observation["pointerPath"]
+        and (x, y) == (round(rect["x"] + rect["width"] / 2), round(rect["y"] + rect["height"] / 2))
+        and observation["pointerMask"] & 0x1F00 == 0)  # No X11 button is still held.
 
 
 def exercise_window(session: WindowSession, *, require_wm: bool = False) -> dict:
@@ -846,14 +970,43 @@ def exercise_window(session: WindowSession, *, require_wm: bool = False) -> dict
         minimized = session.wait("WM minimize suspends rendering", lambda s: s["suspended"] and not s["hasInputFocus"])
         session.pause(.25)
         session.wait("WM minimized frame count remains stable", lambda s: s["suspended"] and s["frames"] == minimized["frames"])
-        session.input("windowmap", "--sync", xid)
-        wm["transitions"].append(session.x11.wait_wm_state(int(xid), 1))
-        session.input("windowfocus", "--sync", xid)
-        session.wait("WM restore resumes rendering", lambda s: not s["suspended"] and s["hasInputFocus"] and s["frames"] > minimized["frames"])
-        session.point("button")
-        restored_clicks = session.state["clicks"]
-        session.input("click", "1")
-        session.wait("WM restored window accepts input", lambda s: s["clicks"] == restored_clicks + 1)
+        try:
+            session.input("windowmap", "--sync", xid)
+            wm["transitions"].append(session.x11.wait_wm_state(int(xid), 1))
+            # Interaction after explicit WM activation, not automatic focus on map.
+            # Preserve raw restore evidence first; XSetInputFocus alone bypasses
+            # WM activation/stacking.
+            session.diagnose_input("wm-restored-before-activation")
+            session.input("windowactivate", "--sync", xid)
+            session.wait("WM restore resumes rendering", lambda s: not s["suspended"] and s["hasInputFocus"] and s["frames"] > minimized["frames"])
+            session.point("button")
+            session.diagnose_input("wm-restored-before-click")
+            # SDL 2.30 X11 suppresses focus clicks for 10 ms by default. Require
+            # observed readiness across 100 ms, not a click used just to focus.
+            ready_since = None
+            def ready(s):
+                nonlocal ready_since
+                observed = session.x11.input_snapshot(int(xid))
+                if not s["hasInputFocus"] or not pointer_ready(observed, s, "button"):
+                    ready_since = None
+                    return False
+                now = time.monotonic()
+                if ready_since is None:
+                    ready_since = now
+                return now - ready_since >= .1
+            session.wait("WM restored pointer targets activated client", ready)
+            restored_clicks = session.state["clicks"]
+            restored_downs, restored_ups = count(session.state, "PointerDown"), count(session.state, "PointerUp")
+            session.input("click", "1")
+            session.wait("WM restored window accepts input", lambda s: s["hasInputFocus"]
+                and s["clicks"] == restored_clicks + 1
+                and count(s, "PointerDown") == restored_downs + 1 and count(s, "PointerUp") == restored_ups + 1)
+        except (OSError, ValueError, TypeError):
+            try:
+                session.diagnose_input("wm-restored-input-failure")
+            except (OSError, ValueError, TypeError):
+                pass  # Even failure to persist diagnostics must preserve the original error.
+            raise
     session.input("windowraise", xid)
     capture = session.capture()
     session.x11.request_close(int(xid))
