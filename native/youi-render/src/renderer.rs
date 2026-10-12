@@ -704,8 +704,16 @@ impl Renderer {
                         c.flags & 2 == 0,
                     );
                     for g in layout.glyphs {
-                        let rect =
-                            Rect::new(g.rect.x + c.rect.x, g.rect.y + c.rect.y, g.rect.w, g.rect.h);
+                        // Raster masks have a one-texel transparent atlas gutter.
+                        // Include it in geometry before culling: fractional origins
+                        // give bilinear coverage outside the raw bitmap bounds.
+                        // Logical metrics and explicit text/ancestor clips stay intact.
+                        let rect = Rect::new(
+                            g.rect.x + c.rect.x - 1.,
+                            g.rect.y + c.rect.y - 1.,
+                            g.rect.w + 2.,
+                            g.rect.h + 2.,
+                        );
                         let clip = if c.flags & 4 != 0 {
                             clip
                         } else {
@@ -991,6 +999,9 @@ impl Renderer {
             .map_err(|e| e.to_string())
     }
 }
+
+#[cfg(test)]
+mod text_filter_tests;
 
 #[cfg(test)]
 mod text_residency_tests {
