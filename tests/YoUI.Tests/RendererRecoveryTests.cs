@@ -94,6 +94,25 @@ static class RendererRecoveryTests
             doc.Dispatch(new(EventKind.KeyDown) { Key = 90, Control = true });
             require(input.Text == "क्ष", "failed attempts did not corrupt undo history");
         });
+        test("candidate-text layout failure keeps normalized selection but preserves text and history", () =>
+        {
+            var input = new TextBox { Text = "क्ष" }; var original = new IndicProvider();
+            var doc = new UiDocument(input, original, 160, 44); doc.BuildFrame(); doc.Focus(input); input.Select(2, 0);
+            var replacement = new IndicProvider { Grouped = true, RejectedText = "क्षx" };
+            doc.RebindTextMeasurer(replacement);
+            Throws<InvalidOperationException>(() => doc.Dispatch(new(EventKind.TextInput) { Text = "x" }));
+            require(input.Text == "क्ष" && input.CaretIndex == 3 && input.SelectionLength == 0, "successful normalization survives rejected candidate layout");
+            doc.Dispatch(new(EventKind.KeyDown) { Key = 90, Control = true });
+            require(input.Text == "क्ष" && input.CaretIndex == 3, "failed candidate adds no undo entry");
+            replacement.RejectedText = null;
+            doc.Dispatch(new(EventKind.TextInput) { Text = "y" });
+            doc.Dispatch(new(EventKind.KeyDown) { Key = 90, Control = true });
+            require(input.Text == "क्ष", "subsequent edit is undoable");
+            replacement.RejectedText = "क्षx";
+            Throws<InvalidOperationException>(() => doc.Dispatch(new(EventKind.TextInput) { Text = "x" }));
+            doc.Dispatch(new(EventKind.KeyDown) { Key = 89, Control = true });
+            require(input.Text == "क्षy", "failed candidate did not clear existing redo history");
+        });
     }
     public static void RunGpu()
     {
@@ -142,11 +161,12 @@ static class RendererRecoveryTests
     private sealed class IndicProvider : ITextLayoutProvider
     {
         public bool Grouped, Fail;
+        public string? RejectedText;
         public Action? Callback;
         public (float Width, float Height) Measure(string text, float size, float width, bool bold = false) => (text.Length * 7, size);
         public TextLayout Layout(string text, float size, float width, bool bold = false, bool wrap = true)
         {
-            if (Fail) throw new InvalidOperationException("injected provider failure");
+            if (Fail || text == RejectedText) throw new InvalidOperationException("injected provider failure");
             Callback?.Invoke();
             var cells = new List<TextCell>();
             for (int index = 0; index < text.Length;)

@@ -66,8 +66,11 @@ original failure has unwound. Bound any reconstruction attempts outside the loop
    It rejects null, a foreign thread and calls during layout/paint/semantic updates
    or input dispatch. TextBox normalizes stored selection/caret to the current
    provider before paint and editing/copy/cut, including input before the first
-   rebuilt frame and same-instance provider changes. A failed boundary query
-   leaves text/selection/history unchanged; undo/redo use current-provider stops.
+   rebuilt frame and same-instance provider changes. If the initial normalization
+   query fails, stored selection and text/history are unchanged. After successful
+   normalization, a later paint/edit layout query may fail with the corrected
+   selection retained; candidate-text layout failure does not change text or
+   undo/redo history. Undo/redo use current-provider stops.
    Neither provider is disposed by the document. For a DPI adapter, create/rebind
    the correctly scaled provider, not an unscaled renderer. Custom controls with
    their own provider/layout/image caches must refresh those caches explicitly.
