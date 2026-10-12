@@ -23,7 +23,7 @@ CHECKS = ["OS input focus", "ASCII typing", "captured pointer release outside",
           "OS focus loss cancels pointer", "native resize and rendering",
           "X11 remap resumes rendering", "second WM_DELETE_WINDOW closes",
           "WM minimize suspends rendering", "WM minimized frame count remains stable",
-          "WM restore resumes rendering", "WM restored window accepts input"]
+          "WM restore resumes rendering", "WM restored pointer targets activated client", "WM restored window accepts input"]
 
 
 def result(output):
@@ -97,6 +97,14 @@ class SupervisorTests(unittest.TestCase):
         code, report, _ = self.run_fixture(lambda r: r.update(checks=[]))
         self.assertEqual(code, 1)
         self.assertIn("Required OS-input", report["error"])
+
+    def test_missing_restored_pointer_readiness_fails_supervisor(self):
+        def remove_readiness(result):
+            result["checks"] = [check for check in result["checks"]
+                if check["name"] != "WM restored pointer targets activated client"]
+        code, report, _ = self.run_fixture(remove_readiness)
+        self.assertEqual(code, 1)
+        self.assertEqual(report["status"], "failed")
 
     def test_missing_or_stale_wm_evidence_cannot_pass(self):
         for mutation in (

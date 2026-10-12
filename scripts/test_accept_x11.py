@@ -62,7 +62,17 @@ class FakeDriver:
     def wait(self, name, predicate, **_):
         if not self.state["suspended"] and not self.state["closed"]:
             self.state["frames"] += 1
-        if not predicate(self.state):
+        matched = False
+        if name == "WM restored pointer targets activated client":
+            # Exercise the observed stable-readiness interval without real time.
+            with patch.object(accept.time, "monotonic", side_effect=[100., 100.05, 100.2]):
+                for _ in range(3):
+                    matched = predicate(self.state)
+                    if matched:
+                        break
+        else:
+            matched = predicate(self.state)
+        if not matched:
             raise ValueError("Fake condition failed: " + name)
         self.checks.append(name)
         return copy.deepcopy(self.state)
@@ -70,7 +80,7 @@ class FakeDriver:
     def input(self, *args):
         self.inputs.append(args)
         kind = args[0]
-        if kind == "windowfocus":
+        if kind in ("windowfocus", "windowactivate"):
             self.state["hasInputFocus"] = True
         elif kind == "click":
             if args[1] in ("4", "5"):
@@ -134,6 +144,16 @@ class FakeDriver:
         if self.cancel:
             self.state["pointerCancels"] += int(self.down)
             self.down = False
+
+    def input_snapshot(self, xid):
+        rect = self.state["button"]
+        return dict(xid=xid, wmState=self.wm, mapState=2, inputFocus=xid, focusRevert=2,
+            focusSink=99, activeWindow=xid, clientOrigin=[10, 20], pointerPath=[1, 2, xid],
+            pointerRoot=[10 + round(rect["x"] + rect["width"] / 2),
+                         20 + round(rect["y"] + rect["height"] / 2)], pointerMask=0)
+
+    def diagnose_input(self, label):
+        self.inputs.append(("diagnostic", label))
 
     def request_close(self, xid):
         assert xid == self.state["xid"]
@@ -352,6 +372,64 @@ class DriverTests(unittest.TestCase):
         self.assertEqual(result["finalState"]["clicks"], 3)
         self.assertIn("WM restored window accepts input", session.checks)
 
+    def test_activation_and_target_preconditions_precede_one_real_click(self):
+        session = FakeDriver()
+        accept.exercise_window(session, require_wm=True)
+        before = session.inputs.index(("diagnostic", "wm-restored-before-activation"))
+        activation = session.inputs.index(("windowactivate", "--sync", "12345"))
+        capture = session.inputs.index(("diagnostic", "wm-restored-before-click"))
+        self.assertLess(before, activation)
+        self.assertLess(activation, capture)
+        self.assertEqual(session.inputs[capture + 1], ("click", "1"))
+        self.assertNotIn(("windowfocus", "--sync", "12345"), session.inputs[before:])
+
+    def test_occlusion_wrong_focus_coordinates_or_held_button_prevent_click(self):
+        for changed in (dict(pointerPath=[1, 99]), dict(activeWindow=99), dict(inputFocus=99),
+                        dict(pointerRoot=[0, 0]), dict(pointerMask=256), dict(wmState=3), dict(mapState=0)):
+            with self.subTest(changed=changed):
+                session = FakeDriver()
+                observation = session.input_snapshot(12345)
+                observation.update(changed)
+                with patch.object(session, "input_snapshot", return_value=observation):
+                    with self.assertRaisesRegex(ValueError, "targets activated client"):
+                        accept.exercise_window(session, require_wm=True)
+                self.assertEqual(session.state["clicks"], 2)
+                self.assertEqual(session.inputs[-1], ("diagnostic", "wm-restored-input-failure"))
+
+    def test_readiness_interval_restarts_after_target_loss(self):
+        session = FakeDriver()
+        original = session.wait
+        observation = session.input_snapshot(12345)
+        observations = [observation, {**observation, "activeWindow": 99}, observation, observation, observation]
+        def wait(name, predicate, **kwargs):
+            if name != "WM restored pointer targets activated client":
+                return original(name, predicate, **kwargs)
+            with patch.object(session, "input_snapshot", side_effect=observations), \
+                    patch.object(accept.time, "monotonic", side_effect=[100., 100.2, 100.25, 100.4]):
+                self.assertEqual([predicate(session.state) for _ in range(5)], [False, False, False, False, True])
+            session.checks.append(name)
+            return copy.deepcopy(session.state)
+        with patch.object(session, "wait", side_effect=wait):
+            accept.exercise_window(session, require_wm=True)
+        self.assertTrue(session.finished)
+
+    def test_restored_click_requires_down_up_and_focus_not_just_click_counter(self):
+        for defect in ("PointerDown", "PointerUp", "focus"):
+            session = FakeDriver()
+            original = session.input
+            def input_(*args):
+                original(*args)
+                if args == ("click", "1") and ("windowactivate", "--sync", "12345") in session.inputs:
+                    if defect == "focus":
+                        session.state["hasInputFocus"] = False
+                    else:
+                        session.state["eventCounts"][defect] -= 1
+            with patch.object(session, "input", side_effect=input_):
+                with self.assertRaisesRegex(ValueError, "WM restored window accepts input"):
+                    accept.exercise_window(session, require_wm=True)
+            self.assertFalse(session.finished)
+            self.assertEqual(session.inputs[-1], ("diagnostic", "wm-restored-input-failure"))
+
     def test_no_wm_mode_never_queries_or_minimizes(self):
         session = FakeDriver()
         with patch.object(session, "wait_wm_state", side_effect=AssertionError("unexpected WM probe")):
@@ -396,7 +474,7 @@ class DriverTests(unittest.TestCase):
         session = FakeDriver()
         original = session.input
         def input_(*args):
-            if args[0] == "windowfocus" and ("windowminimize", "12345") in session.inputs:
+            if args[0] == "windowactivate" and ("windowminimize", "12345") in session.inputs:
                 return
             original(*args)
         with patch.object(session, "input", side_effect=input_):
@@ -731,6 +809,150 @@ class WindowManagerTests(unittest.TestCase):
         self.assertEqual(replies[1]["result"], dict(xid=12345, wmState=3, mapState=0))
 
 
+class InputSnapshotTests(unittest.TestCase):
+    class Library:
+        def __init__(self):
+            self.data = (ctypes.c_ulong * 1)(12345)
+            self.freed = 0
+            self.path, self.queried = {1: 2, 2: 12345, 12345: 0}, []
+            self.actual, self.form, self.count, self.remaining = 33, 32, 1, 0
+            self.same_screen, self.translated = 1, 1
+
+        @staticmethod
+        def put(pointer, kind, value):
+            ctypes.cast(pointer, ctypes.POINTER(kind))[0] = value
+
+        def XGetInputFocus(self, display, focus, revert):
+            self.put(focus, ctypes.c_ulong, 12345)
+            self.put(revert, ctypes.c_int, 2)
+
+        def XInternAtom(self, display, name, existing):
+            assert name == b"_NET_ACTIVE_WINDOW" and existing == 1
+            return 44
+
+        def XGetWindowProperty(self, display, xid, atom, offset, length, delete, requested,
+                               actual, form, count, remaining, data):
+            assert (xid, atom, offset, length, delete, requested) == (1, 44, 0, 1, 0, 33)
+            for ptr, typ, val in ((actual, ctypes.c_ulong, self.actual), (form, ctypes.c_int, self.form),
+                    (count, ctypes.c_ulong, self.count), (remaining, ctypes.c_ulong, self.remaining)):
+                self.put(ptr, typ, val)
+            self.put(data, ctypes.c_void_p, ctypes.addressof(self.data))
+            return 0
+
+        def XTranslateCoordinates(self, display, src, dst, x, y, left, top, child):
+            assert (src, dst) == (12345, 1)
+            self.put(left, ctypes.c_int, 10)
+            self.put(top, ctypes.c_int, 20)
+            return self.translated
+
+        def XQueryPointer(self, display, current, root, child, rx, ry, wx, wy, mask):
+            self.queried.append(current)
+            for ptr, typ, val in ((root, ctypes.c_ulong, 1), (child, ctypes.c_ulong, self.path[current]),
+                    (rx, ctypes.c_int, 114), (ry, ctypes.c_int, 152), (mask, ctypes.c_uint, 0)):
+                self.put(ptr, typ, val)
+            return self.same_screen
+
+        def XFree(self, data):
+            self.freed += 1
+
+    def native(self):
+        native = accept.XlibNative.__new__(accept.XlibNative)
+        native.display, native.root, native.sink, native.lib = 7, 1, 99, self.Library()
+        native.wm_state = lambda xid: dict(xid=xid, wmState=1, mapState=2)
+        return native
+
+    def test_observes_topmost_path_through_wm_frame_and_lp64_active_property(self):
+        native = self.native()
+        result = native.input_snapshot(12345)
+        self.assertEqual(native.lib.queried, [1, 2, 12345])
+        self.assertEqual(result["pointerPath"], [1, 2, 12345])
+        self.assertEqual(result["focusSink"], 99)
+        self.assertTrue(accept.pointer_ready(result, state(), "button"))
+        self.assertEqual(native.lib.freed, 1)
+
+    def test_occluding_sibling_is_not_mistaken_for_client(self):
+        native = self.native()
+        native.lib.path = {1: 99, 99: 0}
+        result = native.input_snapshot(12345)
+        self.assertFalse(accept.pointer_ready(result, state(), "button"))
+        self.assertEqual(result["pointerPath"], [1, 99])
+
+    def test_malformed_property_is_freed_and_cannot_pass(self):
+        for key, value in (("actual", 42), ("form", 8), ("count", 2), ("remaining", 4)):
+            native = self.native()
+            setattr(native.lib, key, value)
+            with self.assertRaisesRegex(ValueError, "Malformed"):
+                native.input_snapshot(12345)
+            self.assertEqual(native.lib.freed, 1)
+
+    def test_pointer_query_failure_cycle_and_depth_are_bounded(self):
+        for mode in ("screen", "translate", "cycle", "depth"):
+            native = self.native()
+            if mode == "screen": native.lib.same_screen = 0
+            if mode == "translate": native.lib.translated = 0
+            if mode == "cycle": native.lib.path = {1: 2, 2: 1}
+            if mode == "depth": native.lib.path = {i: i + 1 for i in range(1, 34)}
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                native.input_snapshot(12345)
+            self.assertLessEqual(len(native.lib.queried), 32)
+
+    def test_worker_routes_snapshot_and_root_capture(self):
+        observation = FakeDriver().input_snapshot(12345)
+        requests = [dict(id=1, operation="open", arguments=dict(display=":fixture")),
+                    dict(id=2, operation="input-snapshot", arguments=dict(xid=12345)),
+                    dict(id=3, operation="capture-root", arguments=dict(path="fixture.png")),
+                    dict(id=4, operation="close", arguments={})]
+        output = io.StringIO()
+        with patch.object(accept, "XlibNative") as native, \
+                patch.object(sys, "stdin", io.StringIO("\n".join(map(json.dumps, requests)))), \
+                contextlib.redirect_stdout(output):
+            native.return_value.library = "fixture"
+            native.return_value.input_snapshot.return_value = observation
+            native.return_value.capture_root.return_value = dict(method="fixture")
+            native.return_value.close.return_value = None
+            self.assertEqual(accept.xlib_worker_main(), 0)
+        native.return_value.input_snapshot.assert_called_once_with(12345)
+        native.return_value.capture_root.assert_called_once_with(Path("fixture.png"))
+        self.assertEqual(list(map(json.loads, output.getvalue().splitlines()))[1]["result"], observation)
+
+    def test_worker_rejects_bad_identity_types_and_path(self):
+        worker = accept.X11Worker.__new__(accept.X11Worker)
+        for changed in (dict(xid=99), dict(inputFocus=True), dict(pointerRoot=[0, False]),
+                        dict(pointerPath=[]), dict(pointerPath=[1, 1]), dict(pointerMask=-1)):
+            value = FakeDriver().input_snapshot(12345)
+            value.update(changed)
+            with patch.object(worker, "request", return_value=value), self.assertRaises(ValueError):
+                worker.input_snapshot(12345)
+
+    def test_diagnostics_keep_latest_state_and_capture_errors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            session = accept.WindowSession.__new__(accept.WindowSession)
+            session.report, session.state, session.output = {}, state(), Path(temporary)
+            latest = {**state(), "hasInputFocus": True}
+            with patch.object(session, "read", return_value=latest), patch.object(session, "x11", create=True) as worker:
+                worker.input_snapshot.side_effect = ValueError("snapshot failed")
+                worker.capture_root.side_effect = ValueError("capture failed")
+                session.diagnose_input("fixture")
+            record = session.report["inputDiagnostics"][0]
+            self.assertEqual(record["state"], latest)
+            self.assertEqual(record["errors"], ["snapshot failed", "capture failed"])
+            self.assertTrue((session.output / "result.json").is_file())
+
+    def test_failure_diagnostic_does_not_replace_original_input_failure(self):
+        session = FakeDriver()
+        original = session.input
+        def input_(*args):
+            if args[0] == "windowactivate":
+                raise ValueError("original activation failed")
+            original(*args)
+        def diagnose(label):
+            if label.endswith("failure"):
+                raise OSError("diagnostic persistence failed")
+        with patch.object(session, "input", side_effect=input_), patch.object(session, "diagnose_input", side_effect=diagnose):
+            with self.assertRaisesRegex(ValueError, "original activation failed"):
+                accept.exercise_window(session, require_wm=True)
+
+
 class WorkerTimeoutTests(unittest.TestCase):
     # This child deliberately never opens Xlib or a display. It blocks forever
     # where the real worker could be stuck inside an uninterruptible Xlib call.
@@ -807,6 +1029,61 @@ for line in sys.stdin:
         self.assertEqual(self.report["xlibOperations"][-1]["status"], "timeout")
         self.assertFalse((self.folder / "never-produced.png").exists())
         self.assert_reaped()
+
+    def test_low_color_root_capture_keeps_worker_ready_for_input_observation(self):
+        # Real pipe RPC + real pixel decoder, but fake Xlib: no native display.
+        # Previously the diagnostic inherited the >=8-color client assertion,
+        # producing an RPC error that poisoned/killed the shared worker.
+        for colors in (1, 2, 7):
+            source = """
+import ctypes, sys
+sys.path.insert(0, SCRIPT_DIRECTORY)
+import accept_x11 as accept
+class Library:
+    def __init__(self):
+        self.header = accept.XImageHeader(width=4, height=4, red_mask=0xFF0000, green_mask=0xFF00, blue_mask=0xFF)
+    def XDefaultScreen(self, *_): return 0
+    def XDisplayWidth(self, *_): return 4
+    def XDisplayHeight(self, *_): return 4
+    def XSync(self, *_): pass
+    def XGetImage(self, *_): return ctypes.addressof(self.header)
+    def XGetPixel(self, pointer, x, y): return ((y * 4 + x) % COLOR_COUNT) * 30
+    def XDestroyImage(self, *_): pass
+class Native(accept.XlibNative):
+    def __init__(self, display):
+        self.library, self.lib, self.display, self.root, self.sink = 'fake Xlib', Library(), 1, 1, 99
+    def input_snapshot(self, xid): return OBSERVATION
+    def close(self): pass
+accept.XlibNative = Native
+raise SystemExit(accept.xlib_worker_main())
+""".replace("SCRIPT_DIRECTORY", repr(str(Path(__file__).resolve().parent))).replace(
+                    "COLOR_COUNT", str(colors)).replace("OBSERVATION", repr(FakeDriver().input_snapshot(12345)))
+            worker = self.create(source)
+            try:
+                result = worker.capture_root(self.folder / (str(colors) + "-colors.png"))
+                self.assertEqual(result["distinctColorsAtLeast"], colors)
+                self.assertNotIn("nonuniform", result["validation"])
+                self.assertFalse(worker.failed)
+                self.assertIsNone(worker.process.poll())
+                self.assertTrue(accept.pointer_ready(worker.input_snapshot(12345), state(), "button"))
+            finally:
+                self.assertIsNone(worker.close())
+            self.assertEqual(worker.process.returncode, 0)
+
+    def test_input_snapshot_and_root_capture_use_shared_remaining_budget(self):
+        for operation in ("input-snapshot", "capture-root"):
+            worker = self.create(self.BLOCKING)
+            worker.bind_deadline(time.monotonic() + .08)
+            try:
+                with self.assertRaisesRegex(ValueError, "Xlib " + operation + ": timeout"):
+                    if operation == "input-snapshot":
+                        worker.input_snapshot(12345)
+                    else:
+                        worker.capture_root(self.folder / "missing.png")
+            finally:
+                worker.close()
+            self.assertLessEqual(self.report["xlibOperations"][-1]["timeoutSeconds"], .08)
+            self.assertEqual(worker.process.returncode, -accept.signal.SIGKILL)
 
     def test_indefinitely_blocked_close_returns_failure_and_reaps_worker(self):
         worker = self.create(self.BLOCKING)

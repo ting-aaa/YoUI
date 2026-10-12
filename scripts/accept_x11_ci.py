@@ -160,7 +160,7 @@ def validate_result(result, expected, configuration, output):
                 "OS focus loss cancels pointer", "native resize and rendering",
                 "X11 remap resumes rendering", "second WM_DELETE_WINDOW closes",
                 "WM minimize suspends rendering", "WM minimized frame count remains stable",
-                "WM restore resumes rendering", "WM restored window accepts input"}
+                "WM restore resumes rendering", "WM restored pointer targets activated client", "WM restored window accepts input"}
     passed = {check.get("name") for check in checks if check.get("status") == "passed"}
     if not required <= passed or any(check.get("status") != "passed" for check in checks):
         raise ValueError("Required OS-input/window checks did not pass")

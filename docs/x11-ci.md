@@ -87,8 +87,8 @@ sample client's independently observed ICCCM `WM_STATE` sequence
 `IsViewable → IsUnmapped → IsViewable`. The runner requests minimization with
 `xdotool windowminimize` and restoration with `xdotool windowmap`; all state
 queries use the bounded Xlib worker. Host suspension/focus loss, stable
-minimized frame count, resumed rendering/focus, and a post-restore OS button
-click must also pass. Existing unmap/remap checks remain separate and unchanged.
+minimized frame count, resumed rendering/focus, observed pointer readiness, and
+a post-restore OS button click must also pass. Existing unmap/remap checks remain separate and unchanged.
 
 The supervisor rejects reports without the required WM mode, exact-client state
 transitions or any of those named WM checks. Openbox readiness alone, SDL
@@ -121,7 +121,7 @@ artifacts, including after a failed readiness/build/window check:
   per-check states, toolchain and binary hashes, timing and failures. New reports
   must set `requireWindowManager: true`; `adapter.windowManager` must retain
   the required flag and all three observed ICCCM/map-state transitions for the
-  same client, alongside the four passed WM checks.
+  same client, alongside the five passed WM checks.
 - `x11-ci/native/sample/native-window.png`: actual mapped X11 client pixels.
   Inspect the image visually; a nonuniform capture is not a visual golden test.
 - `x11-ci/native/sample/frame.png`: renderer readback, **not** presentation.
@@ -131,7 +131,11 @@ A passing run supports virtual X11 presentation and synthetic XTest input with
 Openbox and software Vulkan for that commit/configuration only. A future pass
 of the required WM mode would additionally support that environment's observed
 minimize/restore and post-restore input sequence. The historical 23-check run
-provides no such WM-state evidence, and the new mode is **NOT RUN**.
+provides no such WM-state evidence. The subsequent Release run
+[38238087429](https://github.com/ting-aaa/YoUI/actions/runs/38238087429), at
+`d9ea357326b7b1adb14838f85552497549bffec5`, observed the real WM-state transitions
+and resumed rendering but **FAILED** the restored click assertion. The revised
+activation/target-readiness path below has **NOT RUN** on a native display.
 
 Neither result establishes physical keyboard/mouse input, hardware GPU
 behavior/performance, native Wayland, IME, accessibility, Windows or macOS
@@ -165,3 +169,55 @@ uv run scripts/accept_x11_ci.py --configuration Release \
 Use the actual distro-installed lavapipe manifest path, not a guessed one. This
 command and the updated workflow describe how to obtain new evidence; they
 are not a record that the new WM mode or current source revision has executed.
+
+## Restored-input contract and diagnosis
+
+The WM input contract is **restore, explicitly activate through the WM, then
+interact**. It does not assert automatic activation on `windowmap`, or require
+an application to raise itself. After observing the restored Normal/IsViewable
+state, the runner saves a snapshot and desktop capture *before* requesting
+`xdotool windowactivate --sync`. Unlike direct `windowfocus`/XSetInputFocus,
+this uses the WM's `_NET_ACTIVE_WINDOW` protocol. A successful command exit is
+not sufficient evidence of readiness.
+
+After activation and moving to the button, another diagnostic capture is saved.
+Before a single real XTest click, the runner requires sampled readiness across
+at least 100 ms: the same client is Normal/IsViewable, owns native keyboard
+focus, is the WM active window, has sample-reported focus, and occurs in the
+root-to-topmost-child pointer path at the expected button-center coordinates.
+No mouse button may be held. This accounts for reparenting WM frames and
+rejects an occluding sibling even when client-relative coordinates look right.
+No retry click, event injection, focus-clickthrough override, or forced product
+focus behavior is used. The click must increment clicks, PointerDown, and
+PointerUp exactly once and retain sample focus. WM transitions and the existing
+minimized suspension/stable-frame requirements remain mandatory.
+
+`inputDiagnostics` preserves sample state, WM/map state, native focus, WM active
+XID, the harness focus-sink XID, client root origin, pointer path/root coordinates,
+and button mask. Named `sample/wm-restored-*-desktop.png` files capture the
+visible X11 root including occlusion, unlike the later client-only capture.
+These are diagnostic observations, not atomic server snapshots or visual golden
+tests. Root captures accept low-color or blank pixels; only the separate client
+presentation acceptance capture requires at least eight distinct colors. Pre-activation and pre-click observations remain distinguishable. On a
+restore/activation/readiness/click error, the runner attempts the same diagnostics
+before teardown, without replacing the original failure. Capture errors are
+recorded; no screenshot is promised if the worker, server, sample, or shared
+runtime budget is already exhausted. Diagnostic RPC and capture operations use
+the existing subprocess deadlines and kill/reap behavior.
+
+The saved failed run had no new PreviewInput PointerDown/PointerUp, which is
+upstream of UI hit-testing. Its final state lost focus while rendering remained
+unsuspended. That supports investigating input delivery/activation, but does not
+prove an occluder, wrong stacking, SDL suppression, or a YoUI defect. Its focus
+observation preceded click-command startup by roughly 7.8 ms; SDL 2.30.0's X11
+backend ordinarily suppresses ButtonPress within 10 ms of its last focus event.
+Those command timestamps are not SDL event timestamps, so this is a plausible
+race rather than a confirmed explanation. The 100 ms sampled-readiness interval
+avoids deliberately clicking immediately after focus. A further authorized
+native run is required to establish whether these harness corrections resolve
+the original failure. No Linux host or control behavior was changed.
+
+Primary references: [EWMH active-window protocol](https://specifications.freedesktop.org/wm/latest-single/),
+[Xlib pointer queries and coordinate translation](https://www.x.org/releases/X11R7.5/doc/libX11/libX11.html),
+[SDL 2.30.0 X11 focus-click filtering](https://raw.githubusercontent.com/libsdl-org/SDL/release-2.30.0/src/video/x11/SDL_x11events.c),
+[xdotool version-matched input/activation behavior](https://raw.githubusercontent.com/jordansissel/xdotool/v3.20160805.1/xdotool.pod).
