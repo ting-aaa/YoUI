@@ -5,13 +5,21 @@ It gives the independent wgpu renderer the SDL-owned Xlib display and window,
 and translates native SDL input into YoUI events. The renderer does not depend
 on controls, the document tree, or the application loop.
 
-This is an **experimental, unaccepted native-window path**. The implementation
-environment could run logical/headless checks, but could not start an X server:
-its runtime denied AF_UNIX socket creation. Native X11 interaction, presentation,
-and capture have therefore **not been executed there**. Fake runner tests and a
-headless Vulkan pass must not be presented as native-window acceptance. A future
-run must retain its own successful `accept_x11.py` evidence before making that
-narrow claim.
+This remains an **experimental native-window path**. A historical
+[GitHub-hosted Release run](https://github.com/ting-aaa/YoUI/actions/runs/38223249352)
+at `59154396a30abb1a131c490a4bb708c6817a1a5f` passed the original 23 checks with
+Xvfb, Openbox, synthetic XTest input, SDL 2.30 and software Vulkan (llvmpipe).
+That record supports only that commit/configuration and the original checks;
+it did not test window-manager minimize/restore. It does not carry forward to
+the merged text-fix base `41d896eb9bee7bda281c5ef7d2c56740100dce89` or the new
+`--require-wm` checks, whose native execution is **NOT RUN**.
+
+The implementation environment still denies AF_UNIX socket creation, so native
+X11 interaction, presentation and capture have **not been executed there**.
+No bypass or new hosted dispatch is authorized by this change. Fake runner
+tests and a headless Vulkan pass must not be presented as native-window
+acceptance. Each new native claim needs its own successful `accept_x11.py`
+evidence; see [CI evidence and scope](x11-ci.md).
 
 ## Requirements and limits
 
@@ -25,10 +33,12 @@ narrow claim.
   its 720×440 resized client. 1280×800 or larger is convenient. The runner moves
   the real display pointer and keyboard focus. Avoid running it on a desktop
   while someone is using it, and close unrelated test applications.
-- A window manager is not required. The runner sends the `WM_DELETE_WINDOW`
-  protocol itself, uses a small native window to receive focus, and tests
+- A window manager is not required by default. The runner sends the
+  `WM_DELETE_WINDOW` protocol itself, uses a small native window to receive focus, and tests
   X11 unmap/map. Unmap/map is hidden-window coverage, **not** proof of a window
-  manager's minimize/restore behavior.
+  manager's minimize/restore behavior. Optional `--require-wm` additionally
+  requires a window manager that exposes ICCCM `WM_STATE` and handles the
+  minimize/restore requests. The Openbox CI supervisor requires this mode.
 - One active YoUI SDL host per process. Construction, event pumping, rendering,
   and disposal belong to the creating thread. The host does not share another
   owner's initialized SDL subsystem or global event queue. It leaves the
@@ -95,10 +105,21 @@ uv run scripts/accept_x11.py --configuration Debug --backend vulkan
 uv run scripts/accept_x11.py --configuration Release --backend vulkan
 ```
 
-Both flags are required. Only Vulkan is accepted by this runner. Each invocation
-builds Cargo first and then the Linux sample, using that exact configuration;
+`--configuration` and `--backend` are required. Only Vulkan is accepted by this
+runner. Each invocation builds Cargo first and then the Linux sample, using that exact configuration;
 it does not rely on an old sample binary. Do not run another build against the
 same checkout while acceptance is in progress.
+
+To additionally exercise actual window-manager minimize/restore on the selected
+display, add `--require-wm`, for example:
+
+```sh
+uv run scripts/accept_x11.py --configuration Release --backend vulkan --require-wm
+```
+
+This is a bounded, opt-in extension of native X11 acceptance, not a broader
+Alpha requirement. It does not replace or change the default unmap/remap path.
+No native run of this extension is recorded yet.
 
 The default evidence path is a new, uniquely named directory under
 `artifacts/x11-acceptance/`. Set `--output /path/to/new-directory` to choose one.
@@ -129,6 +150,23 @@ OS interaction. It checks:
    rendering, then a second request that is accepted with exit code zero.
 10. Disposal followed by construction and rendering of a second native host.
 
+With `--require-wm`, after the existing unmap/remap checks and before capture,
+the runner additionally:
+
+- Observes ICCCM `WM_STATE` `NormalState` with X map state `IsViewable` on the
+  sample's exact client window through the bounded Xlib worker.
+- Requests `xdotool windowminimize`, then independently observes `IconicState`
+  with `IsUnmapped`. It requires the host to suspend and lose input focus, and
+  its rendered-frame count to remain stable while minimized.
+- Requests `xdotool windowmap`, then observes `NormalState` with `IsViewable`
+  again. After restoring focus, it requires rendering to resume and a new OS
+  pointer click to activate the button.
+
+The observed state sequence must be `NormalState → IconicState → NormalState`;
+SDL suspension or an unmapped client alone does not establish iconification.
+Missing, malformed or nontransitioning WM state fails this mode rather than
+silently falling back to unmap/remap coverage.
+
 Closing uses an Xlib client message rather than `xdotool windowclose`, which
 can destroy the native window and bypass the application's close veto.
 Keyboard and mouse actions use xdotool's actual XTest path without its
@@ -142,6 +180,11 @@ pin hashes, tool version output, OS identity, selected environment settings,
 command logs and deadlines, per-check state snapshots, and native/managed
 binary SHA-256 hashes. The managed sample's native copy must match the selected
 Cargo profile. Toolchain pins and binary hashes are checked again at the end.
+`requireWindowManager` records whether the additional mode was requested;
+`adapter.windowManager` retains the required flag and observed client XID,
+ICCCM state and map-state transitions. The named WM checks separately record
+suspension, stable frames, resumed rendering and post-restore input. A report
+from the default mode cannot stand in for this evidence.
 
 The sample's files are separate pieces of evidence:
 
@@ -171,8 +214,8 @@ a two-minute acceptance watchdog, so increasing the runner's window timeout
 does not extend that watchdog.
 
 All Xlib calls run in an owned subprocess, including display open, focus,
-coordinate queries, `XSync`, pixel capture, and display close. The parent uses
-nonblocking stdin/stdout pipes for requests and responses; it makes no direct
+coordinate and WM/map-state queries, `XSync`, pixel capture, and display close.
+The parent uses nonblocking stdin/stdout pipes for requests and responses; it makes no direct
 Xlib calls. Display probing before builds uses the lesser of the event and
 window bounds. Once the sample starts, each operation is limited by both the
 event bound and the remaining shared window runtime. A hung open, capture or
@@ -204,10 +247,11 @@ from successful native-window runner artifacts.
 For an unwritable default uv cache, select a writable cache directory through
 `UV_CACHE_DIR`; this changes only the Python tool cache, not display access.
 
-## Prepared GitHub-hosted virtual display workflow
+## GitHub-hosted virtual display workflow
 
 The [manual Xvfb/Openbox CI workflow](x11-ci.md) prepares a standard Ubuntu
 runner with authenticated local X11 and software Vulkan. It is separate from
-this existing-display runner. Publication and dispatch require their own
-approval; its definition, mocked tests and static checks are not a hosted
-native-window pass.
+this existing-display runner. The historical original-check pass above does
+not validate later revisions or the new required WM mode. Publication and each
+new dispatch require their own approval; a workflow definition, mocked tests
+and static checks are not a hosted native-window pass.

@@ -158,10 +158,24 @@ def validate_result(result, expected, configuration, output):
     checks = result.get("checks") or []
     required = {"OS input focus", "ASCII typing", "captured pointer release outside",
                 "OS focus loss cancels pointer", "native resize and rendering",
-                "X11 remap resumes rendering", "second WM_DELETE_WINDOW closes"}
+                "X11 remap resumes rendering", "second WM_DELETE_WINDOW closes",
+                "WM minimize suspends rendering", "WM minimized frame count remains stable",
+                "WM restore resumes rendering", "WM restored window accepts input"}
     passed = {check.get("name") for check in checks if check.get("status") == "passed"}
     if not required <= passed or any(check.get("status") != "passed" for check in checks):
         raise ValueError("Required OS-input/window checks did not pass")
+    wm = adapter.get("windowManager")
+    final = adapter.get("finalState")
+    if (result.get("requireWindowManager") is not True or not isinstance(wm, dict)
+            or wm.get("required") is not True or not isinstance(final, dict)
+            or type(final.get("xid")) is not int or final["xid"] <= 0):
+        raise ValueError("Required WM minimize/restore evidence is missing")
+    expected = [dict(xid=final["xid"], wmState=state, mapState=mapped)
+                for state, mapped in ((1, 2), (3, 0), (1, 2))]
+    transitions = wm.get("transitions")
+    if (transitions != expected or any(type(value) is not int
+            for transition in transitions for value in transition.values())):
+        raise ValueError("ICCCM WM_STATE transitions do not establish minimize/restore")
     if (result.get("lifecycle") or {}).get("reopened") is not True:
         raise ValueError("Native host reconstruction evidence is missing")
 
@@ -220,7 +234,7 @@ def run(args, root=ROOT):
                 session.healthy()
                 native = argparse.Namespace(configuration=args.configuration, backend="vulkan",
                     output=output / "native", build_timeout_seconds=900, event_timeout_seconds=15,
-                    window_timeout_seconds=120, xdotool="xdotool")
+                    window_timeout_seconds=120, xdotool="xdotool", require_wm=True)
                 # In-process call preserves the acceptance runner's finally cleanup on SIGTERM.
                 previous = dict(os.environ)
                 try:

@@ -1,11 +1,19 @@
 # Experimental virtual X11 CI acceptance
 
 The manual-only [`x11-acceptance.yml`](../.github/workflows/x11-acceptance.yml)
-prepares a **future standard GitHub-hosted Ubuntu 24.04 x64 run**. It has not
-been dispatched or proven in the implementation environment. That environment
-denied AF_UNIX socket creation; this work does not retry that operation, use TCP,
-change its permissions, or treat mocks/headless rendering as native acceptance.
-The SDL2 X11 host remains experimental until real acceptance evidence exists.
+uses a standard GitHub-hosted Ubuntu 24.04 x64 runner. A historical
+[Release run](https://github.com/ting-aaa/YoUI/actions/runs/38223249352) at commit
+`59154396a30abb1a131c490a4bb708c6817a1a5f` passed the original 23 checks with
+Xvfb/Openbox, synthetic XTest input, SDL 2.30 and software Vulkan (llvmpipe).
+It establishes only that commit/configuration's original virtual-X11 checks;
+those checks used unmap/remap, not actual WM minimize/restore.
+
+The merged text-fix base `41d896eb9bee7bda281c5ef7d2c56740100dce89` does not inherit
+that native pass. The new required WM mode and its native checks are **NOT RUN**.
+The SDL2 X11 host remains experimental. The implementation environment denied
+AF_UNIX socket creation; this work does not retry that operation, use TCP,
+change permissions, or treat mocks/headless rendering as native acceptance.
+No new hosted dispatch is authorized by this change.
 
 ## Publication, dispatch, and cost boundary
 
@@ -70,10 +78,24 @@ remaining budget. Forced cleanup has an additional bounded reap wait. Merely
 starting either process does not establish readiness. Both owned processes must
 still be alive immediately before and after actual acceptance.
 
-The original `accept_x11.py` performs matching native/managed builds, launches
+`accept_x11.py` performs matching native/managed builds, launches
 the real Linux sample, drives XTest and Xlib input, checks capture/focus/text/
 resize/unmap-remap/close/reopen behavior, and captures the mapped client with
-`XGetImage`. Its failure, malformed/missing evidence, an unexpected adapter,
+`XGetImage`. The supervisor now also enables `--require-wm` mode: it requires the
+sample client's independently observed ICCCM `WM_STATE` sequence
+`NormalState → IconicState → NormalState`, paired with X map states
+`IsViewable → IsUnmapped → IsViewable`. The runner requests minimization with
+`xdotool windowminimize` and restoration with `xdotool windowmap`; all state
+queries use the bounded Xlib worker. Host suspension/focus loss, stable
+minimized frame count, resumed rendering/focus, and a post-restore OS button
+click must also pass. Existing unmap/remap checks remain separate and unchanged.
+
+The supervisor rejects reports without the required WM mode, exact-client state
+transitions or any of those named WM checks. Openbox readiness alone, SDL
+suspension or unmap/remap alone cannot satisfy them. This is a bounded extension
+of this acceptance path, not a broader Alpha requirement.
+
+Native runner failure, malformed/missing evidence, an unexpected adapter,
 wrong or dirty commit, missing OS checks, or a mismatched presentation artifact
 fails the supervisor. The wrapper cannot manufacture a passed native result.
 
@@ -96,18 +118,26 @@ artifacts, including after a failed readiness/build/window check:
   status, readiness diagnostics, selected ICD hash, cleanup errors and the
   native result's hash.
 - `x11-ci/native/result.json`: actual acceptance report, adapter identity,
-  per-check states, toolchain and binary hashes, timing and failures.
+  per-check states, toolchain and binary hashes, timing and failures. New reports
+  must set `requireWindowManager: true`; `adapter.windowManager` must retain
+  the required flag and all three observed ICCCM/map-state transitions for the
+  same client, alongside the four passed WM checks.
 - `x11-ci/native/sample/native-window.png`: actual mapped X11 client pixels.
   Inspect the image visually; a nonuniform capture is not a visual golden test.
 - `x11-ci/native/sample/frame.png`: renderer readback, **not** presentation.
 - Native state/lifecycle JSON and command/Xlib logs remain alongside those files.
 
 A passing run supports virtual X11 presentation and synthetic XTest input with
-Openbox and software Vulkan for that commit/configuration only. It does not
-establish physical keyboard/mouse input, hardware GPU behavior/performance,
-window-manager minimize/restore (the runner tests unmap/remap), native Wayland,
-IME, accessibility, Windows or macOS acceptance. Existing CPU logic CI and
-headless software-GPU verification remain separate evidence layers.
+Openbox and software Vulkan for that commit/configuration only. A future pass
+of the required WM mode would additionally support that environment's observed
+minimize/restore and post-restore input sequence. The historical 23-check run
+provides no such WM-state evidence, and the new mode is **NOT RUN**.
+
+Neither result establishes physical keyboard/mouse input, hardware GPU
+behavior/performance, native Wayland, IME, accessibility, Windows or macOS
+acceptance. Existing CPU logic CI and headless software-GPU verification remain
+separate evidence layers. Debug and later source revisions need their own
+native records; Release evidence is not transferable to them.
 
 ## Local tests without a display
 
@@ -133,4 +163,5 @@ uv run scripts/accept_x11_ci.py --configuration Release \
 ```
 
 Use the actual distro-installed lavapipe manifest path, not a guessed one. This
-command and the workflow are prepared infrastructure, not a record of execution.
+command and the updated workflow describe how to obtain new evidence; they
+are not a record that the new WM mode or current source revision has executed.

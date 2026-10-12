@@ -21,7 +21,9 @@ SHA = "a" * 40
 IDENTITY = dict(sha=SHA, dirty=False, statusPorcelain=[])
 CHECKS = ["OS input focus", "ASCII typing", "captured pointer release outside",
           "OS focus loss cancels pointer", "native resize and rendering",
-          "X11 remap resumes rendering", "second WM_DELETE_WINDOW closes"]
+          "X11 remap resumes rendering", "second WM_DELETE_WINDOW closes",
+          "WM minimize suspends rendering", "WM minimized frame count remains stable",
+          "WM restore resumes rendering", "WM restored window accepts input"]
 
 
 def result(output):
@@ -30,8 +32,10 @@ def result(output):
     # tests only the supervisor's artifact hash requirement.
     path = output / "sample/native-window.png"
     path.write_bytes(b"fixture: not presentation evidence")
-    return dict(status="passed", configuration="Release", source=IDENTITY, sourceAfter=IDENTITY,
+    return dict(status="passed", configuration="Release", source=IDENTITY, sourceAfter=IDENTITY, requireWindowManager=True,
                 adapter=dict(classification="software", backend="Vulkan", adapterKind="Cpu",
+                    finalState=dict(xid=12345), windowManager=dict(required=True, transitions=[
+                        dict(xid=12345, wmState=s, mapState=m) for s, m in ((1, 2), (3, 0), (1, 2))]),
                     nativeWindowCapture=dict(distinctColorsAtLeast=8, **ci.acceptance.file_evidence(path, output))),
                 checks=[dict(name=name, status="passed") for name in CHECKS], lifecycle=dict(reopened=True))
 
@@ -57,6 +61,7 @@ class SupervisorTests(unittest.TestCase):
             self.assertEqual(os.environ["VK_ICD_FILENAMES"], str(self.icd))
             self.assertNotIn("WAYLAND_DISPLAY", os.environ)
             self.assertEqual(args.backend, "vulkan")
+            self.assertTrue(args.require_wm)
             value = result(args.output)
             if mutate:
                 mutate(value)
@@ -92,6 +97,24 @@ class SupervisorTests(unittest.TestCase):
         code, report, _ = self.run_fixture(lambda r: r.update(checks=[]))
         self.assertEqual(code, 1)
         self.assertIn("Required OS-input", report["error"])
+
+    def test_missing_or_stale_wm_evidence_cannot_pass(self):
+        for mutation in (
+            lambda r: r.pop("requireWindowManager"),
+            lambda r: r["adapter"].pop("windowManager"),
+            lambda r: r["adapter"]["windowManager"].update(required=False),
+            lambda r: r["adapter"]["windowManager"].update(transitions=[]),
+            lambda r: r["adapter"]["windowManager"]["transitions"][1].update(wmState=0),
+            lambda r: r["adapter"]["windowManager"]["transitions"][0].update(wmState=True),
+            lambda r: r["adapter"]["windowManager"]["transitions"][2].update(xid=999),
+            lambda r: r["adapter"]["windowManager"]["transitions"].pop(),
+            lambda r: r["checks"].pop(),
+        ):
+            with self.subTest(mutation=mutation):
+                self.args.output = self.root / ("output-" + str(time.monotonic_ns()))
+                code, report, _ = self.run_fixture(mutation)
+                self.assertEqual(code, 1, report)
+                self.assertEqual(report["status"], "failed")
 
     def test_nonzero_runner_exit_cannot_pass_with_passed_fixture_report(self):
         code, report, _ = self.run_fixture(native_code=1)
