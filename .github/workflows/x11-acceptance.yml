@@ -1,0 +1,114 @@
+name: Experimental X11 software acceptance
+
+# Publication does not schedule runs. Explicit dispatch is a separate decision.
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: Matching native and managed configuration
+        required: true
+        default: Release
+        type: choice
+        options: [Debug, Release]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x11-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  POWERSHELL_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+  CONFIGURATION: ${{ inputs.configuration }}
+
+jobs:
+  x11-software:
+    name: Xvfb + Openbox + software Vulkan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out exact dispatch source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare run provenance
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/x11-ci-setup
+          git rev-parse HEAD | tee artifacts/x11-ci-setup/commit.txt
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          printf '%s\n' "run=$GITHUB_RUN_ID" "attempt=$GITHUB_RUN_ATTEMPT" \
+            "configuration=$CONFIGURATION" "image=$ImageVersion" \
+            'scope=virtual X11; software Vulkan; synthetic XTest input' \
+            > artifacts/x11-ci-setup/run.txt
+
+      - name: Install official Ubuntu display and software Vulkan packages
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          sudo apt-get update 2>&1 | tee artifacts/x11-ci-setup/apt-update.log
+          sudo apt-get install -y --no-install-recommends \
+            xvfb xauth x11-utils xdotool openbox libsdl2-2.0-0 libx11-6 libxtst6 \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools python3-venv \
+            2>&1 | tee artifacts/x11-ci-setup/apt-install.log
+          dpkg-query -W xvfb xauth x11-utils xdotool openbox libsdl2-2.0-0 \
+            libx11-6 libxtst6 libvulkan1 mesa-vulkan-drivers vulkan-tools \
+            > artifacts/x11-ci-setup/packages.txt
+          mapfile -t icds < <(dpkg -L mesa-vulkan-drivers | grep -E '/lvp_icd(\.x86_64)?\.json$')
+          test "${#icds[@]}" -eq 1
+          printf 'SOFTWARE_VULKAN_ICD=%s\n' "${icds[0]}" >> "$GITHUB_ENV"
+
+      - name: Set up pinned .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Set up Python runner and verify toolchain pins
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/youi-uv"
+          "$RUNNER_TEMP/youi-uv/bin/pip" install --disable-pip-version-check uv==0.8.22
+          echo "$RUNNER_TEMP/youi-uv/bin" >> "$GITHUB_PATH"
+          expected="$(python3 -c 'import json; print(json.load(open("global.json"))["sdk"]["version"])')"
+          test "$(dotnet --version)" = "$expected"
+          test -z "${RUSTUP_TOOLCHAIN:-}"
+          rustup show active-toolchain 2>&1 | tee artifacts/x11-ci-setup/rust-setup.log
+          { rustc --version --verbose; cargo --version; dotnet --info; } \
+            > artifacts/x11-ci-setup/toolchains.log
+          cp global.json rust-toolchain.toml artifacts/x11-ci-setup/
+
+      - name: Test acceptance orchestration without opening a display
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          uv run scripts/test_accept_x11.py 2>&1 | tee artifacts/x11-ci-setup/harness-tests.log
+          uv run scripts/test_accept_x11_ci.py 2>&1 | tee artifacts/x11-ci-setup/ci-harness-tests.log
+
+      - name: Run actual virtual X11 acceptance
+        timeout-minutes: 33
+        run: |
+          set -euo pipefail
+          uv run scripts/accept_x11_ci.py --configuration "$CONFIGURATION" \
+            --expected-sha "$GITHUB_SHA" --icd "$SOFTWARE_VULKAN_ICD" \
+            --output artifacts/x11-ci 2>&1 | tee artifacts/x11-ci-setup/acceptance.log
+
+      - name: Upload success or partial failure evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: x11-software-${{ inputs.configuration }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/x11-ci-setup/
+            artifacts/x11-ci/
+          if-no-files-found: error
+          retention-days: 3

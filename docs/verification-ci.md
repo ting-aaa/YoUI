@@ -54,3 +54,10 @@ pwsh -NoProfile -File scripts/verify.ps1 -Layer Logic -Configuration Release
 本工作流定义不等于托管 runner 已执行成功；是否通过须以对应提交的 Actions 运行结果为准。历史真实 GPU/窗口记录见[验证记录](verification.md)和[渲染后端验证](render-backends.md)。
 
 A12 的纯 CPU 参数、统计和适配器身份测试 `tests/YoUI.Profiling.Tests` 随上述 Logic 入口执行。新的[离屏平台验收流程](platform-acceptance.md)由调用者在真实目标环境显式运行；本 CI 不自动取得 GPU、窗口或第二平台验收结论。
+
+## 实验性虚拟 X11 手动验收
+
+新增独立的 [Xvfb + Openbox + 软件 Vulkan 工作流](x11-ci.md)，只有手动触发入口；不会随上述逻辑 CI 自动运行。
+工作流需先出现在默认分支，之后还需单独决定是否触发具体配置。文件已准备不代表远程任务已执行。
+它保留真实样例进程、XTest 输入与 X11 窗口捕获的要求；mock、setup 成功、离屏图像都不能替代窗口验收。
+即使未来该任务通过，也只覆盖对应提交和配置的虚拟 X11 与软件 Vulkan，不代表物理输入、真实 GPU、Wayland 或 IME。
