@@ -15,7 +15,7 @@ narrow claim.
 
 ## Requirements and limits
 
-- A 64-bit Linux process and SDL2 2.0.18 or newer, discoverable as
+- A 64-bit Linux process and SDL2 2.24.0 or newer, discoverable as
   `libSDL2-2.0.so.0`.
 - An existing, accessible X11 `DISPLAY`, `libX11`, and a Vulkan-capable loader
   and device. Mesa software Vulkan is useful but remains software evidence.
@@ -33,6 +33,18 @@ narrow claim.
   and disposal belong to the creating thread. The host does not share another
   owner's initialized SDL subsystem or global event queue. It leaves the
   desktop screensaver enabled and bounds client dimensions to 8192 pixels.
+- The host disables SDL's synthetic last-window `SDL_QUIT` so one native
+  close request invokes `Closing` once. Independent `SDL_QUIT` requests still
+  invoke `Closing`, including immediately after a veto. This requires the
+  [close hint added in SDL 2.0.22](https://wiki.libsdl.org/SDL2/SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE)
+  and SDL 2.24.0's support for restoring an absent (null) hint value;
+  older versions fail before video/window initialization.
+  `SDL_QUIT_ON_LAST_WINDOW_CLOSE` must be unset or disabled (`0`/`false`).
+  Existing disabled hints are borrowed unchanged. Otherwise the host writes
+  only at default priority and restores its previous default value on disposal
+  or construction failure. Explicit enabled environment/application hints cause
+  a clear construction failure rather than being overridden. Do not change
+  SDL global hints or initialize another SDL owner while the host is active.
 - One X11 pixel is one layout unit. Automatic DPI scaling, native Wayland,
   multi-window operation, touch, accessibility integration, clipboard
   interoperability, full keyboard-layout coverage, and IME composition/commit

@@ -8,6 +8,8 @@ internal static unsafe class Sdl
 {
     private const string Library = "libSDL2-2.0.so.0";
     [StructLayout(LayoutKind.Sequential)] internal struct Version { public byte Major, Minor, Patch; }
+    // 2.24.0 first permits a null hint value, required to restore an absent hint.
+    internal static bool IsSupportedVersion(Version version) => version.Major == 2 && version.Minor >= 24;
     [StructLayout(LayoutKind.Explicit, Size = 72)] internal struct WindowInfo
     {
         [FieldOffset(0)] public Version Version;
@@ -45,6 +47,9 @@ internal static unsafe class Sdl
     internal static string Error => Marshal.PtrToStringUTF8(GetError()) ?? "Unknown SDL error";
     internal static void Check(int result) { if (result < 0) throw new InvalidOperationException(Error); }
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern void SDL_GetVersion(out Version version);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern nint SDL_GetHint([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int SDL_GetHintBoolean([MarshalAs(UnmanagedType.LPUTF8Str)] string name, int defaultValue);
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern int SDL_SetHintWithPriority([MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string? value, int priority);
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] private static extern nint SDL_GetError();
     private static nint GetError() => SDL_GetError();
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)] internal static extern uint SDL_WasInit(uint flags);

@@ -9,6 +9,13 @@ if (args.Length != 0 && !(args.Length == 1 && args[0] == "--native-init-failure"
     throw new ArgumentException("Usage: YoUI.Platform.Linux.Tests [--native-init-failure]");
 int checks = 0;
 void Check(bool value, string message) { if (!value) throw new Exception(message); checks++; }
+foreach (var (major, minor, patch, supported) in new[]
+{
+    (2, 0, 18, false), (2, 0, 22, false), (2, 0, 24, false),
+    (2, 23, 255, false), (2, 24, 0, true), (2, 30, 0, true), (3, 0, 0, false)
+})
+    Check(Sdl.IsSupportedVersion(new Sdl.Version { Major = (byte)major, Minor = (byte)minor, Patch = (byte)patch }) == supported,
+        $"supported SDL version boundary {major}.{minor}.{patch}");
 Check(Marshal.SizeOf<Sdl.Event>() == 56, "SDL event union size");
 Check(Marshal.SizeOf<Sdl.WindowInfo>() == 72, "SDL LP64 WM info size");
 Check(Marshal.OffsetOf<Sdl.Event>(nameof(Sdl.Event.Key)).ToInt32() == 20, "key offset");
@@ -73,6 +80,7 @@ if (args.Length != 0)
         catch (InvalidOperationException ex) when (!ex.Message.Contains("Only one") && !ex.Message.Contains("already owned")) { failedAtVideo = true; }
         Check(failedAtVideo, "missing display fails explicitly and releases singleton ownership");
         Check(Sdl.SDL_WasInit(0) == 0, "failed native video init leaves no SDL subsystem");
+        Check(Sdl.SDL_GetHint(SdlClosePolicy.Hint) == 0, "failed construction restores absent close hint");
     }
     // This is a no-window lifecycle regression, not native window evidence. SDL_PollEvent
     // sees an uninitialized queue; no X display or renderer is created. The public Run path
@@ -84,6 +92,7 @@ if (args.Length != 0)
         typeof(DesktopWindow).GetProperty(nameof(DesktopWindow.Document))!.SetValue(host, new UiDocument(root, new StubMeasurer(), 640, 400));
         return host;
     }
+    ClosePolicyTests.Run(Check, LogicalHost);
     using (var host = LogicalHost(new StackPanel()))
     {
         host.Run(() => host.Dispose());
