@@ -146,7 +146,7 @@ public sealed class DrawList
     private static void ValidateImage(NativeImage image)
     {
         ArgumentNullException.ThrowIfNull(image);
-        ObjectDisposedException.ThrowIf(image.Id == 0, image);
+        ObjectDisposedException.ThrowIf(image.IsDisposed, image);
     }
     private static void ValidatePosition(Vector2 value)
     {
@@ -191,6 +191,8 @@ public sealed class NativeImage : IDisposable
 {
     internal uint Id { get; private set; }
     private readonly NativeRenderer owner;
+    /// <summary>True after this image or its owning renderer has been disposed.</summary>
+    public bool IsDisposed => Id == 0 || owner.IsDisposed;
     /// <summary>Original uploaded image dimensions in pixels; retained after disposal.</summary>
     public uint Width { get; }
     public uint Height { get; }
@@ -200,11 +202,20 @@ public sealed class NativeImage : IDisposable
 
 public interface ITextMeasurer { (float Width, float Height) Measure(string text, float size, float width, bool bold = false); }
 
+/// <summary>A native operation failed. Status -1 is an operation error; -2 is a contained
+/// panic, after which in-process recovery is unsupported. No automatic retry is performed.</summary>
+public sealed class NativeRendererException : InvalidOperationException
+{
+    public int NativeStatus { get; }
+    internal NativeRendererException(int status, string detail) : base($"YoUI native ({status}): {detail}") => NativeStatus = status;
+}
+
 public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
 {
     private ulong handle;
     private readonly int ownerThread = Environment.CurrentManagedThreadId;
     public string Adapter { get; }
+    public bool IsDisposed => handle == 0;
     public NativeRenderer(uint width, uint height, nint window = 0) : this(width, height, window, null) { }
     /// <summary>
     /// Creates a renderer with explicit resource ceilings; use window = 0 for offscreen rendering.
@@ -405,7 +416,7 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
         if (status == 0) return;
         uint length = Native.LastError(null, 0); var bytes = new byte[length];
         fixed (byte* ptr = bytes) Native.LastError(ptr, length);
-        throw new InvalidOperationException($"YoUI native ({status}): {Encoding.UTF8.GetString(bytes)}");
+        throw new NativeRendererException(status, Encoding.UTF8.GetString(bytes));
     }
     private static class Native
     {

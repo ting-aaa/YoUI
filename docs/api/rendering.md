@@ -79,7 +79,7 @@ PushClip / PopClip 与 BeginLayer / EndLayer 必须保持平衡。保持范围�
 
 Render 同步借用命令与文本到返回为止，GPU 执行仍是异步。不要把“同步提交”理解为等待 GPU 完成。每帧重新从透明背景绘制，UiDocument 会额外发出主题背景。
 
-原生失败被转为 `InvalidOperationException("YoUI native (status): ...")`。DLL 找不到、位数不匹配或入口不存在也可能直接抛 .NET 加载异常。具体错误码和容量限制见[原生 API](native.md)。
+原生失败被转为 `NativeRendererException("YoUI native (status): ...")`，它继承 `InvalidOperationException` 并保留 `NativeStatus`。DLL 找不到、位数不匹配或入口不存在也可能直接抛 .NET 加载异常。具体错误码和容量限制见[原生 API](native.md)。
 
 Measure / Layout 使用 renderer 的文字系统，生成布局但不上传字形；NativeRenderer 的构造仍需要图形适配器。当前没有 C# 字体家族、字体注册、磁盘图片解码或像素直接读回 API。
 
@@ -187,3 +187,12 @@ old allocations, so the accounting decrease is not a promise of immediate VRAM
 release. Owner-thread/disposed checks apply. Older native libraries lacking
 `youi_trim_offscreen_layers` raise a matching-library diagnostic, even with ABI v1.
 See [full scope and budget behavior](../resource-budgets.md).
+
+## Explicit renderer reconstruction
+
+`NativeRenderer.IsDisposed` and `NativeImage.IsDisposed` expose disposal state (the
+image also observes owner disposal). GPU failures throw `NativeRendererException`,
+an `InvalidOperationException` subtype with `NativeStatus` (-1 operation error, -2
+contained panic). No new C ABI status or layout is introduced. See the
+[stop/recreate/reupload/rebind contract](../renderer-recovery.md), including bounded
+surface acquisition, asynchronous device-loss limits and readback timeout.

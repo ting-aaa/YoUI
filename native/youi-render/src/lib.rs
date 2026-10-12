@@ -1,4 +1,5 @@
 //! Host-driven 2D renderer. This crate has no dependency on the UI framework.
+mod failure;
 pub mod ffi;
 pub mod ir;
 pub mod renderer;

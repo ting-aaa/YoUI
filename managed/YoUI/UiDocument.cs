@@ -14,10 +14,12 @@ public sealed class UiDocument
     private Theme theme = Theme.Dark;
     private readonly DrawList frame = new();
     private bool updating;
+    private int dispatchDepth;
+    private readonly int ownerThread = Environment.CurrentManagedThreadId;
     private readonly List<Element.DirtyState> consumedDirty = [];
     public Element Root { get; }
     public Element? Focused { get; private set; }
-    public ITextMeasurer TextMeasurer { get; }
+    public ITextMeasurer TextMeasurer { get; private set; }
     public IClipboard? Clipboard { get; set; }
     /// <summary>Host-level shortcuts and embedded documents can intercept input before focus routing.</summary>
     public event Action<UiEvent>? PreviewInput;
@@ -30,8 +32,22 @@ public sealed class UiDocument
     public int PaintPasses { get; private set; }
     public UiDocument(Element root, ITextMeasurer textMeasurer, float width, float height)
     {
+        ArgumentNullException.ThrowIfNull(textMeasurer);
         if (root.Parent != null || root.Document != null) throw new InvalidOperationException("Root already belongs to a tree.");
         Root = root; TextMeasurer = textMeasurer; Root.Attach(this); Resize(width, height);
+    }
+    /// <summary>Replace the host-owned text provider between updates on the creating thread.
+    /// Discards cached commands and requests full layout, paint and semantics. Neither provider
+    /// is disposed. Reupload/rebind image assets first; old image-bearing DrawLists remain stale.
+    /// Calling with the same provider also invalidates changed provider configuration.</summary>
+    public void RebindTextMeasurer(ITextMeasurer textMeasurer)
+    {
+        ArgumentNullException.ThrowIfNull(textMeasurer);
+        if (Environment.CurrentManagedThreadId != ownerThread) throw new InvalidOperationException("Document rebind must stay on the creating thread.");
+        if (updating || dispatchDepth != 0) throw new InvalidOperationException("Cannot rebind during a document update or input dispatch.");
+        TextMeasurer = textMeasurer;
+        frame.Clear();
+        Root.Invalidate(DirtyFlags.All);
     }
     public void Resize(float width, float height)
     {
@@ -146,6 +162,12 @@ public sealed class UiDocument
         if (old != null) old.Route(new(EventKind.PointerCancel) { Target = old, Phase = EventPhase.Target });
     }
     public void Dispatch(UiEvent e)
+    {
+        dispatchDepth++;
+        try { DispatchCore(e); }
+        finally { dispatchDepth--; }
+    }
+    private void DispatchCore(UiEvent e)
     {
         EnsureLayout();
         PreviewInput?.Invoke(e);

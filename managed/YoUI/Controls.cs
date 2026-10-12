@@ -226,6 +226,11 @@ public sealed class TextBox : Element
     }
     protected override void OnEvent(UiEvent e)
     {
+        // A rebound (or reconfigured) provider can publish a different grapheme
+        // segmentation. Repair stored offsets before any edit/copy or pointer extension,
+        // including input arriving before the first repaint. Query before mutating state.
+        if (e.Kind is EventKind.TextInput or EventKind.KeyDown or EventKind.Composition or
+            EventKind.PointerDown or EventKind.PointerMove or EventKind.PointerUp) NormalizeSelection();
         switch (e.Kind)
         {
             case EventKind.PointerDown:
@@ -284,6 +289,7 @@ public sealed class TextBox : Element
     }
     protected override void Paint(DrawList list, Rect b, float opacity, Theme theme)
     {
+        NormalizeSelection();
         list.Rectangle(b, (IsFocused ? theme.Accent : theme.Border).Opacity(opacity), 9);
         list.Rectangle(b.Inset(1), theme.Surface.Opacity(opacity), 8);
         string value = composition.Length == 0 ? text : text.Remove(SelectionStart, SelectionLength).Insert(SelectionStart, composition);
