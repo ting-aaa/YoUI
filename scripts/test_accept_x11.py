@@ -338,6 +338,14 @@ class DriverTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "focus loss cancels pointer"):
             accept.exercise_window(FakeDriver(cancel=False))
 
+    def test_focus_away_error_cannot_record_focus_loss_as_passed(self):
+        session = FakeDriver()
+        with patch.object(session, "focus_away", side_effect=ValueError("Focus-loss sink: X11 error 8")):
+            with self.assertRaisesRegex(ValueError, "X11 error 8"):
+                accept.exercise_window(session)
+        self.assertNotIn("OS focus loss cancels pointer", session.checks)
+        self.assertFalse(session.finished)
+
     def test_missing_thread_guard_cannot_pass(self):
         session = FakeDriver()
         session.state["threadGuard"] = False
@@ -402,6 +410,143 @@ class DriverTests(unittest.TestCase):
                     self.assertEqual(result["distinctColorsAtLeast"], 16)
                     self.assertEqual(accept.validate_frame(path, small)["width"], 4)
                 self.assertEqual(x11.lib.destroyed, 1)
+
+
+class FocusSinkTests(unittest.TestCase):
+    """Pure Xlib mocks: no display, sockets, native input or hardware evidence."""
+    class Library:
+        def __init__(self, states=(0, 1, 2), *, query_ok=True, focus=True, error_at=None):
+            self.states = iter(states)
+            self.last_state = 0
+            self.query_ok, self.focus, self.error_at = query_ok, focus, error_at
+            self.calls, self.handler, self.pending = [], None, False
+
+        def XSetErrorHandler(self, handler):
+            previous, self.handler = self.handler, handler
+            self.calls.append("handler" if handler else "restore")
+            return previous
+
+        def XSync(self, *_):
+            if self.pending:
+                self.pending = False
+                event = accept.XErrorEvent(error_code=8, request_code=42, resourceid=99, serial=11)
+                ctypes.cast(self.handler, accept.XErrorHandler)(1, ctypes.pointer(event))
+
+        def XCreateSimpleWindow(self, *_):
+            self.calls.append("create")
+            self.pending = self.error_at == "create"
+            return 99
+
+        def XMapWindow(self, *_):
+            self.calls.append("map")
+            self.pending = self.error_at == "map"
+
+        def XGetWindowAttributes(self, display, sink, attributes):
+            self.last_state = next(self.states, self.last_state)
+            ctypes.cast(attributes, ctypes.POINTER(accept.XWindowAttributes)).contents.map_state = self.last_state
+            self.calls.append(("attributes", self.last_state))
+            self.pending = self.error_at == "query"
+            return int(self.query_ok)
+
+        def XSetInputFocus(self, display, sink, revert, timestamp):
+            self.calls.append("focus")
+            if self.last_state != 2:
+                raise AssertionError("Focus requested before IsViewable")
+            self.pending = self.error_at == "focus"
+
+        def XGetInputFocus(self, display, window, revert):
+            self.calls.append("get-focus")
+            ctypes.cast(window, ctypes.POINTER(ctypes.c_ulong)).contents.value = 99 if self.focus else 7
+            self.pending = self.error_at == "get-focus"
+
+        def XDestroyWindow(self, display, sink):
+            self.calls.append("destroy")
+            self.pending = self.error_at == "destroy"
+
+        def XCloseDisplay(self, *_):
+            self.calls.append("close")
+
+    def native(self, **kwargs):
+        native = accept.XlibNative.__new__(accept.XlibNative)
+        native.lib, native.display, native.root, native.sink = self.Library(**kwargs), 1, 2, 0
+        return native
+
+    def clock(self):
+        current = [0.0]
+        def sleep(seconds):
+            current[0] += seconds
+        return patch.object(accept.time, "monotonic", side_effect=lambda: current[0]), patch.object(accept.time, "sleep", side_effect=sleep)
+
+    def test_delayed_mapping_waits_for_viewable_and_checks_actual_focus(self):
+        native = self.native()
+        clock, sleep = self.clock()
+        with clock, sleep:
+            native.focus_away(.1)
+        self.assertEqual(native.lib.calls, ["handler", "create", "map", ("attributes", 0),
+                         ("attributes", 1), ("attributes", 2), "focus", "get-focus", "restore"])
+        self.assertEqual(native.sink, 99)
+        native.close()
+        self.assertEqual(native.lib.calls[-2:], ["destroy", "close"])
+
+    def test_unmapped_or_unviewable_times_out_without_setting_focus(self):
+        for state in (0, 1):
+            native = self.native(states=(state,))
+            clock, sleep = self.clock()
+            with clock, sleep, self.assertRaisesRegex(ValueError, "IsViewable"):
+                native.focus_away(.03)
+            self.assertNotIn("focus", native.lib.calls)
+            self.assertEqual(native.lib.calls[-2:], ["destroy", "restore"])
+            self.assertEqual(native.sink, 0)
+
+    def test_focus_request_without_actual_focus_cannot_pass(self):
+        native = self.native(states=(2,), focus=False)
+        clock, sleep = self.clock()
+        with clock, sleep, self.assertRaisesRegex(ValueError, "own input focus"):
+            native.focus_away(.03)
+        self.assertEqual(native.lib.calls.count("focus"), 1)
+        self.assertEqual(native.sink, 0)
+
+    def test_create_failure_does_not_map_focus_or_destroy_zero(self):
+        native = self.native()
+        with patch.object(native.lib, "XCreateSimpleWindow", return_value=0), \
+             self.assertRaisesRegex(ValueError, "Could not create"):
+            native.focus_away()
+        self.assertEqual(native.lib.calls, ["handler", "restore"])
+        self.assertEqual(native.sink, 0)
+
+    def test_query_failure_destroys_sink_and_restores_handler(self):
+        native = self.native(query_ok=False)
+        with self.assertRaisesRegex(ValueError, "Cannot query"):
+            native.focus_away()
+        self.assertNotIn("focus", native.lib.calls)
+        self.assertEqual(native.lib.calls[-2:], ["destroy", "restore"])
+        self.assertEqual(native.sink, 0)
+
+    def test_asynchronous_x_errors_fail_and_cleanup_instead_of_exiting(self):
+        for operation in ("create", "map", "query", "focus", "get-focus"):
+            with self.subTest(operation=operation):
+                native = self.native(states=(2,), error_at=operation)
+                with self.assertRaisesRegex(ValueError, "X11 error 8, request 42"):
+                    native.focus_away()
+                self.assertEqual(native.lib.calls[-2:], ["destroy", "restore"])
+                self.assertEqual(native.sink, 0)
+                self.assertIsNone(native.lib.handler)
+
+    def test_cleanup_error_is_drained_under_handler_and_original_failure_kept(self):
+        native = self.native(query_ok=False, error_at="destroy")
+        with self.assertRaisesRegex(ValueError, "Cannot query"):
+            native.focus_away()
+        self.assertFalse(native.lib.pending)
+        self.assertIsNone(native.lib.handler)
+
+    def test_reused_sink_is_rechecked_before_focus(self):
+        native = self.native(states=(1,))
+        native.sink = 99
+        clock, sleep = self.clock()
+        with clock, sleep, self.assertRaisesRegex(ValueError, "IsViewable"):
+            native.focus_away(.03)
+        self.assertNotIn("create", native.lib.calls)
+        self.assertNotIn("focus", native.lib.calls)
 
 
 class WorkerTimeoutTests(unittest.TestCase):
