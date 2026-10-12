@@ -133,6 +133,18 @@ impl Atlas {
     }
 }
 impl AtlasEntry {
+    // Allocation reserves a one-texel gutter on every side. Glyphs need this
+    // transparent filter support; ordinary images retain their original UVs.
+    fn glyph_uv(self) -> [f32; 4] {
+        let n = ATLAS_SIZE as f32;
+        [
+            (self.x - 1) as f32 / n,
+            (self.y - 1) as f32 / n,
+            (self.w + 2) as f32 / n,
+            (self.h + 2) as f32 / n,
+        ]
+    }
+
     fn uv(self) -> [f32; 4] {
         let n = ATLAS_SIZE as f32;
         [
@@ -259,7 +271,7 @@ impl TextSystem {
         glyph: &Glyph,
     ) -> Result<[f32; 4], String> {
         if let Some(entry) = self.atlas.glyphs.get(&glyph.key) {
-            return Ok(entry.uv());
+            return Ok(entry.glyph_uv());
         }
         let img = self
             .layout
@@ -269,28 +281,15 @@ impl TextSystem {
             .ok_or("cached glyph raster unavailable")?;
         let w = img.placement.width;
         let h = img.placement.height;
-        let mut pixels = vec![255u8; (w * h * 4) as usize];
-        for (i, px) in pixels.chunks_exact_mut(4).enumerate() {
-            match img.content {
-                SwashContent::Mask => px[3] = img.data[i],
-                SwashContent::Color => px.copy_from_slice(&img.data[i * 4..i * 4 + 4]),
-                SwashContent::SubpixelMask => {
-                    px[3] = img.data[i * 4..i * 4 + 3]
-                        .iter()
-                        .copied()
-                        .max()
-                        .unwrap_or(0)
-                }
-            }
-        }
+        let pixels = padded_glyph_pixels(img);
         self.atlas.resolve(glyph.key, w, h, |e| {
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d {
-                        x: e.x,
-                        y: e.y,
+                        x: e.x - 1,
+                        y: e.y - 1,
                         z: 0,
                     },
                     aspect: wgpu::TextureAspect::All,
@@ -298,18 +297,50 @@ impl TextSystem {
                 &pixels,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(w * 4),
-                    rows_per_image: Some(h),
+                    bytes_per_row: Some((w + 2) * 4),
+                    rows_per_image: Some(h + 2),
                 },
                 wgpu::Extent3d {
-                    width: w,
-                    height: h,
+                    width: w + 2,
+                    height: h + 2,
                     depth_or_array_layers: 1,
                 },
             );
-        })
+        })?;
+        Ok(self.atlas.glyphs[&glyph.key].glyph_uv())
     }
 }
+fn padded_glyph_pixels(img: &cosmic_text::SwashImage) -> Vec<u8> {
+    let w = img.placement.width;
+    let h = img.placement.height;
+    let stride = (w + 2) as usize * 4;
+    // Mask RGB stays white even where coverage is zero: bilinear sampling
+    // must filter coverage once, not also multiply it by a black gutter.
+    // Preserve the existing transparent-black convention for color glyphs.
+    let background = if img.content == SwashContent::Color {
+        [0; 4]
+    } else {
+        [255, 255, 255, 0]
+    };
+    let mut pixels = background.repeat(((w + 2) * (h + 2)) as usize);
+    for i in 0..(w * h) as usize {
+        let offset = (i / w as usize + 1) * stride + (i % w as usize + 1) * 4;
+        let px = &mut pixels[offset..offset + 4];
+        match img.content {
+            SwashContent::Mask => px[3] = img.data[i],
+            SwashContent::Color => px.copy_from_slice(&img.data[i * 4..i * 4 + 4]),
+            SwashContent::SubpixelMask => {
+                px[3] = img.data[i * 4..i * 4 + 3]
+                    .iter()
+                    .copied()
+                    .max()
+                    .unwrap_or(0)
+            }
+        }
+    }
+    pixels
+}
+
 impl LayoutCache {
     fn new() -> Self {
         Self {
@@ -848,6 +879,20 @@ fn complete_paragraph_cells(offset: usize, boundaries: &[usize], cells: &mut Vec
 
 #[cfg(test)]
 impl TextSystem {
+    pub(crate) fn raster_image(&mut self, glyph: &Glyph) -> cosmic_text::SwashImage {
+        self.layout
+            .swash
+            .get_image(&mut self.layout.fonts, glyph.key)
+            .as_ref()
+            .unwrap()
+            .clone()
+    }
+
+    pub(crate) fn set_test_font_family(&mut self, family: &str) {
+        self.layout.fonts.db_mut().set_sans_serif_family(family);
+        self.layout.layouts.clear();
+    }
+
     // Test-only mapping loss, NOT reclamation or an atlas-capacity reset. Keeping
     // old slots occupied preserves any UVs already prepared for a live frame.
     pub(crate) fn forget_glyph_residency(&mut self) {
@@ -871,6 +916,65 @@ mod tests {
     }
     fn rect(rect: Rect) -> [f32; 4] {
         [rect.x, rect.y, rect.w, rect.h]
+    }
+
+    #[test]
+    fn glyph_gutters_preserve_masks_and_color_convention() {
+        for content in [
+            SwashContent::Mask,
+            SwashContent::SubpixelMask,
+            SwashContent::Color,
+        ] {
+            let mut image = cosmic_text::SwashImage::default();
+            image.content = content;
+            image.placement.width = 1;
+            image.placement.height = 1;
+            image.data = if content == SwashContent::Mask {
+                vec![117]
+            } else {
+                vec![21, 63, 117, 155]
+            };
+            let pixels = padded_glyph_pixels(&image);
+            assert_eq!(pixels.len(), 3 * 3 * 4);
+            for (i, pixel) in pixels.chunks_exact(4).enumerate() {
+                let expected = if content == SwashContent::Color {
+                    if i == 4 {
+                        [21, 63, 117, 155]
+                    } else {
+                        [0; 4]
+                    }
+                } else if i == 4 {
+                    [255, 255, 255, 117]
+                } else {
+                    [255, 255, 255, 0]
+                };
+                assert_eq!(pixel, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn glyph_filter_gutters_fit_edges_rows_and_live_image_slots() {
+        let mut atlas = Atlas::new();
+        let first = atlas.allocate(ATLAS_SIZE - 4, 3).unwrap();
+        let next = atlas.allocate(3, 5).unwrap();
+        assert_eq!((first.x, first.y), (1, 1));
+        assert_eq!((next.x, next.y), (1, 6));
+        assert_eq!(first.y + first.h + 1, next.y - 1);
+        let image = atlas.allocate_image(4, 4).unwrap();
+        assert_eq!(next.x + next.w + 1, image.x - 1);
+        let uv = image.uv();
+        atlas.images.insert(1, image);
+        atlas.release_image(1).unwrap();
+        assert_eq!(atlas.allocate_image(4, 4).unwrap().uv(), uv);
+        assert_eq!(first.glyph_uv()[0], 0.);
+        assert_eq!(first.glyph_uv()[1], 0.);
+        let full = Atlas::new()
+            .allocate(ATLAS_SIZE - 2, ATLAS_SIZE - 2)
+            .unwrap();
+        assert_eq!(full.glyph_uv(), [0., 0., 1., 1.]);
+        // Ordinary images and logical allocations do not gain the glyph ring.
+        assert_eq!(full.uv()[2], (ATLAS_SIZE - 2) as f32 / ATLAS_SIZE as f32);
     }
 
     #[test]

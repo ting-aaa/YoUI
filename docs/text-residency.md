@@ -30,6 +30,22 @@ prepared UVs keep their meaning. Existing synchronous owner-thread rendering and
 queue ordering are retained. There is no multi-page atlas, LRU, capacity recovery,
 resource manager, threading change or production reset API.
 
+## Raster filter footprint
+
+Glyph geometry includes the one-texel transparent gutter already reserved by
+the atlas allocator. Its UVs address the matching padded bitmap. This is the
+support needed by linear sampling at fractional origins: a raw-bitmap-sized
+quad can cut off the filtered top, bottom or side of a glyph even when no
+text/control clip touches it. Raster ink rectangles, advances, line metrics,
+text cells and fractional positioning are unchanged; explicit command and
+ancestor clips still apply, including when only the filter halo reaches a clip.
+
+Mask/subpixel-mask gutters have white RGB and zero coverage, so sampling does
+not multiply coverage a second time through black RGB. Color glyph gutters
+retain transparent black and the existing color/alpha convention. Ordinary
+image UVs and allocation capacity are unchanged. This does not standardize
+system-font discovery, bundle fonts or establish cross-platform pixel parity.
+
 ## Regression coverage
 
 CPU tests in `native/youi-render/src/text.rs` cover raster-key separation, cached
@@ -52,3 +68,13 @@ and identical output pixels. Both `scripts/verify.ps1 -Layer Gpu` and `-Layer Al
 run this exact test alongside the GPU integration suite, with the selected
 Debug/Release profile and repository target directory. Any failure stops the gate.
 CPU/Logic gate success must not be represented as GPU or native-window acceptance.
+
+`renderer::text_filter_tests::` also runs in the GPU gate. Its independent CPU
+oracle bilinearly samples actual raw glyph masks, then applies the text/ancestor
+clip contracts and compares GPU alpha and white-mask RGB. It covers 26px bold
+headings, 14px body text, 17.5px accented/descending glyphs, eight fractional
+translation phases, explicit clipping and a clip that intersects only a filter
+halo. The tests require a GPU adapter and usable Latin fonts; DejaVu Sans is
+selected where available, but the oracle uses the actual fallback raster.
+`YOUI_ARTIFACT_DIR` additionally enables eight diagnostic screenshot phases.
+CPU tests cover mask/color gutters and atlas edges, row wrapping and image reuse.

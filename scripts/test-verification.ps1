@@ -33,7 +33,7 @@ try {
         foreach ($layer in 'Logic','Gpu') {
             Run-Verification $configuration $layer
             $trace = $global:YoUIVerificationCalls -join "`n"
-            $expected = if ($layer -eq 'Logic') { 14 } else { 18 }
+            $expected = if ($layer -eq 'Logic') { 14 } else { 19 }
             Require ($global:YoUIVerificationCalls.Count -eq $expected) "Unexpected $layer command count"
             foreach ($command in $global:YoUIVerificationCalls | Where-Object { $_ -like 'cargo|*' -and $_ -notlike '*<fmt>*' }) {
                 Require ($command.Contains('<--locked>')) 'Cargo command omitted the lockfile guard'
@@ -63,7 +63,8 @@ try {
                 if ($configuration -eq 'Release') { $cargoOptions += '<--release>' }
                 Require ($global:YoUIVerificationCalls[8] -eq "cargo|<test><-p><youi-render><--test><gpu>$cargoOptions<--><--ignored><--nocapture>") 'GPU integration test command mismatch'
                 Require ($global:YoUIVerificationCalls[9] -eq "cargo|<test><-p><youi-render><--lib><$residencyTest>$cargoOptions<--><--exact><--ignored><--nocapture>") 'Text residency GPU unit test command mismatch'
-                Require ($global:YoUIVerificationCalls[16] -eq "cargo|<run><-p><youi-scene><--example><textured_mesh>$cargoOptions<--><artifacts/textured-mesh.png>") 'Textured mesh example command mismatch'
+                Require ($global:YoUIVerificationCalls[10] -eq "cargo|<test><-p><youi-render><--lib><renderer::text_filter_tests::>$cargoOptions<--><--ignored><--nocapture>") 'Text filter GPU unit test command mismatch'
+                Require ($global:YoUIVerificationCalls[17] -eq "cargo|<run><-p><youi-scene><--example><textured_mesh>$cargoOptions<--><artifacts/textured-mesh.png>") 'Textured mesh example command mismatch'
             }
             Require (!$trace.Contains('<--smoke>')) 'A headless layer invoked native-window checks'
             Require ((Get-Location).Path -eq $unrelated) 'Working directory was not restored'
@@ -75,7 +76,7 @@ try {
         }
     }
     foreach ($layer in 'Logic','Gpu') {
-        $count = if ($layer -eq 'Logic') { 14 } else { 18 }
+        $count = if ($layer -eq 'Logic') { 14 } else { 19 }
         for ($step = 1; $step -le $count; $step++) {
             $global:YoUIVerificationFailAt = $step
             $failed = $false
