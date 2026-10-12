@@ -23,12 +23,45 @@ command/stat structure layouts; see [text input](text-input.md). Measurement no 
 drawing can still fail on exhaustion.
 
 The atlas remains one fixed 2048-square texture shared by images and glyphs.
-Allocations are append-only for glyphs, and failure leaves the cursor unchanged.
-Only explicitly released image slots of the same dimensions can be reused for
-images. No eviction/reset can occur partway through preparing a frame, so already
-prepared UVs keep their meaning. Existing synchronous owner-thread rendering and
-queue ordering are retained. There is no multi-page atlas, LRU, capacity recovery,
-resource manager, threading change or production reset API.
+Glyph allocations are permanent for the renderer lifetime. Explicitly released
+image regions are now available to both smaller/equal-sized images and glyphs.
+The allocator chooses a fitting region with the smallest padded area, then splits
+it into disjoint right/bottom rectangles. Every resulting slot retains its own
+one-texel gutter on all sides. Image uploads initialize the complete gutter to
+transparent black so smaller images cannot filter stale pixels from a former
+occupant; image UVs and sampling semantics are unchanged. Fragments too small for a padded 1×1 allocation
+are discarded. If no free rectangle fits, allocation falls back to the existing
+shelf. Failed dimension/capacity checks leave the shelf and free regions unchanged.
+
+This is **free-region reuse**, not glyph eviction or complete capacity recovery.
+Regions are not coalesced, rotated or compacted; fragmentation can still reject
+an allocation even when aggregate free area is sufficient. Pure text or changing
+font-size workloads can still exhaust the atlas because resident glyphs are never
+released. There is no LRU, multipage atlas, reset API, or CPU raster-cache budget.
+
+Live glyph/image slots never move or get overwritten. Layout cache entries still
+resolve glyph keys during preparation; previously prepared UVs remain valid.
+Released image handles stay invalid and are never resurrected by slot reuse.
+No public API or ABI changes are needed. Existing synchronous owner-thread calls
+and queue ordering ensure a submitted frame finishes sampling before later
+recycled-slot writes on that queue. Release is not a GPU wait. Future externally
+recorded/deferred command buffers must establish a different lifetime contract
+before using this allocator.
+
+A failed frame may already have uploaded permanent glyphs into recycled space;
+it does not roll back residency, just as with shelf allocation. It does not submit
+partial drawing, change the previous output/FrameStats or invalidate live images.
+The 16 MiB texture allocation and GPU payload budgets are unchanged. Free-region
+metadata is CPU state outside the existing GPU budget.
+
+The next smallest safe glyph-reclamation contract would be an explicit
+between-frame operation, with no retained prepared command buffers, that clears
+only glyph residency while preserving all live image locations. It would require
+tracking occupied glyph rectangles and making those padded rectangles reusable,
+plus proving queue ordering and re-resolution from cached layouts under failed
+frames. It would not be a full atlas reset, promise contiguous space, shrink the
+texture, or bound CPU caches. This contract is only a proposal; it is not exposed
+or implemented in this increment.
 
 ## Raster filter footprint
 
@@ -78,3 +111,12 @@ halo. The tests require a GPU adapter and usable Latin fonts; DejaVu Sans is
 selected where available, but the oracle uses the actual fallback raster.
 `YOUI_ARTIFACT_DIR` additionally enables eight diagnostic screenshot phases.
 CPU tests cover mask/color gutters and atlas edges, row wrapping and image reuse.
+
+The GPU gate additionally runs
+`renderer::text_residency_tests::released_image_regions_recover_space_with_live_text_and_images`.
+It fills the shelf with a real image, observes a large cached glyph fail to fit,
+then releases that image and reuses the space for the glyph and a smaller image.
+It checks retained live UVs, stale handles, a submitted frame still sampling the
+released image, instance-budget failure without partial submission, fixed payload
+usage and exact pixels against a fresh atlas. CPU tests cover gutter-aware splits,
+small fragments, exhaustion/failure preservation and repeated mixed-size reuse.

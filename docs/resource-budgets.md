@@ -53,7 +53,7 @@ C ABI 增加 `youi_create_with_budget`、`youi_resource_budget`、`youi_resource
 - 实例缓冲通常按 2 的幂增长；若舍入将超过预算/设备限制，但精确大小可容纳，则按精确大小分配。因此上限边界不会被预留容量误拒绝。
 - 全部实例通过检查后才扩展 layer targets 和 GPU 实例缓冲。预算拒绝的帧不提交绘制，保留上一张输出、FrameStats、live image handles 与 GPU 分配快照；可以继续提交较小帧。
 - 失败不是全部状态事务：准备中的 CPU 文本缓存、glyph atlas residency 可能已经变化；固定 atlas 的分配大小不变。不要把此保证推广到 GPU/驱动错误或 panic。
-- 释放 image 不清空 glyph，不缩小 atlas；空帧不缩小层和实例缓冲。没有 LRU 驱逐、通用 trim、资源搬迁或设备重建。
+- 释放 image 的空闲区域可复用给较小或同尺寸 image/glyph；不合并碎片、不清空 glyph、不缩小 atlas；空帧不缩小层和实例缓冲。没有 LRU 驱逐、通用 trim、资源搬迁或设备重建。
 
 ## 验证
 

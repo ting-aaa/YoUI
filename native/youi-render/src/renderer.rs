@@ -1009,6 +1009,159 @@ mod text_residency_tests {
 
     #[test]
     #[ignore = "requires a GPU adapter and a font with Latin glyphs; run explicitly"]
+    fn released_image_regions_recover_space_with_live_text_and_images() -> Result<(), String> {
+        let budget = ResourceBudget {
+            max_texture_bytes: 2048 * 2048 * 4 + 320 * 320 * 4,
+            max_instance_buffer_bytes: 1024 * crate::resource::INSTANCE_BYTES,
+        };
+        let mut renderer = unsafe { Renderer::new_with_budget(320, 320, 0, budget)? };
+        let image = renderer.upload_image(2, 2, &[255, 0, 255, 255].repeat(4))?;
+        let image_uv = renderer.text.image_uv(image)?;
+        let commands = [
+            Command::rect(Rect::new(0., 0., 320., 320.), [0., 0., 0., 1.], 0.),
+            Command {
+                kind: 7,
+                flags: image,
+                rect: Rect::new(280., 280., 24., 24.),
+                color: [1.; 4],
+                ..Default::default()
+            },
+            Command {
+                kind: 1,
+                text_length: 5,
+                font_size: 18.,
+                rect: Rect::new(0., 0., 100., 36.),
+                color: [1.; 4],
+                ..Default::default()
+            },
+        ];
+        renderer.render(&commands, b"Hello")?;
+        let before = renderer.read_pixels()?;
+        let layout = renderer.text.layout("Hello", 18., 100., false);
+        assert!(!layout.glyphs.is_empty(), "test requires Latin glyphs");
+        let old_uv = renderer
+            .text
+            .resolve_glyph(&renderer.queue, &layout.glyphs[0])?;
+        let measured = renderer.measure("W", 256., 320., false)?;
+        let large = renderer.text.layout("W", 256., 320., false);
+        assert!(
+            large.glyphs.iter().any(|g| g.rect.h > 130.),
+            "test needs a large Latin raster"
+        );
+        // Fill the shelf with a real uploaded image. The remaining strip is
+        // too short for the measured (but not resident) large glyph.
+        let disposable = renderer.upload_image(2046, 1900, &vec![255; 2046 * 1900 * 4])?;
+        let usage = renderer.resource_usage();
+        let large_command = Command {
+            kind: 1,
+            text_length: 1,
+            font_size: 256.,
+            rect: Rect::new(0., 40., 320., 280.),
+            color: [1.; 4],
+            ..Default::default()
+        };
+        assert!(renderer
+            .render(&[large_command], b"W")
+            .unwrap_err()
+            .contains("atlas budget exhausted"));
+        assert_eq!(renderer.read_pixels()?, before);
+        assert_eq!(renderer.resource_usage(), usage);
+        // Queue a frame that still samples the soon-to-be-released region.
+        // No readback/wait before release and subsequent recycled uploads.
+        let mut pending_commands = commands.to_vec();
+        pending_commands.push(Command {
+            flags: disposable,
+            rect: Rect::new(120., 0., 16., 16.),
+            ..commands[1]
+        });
+        let pending_stats = renderer.render(&pending_commands, b"Hello")?;
+        let mut pending_pixels = before.clone();
+        for y in 0..16 {
+            for x in 120..136 {
+                pending_pixels[(y * 320 + x) * 4..(y * 320 + x) * 4 + 4].fill(255);
+            }
+        }
+        renderer.release_image(disposable)?;
+        assert!(renderer.release_image(disposable).is_err());
+        assert!(renderer.text.image_uv(disposable).is_err());
+
+        // A later instance-budget failure may upload into reclaimed space,
+        // but cannot submit a partial frame or destroy existing resources.
+        let mut too_many = vec![large_command];
+        too_many.extend(std::iter::repeat_n(commands[0], 1024));
+        assert!(renderer.render(&too_many, b"W").is_err());
+        assert_eq!(renderer.read_pixels()?, pending_pixels);
+        let stats_fields = |s: FrameStats| {
+            (
+                s.commands,
+                s.instances,
+                s.draw_calls,
+                s.layers,
+                s.upload_bytes,
+                s.prepare_us,
+                s.submit_us,
+                s.atlas_glyphs,
+                s.text_cache_hits,
+            )
+        };
+        assert_eq!(stats_fields(renderer.stats), stats_fields(pending_stats));
+        assert_eq!(renderer.resource_usage(), usage);
+        assert_eq!(renderer.text.image_uv(image)?, image_uv);
+        assert_eq!(
+            renderer
+                .text
+                .resolve_glyph(&renderer.queue, &layout.glyphs[0])?,
+            old_uv
+        );
+        assert_eq!(renderer.measure("W", 256., 320., false)?, measured);
+        renderer.render(&commands, b"Hello")?;
+        assert_eq!(renderer.read_pixels()?, before);
+
+        // Repeated queued frames and a differently sized image exercise both
+        // consumers of recycled regions without forcing a readback in between.
+        let small = renderer.upload_image(7, 5, &[0, 255, 0, 255].repeat(35))?;
+        assert_ne!(small, disposable);
+        let mut final_commands = commands.to_vec();
+        final_commands.push(Command {
+            text_offset: 5,
+            ..large_command
+        });
+        final_commands.push(Command {
+            flags: small,
+            rect: Rect::new(240., 280., 24., 24.),
+            ..commands[1]
+        });
+        for _ in 0..3 {
+            renderer.render(&final_commands, b"HelloW")?;
+        }
+        let actual = renderer.read_pixels()?;
+        if let Ok(directory) = std::env::var("YOUI_ARTIFACT_DIR") {
+            std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+            renderer.save_png(&format!("{directory}/atlas-free-region-reuse.png"))?;
+        }
+        assert_eq!(
+            &actual[(290 * 320 + 290) * 4..(290 * 320 + 290) * 4 + 4],
+            &[255, 0, 255, 255]
+        );
+        assert_eq!(
+            &actual[(290 * 320 + 250) * 4..(290 * 320 + 250) * 4 + 4],
+            &[0, 255, 0, 255]
+        );
+        assert_eq!(renderer.resource_usage(), usage);
+
+        // Independent fresh atlas has different UVs, but identical pixels.
+        let mut reference = unsafe { Renderer::new_with_budget(320, 320, 0, budget)? };
+        let reference_image = reference.upload_image(2, 2, &[255, 0, 255, 255].repeat(4))?;
+        let reference_small = reference.upload_image(7, 5, &[0, 255, 0, 255].repeat(35))?;
+        final_commands[1].flags = reference_image;
+        final_commands[4].flags = reference_small;
+        reference.render(&final_commands, b"HelloW")?;
+        assert_eq!(actual, reference.read_pixels()?);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires a GPU adapter and a font with Latin glyphs; run explicitly"]
     fn cached_text_pixels_survive_residency_mapping_loss_with_live_image() -> Result<(), String> {
         let mut renderer = unsafe { Renderer::new(128, 64, 0)? };
         let measured = renderer.measure("Hello", 18., 100., false)?;

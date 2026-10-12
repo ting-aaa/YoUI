@@ -46,7 +46,7 @@ pub struct TextLayout {
     pub width: f32,
     pub height: f32,
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct AtlasEntry {
     x: u32,
     y: u32,
@@ -65,7 +65,7 @@ struct LayoutCache {
 struct Atlas {
     glyphs: HashMap<CacheKey, AtlasEntry>,
     images: HashMap<u32, AtlasEntry>,
-    free_images: Vec<AtlasEntry>,
+    free_regions: Vec<AtlasEntry>,
     x: u32,
     y: u32,
     row_h: u32,
@@ -79,11 +79,47 @@ impl Atlas {
         }
     }
     // Transactional failure: exhaustion must not move the allocation cursor.
-    // Allocations never move/reuse glyph slots during frame preparation. Images
-    // may reuse only explicitly released image slots, never glyph slots.
+    // Live slots never move. Only explicitly released image regions can be
+    // reused, including their reserved one-texel gutters.
     fn allocate(&mut self, w: u32, h: u32) -> Result<AtlasEntry, String> {
         if w == 0 || h == 0 || w > ATLAS_SIZE - 2 || h > ATLAS_SIZE - 2 {
             return Err("invalid atlas allocation dimensions".into());
+        }
+        // Best area fit preserves larger holes where possible. A free entry
+        // describes usable ink/image dimensions; its physical extent includes
+        // two extra texels on each axis. Split those extents without sharing
+        // gutters. Remainders too small for a padded 1x1 slot are discarded.
+        if let Some(index) = self
+            .free_regions
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.w >= w && e.h >= h)
+            .min_by_key(|(index, e)| ((e.w + 2) * (e.h + 2), *index))
+            .map(|(index, _)| index)
+        {
+            let free = self.free_regions.swap_remove(index);
+            if free.w >= w + 3 {
+                self.free_regions.push(AtlasEntry {
+                    x: free.x + w + 2,
+                    y: free.y,
+                    w: free.w - w - 2,
+                    h: free.h,
+                });
+            }
+            if free.h >= h + 3 {
+                self.free_regions.push(AtlasEntry {
+                    x: free.x,
+                    y: free.y + h + 2,
+                    w,
+                    h: free.h - h - 2,
+                });
+            }
+            return Ok(AtlasEntry {
+                x: free.x,
+                y: free.y,
+                w,
+                h,
+            });
         }
         let (x, y, row_h) = if self.x + w + 1 > ATLAS_SIZE {
             (1, self.y + self.row_h + 2, 0)
@@ -100,18 +136,14 @@ impl Atlas {
         Ok(entry)
     }
     fn allocate_image(&mut self, w: u32, h: u32) -> Result<AtlasEntry, String> {
-        if let Some(index) = self.free_images.iter().position(|e| e.w == w && e.h == h) {
-            Ok(self.free_images.swap_remove(index))
-        } else {
-            self.allocate(w, h)
-        }
+        self.allocate(w, h)
     }
     fn release_image(&mut self, id: u32) -> Result<(), String> {
         let entry = self
             .images
             .remove(&id)
             .ok_or("invalid or released image handle")?;
-        self.free_images.push(entry);
+        self.free_regions.push(entry);
         Ok(())
     }
     fn resolve(
@@ -213,7 +245,6 @@ impl TextSystem {
         {
             return Err("invalid RGBA image dimensions/length".into());
         }
-        let e = self.atlas.allocate_image(w, h)?;
         static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
         let id = NEXT
             .fetch_update(
@@ -222,26 +253,33 @@ impl TextSystem {
                 |n| n.checked_add(1),
             )
             .map_err(|_| "image ID space exhausted")?;
+        // Reserve the never-reused handle before consuming allocator space:
+        // ID exhaustion must not discard a free region or advance the shelf.
+        let e = self.atlas.allocate_image(w, h)?;
+        // Ordinary image quads filter into their transparent gutter. A reused
+        // subregion may contain old image pixels, so initialize the complete
+        // padded footprint, not just the new image's interior.
+        let pixels = padded_image_pixels(w, h, rgba);
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
-                    x: e.x,
-                    y: e.y,
+                    x: e.x - 1,
+                    y: e.y - 1,
                     z: 0,
                 },
                 aspect: wgpu::TextureAspect::All,
             },
-            rgba,
+            &pixels,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(w * 4),
-                rows_per_image: Some(h),
+                bytes_per_row: Some((w + 2) * 4),
+                rows_per_image: Some(h + 2),
             },
             wgpu::Extent3d {
-                width: w,
-                height: h,
+                width: w + 2,
+                height: h + 2,
                 depth_or_array_layers: 1,
             },
         );
@@ -310,6 +348,16 @@ impl TextSystem {
         Ok(self.atlas.glyphs[&glyph.key].glyph_uv())
     }
 }
+fn padded_image_pixels(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
+    let stride = (w + 2) as usize * 4;
+    let mut pixels = vec![0; stride * (h + 2) as usize];
+    for (row, source) in rgba.chunks_exact(w as usize * 4).enumerate() {
+        let offset = (row + 1) * stride + 4;
+        pixels[offset..offset + source.len()].copy_from_slice(source);
+    }
+    pixels
+}
+
 fn padded_glyph_pixels(img: &cosmic_text::SwashImage) -> Vec<u8> {
     let w = img.placement.width;
     let h = img.placement.height;
@@ -919,6 +967,26 @@ mod tests {
     }
 
     #[test]
+    fn image_upload_initializes_all_gutters_without_changing_rgba() {
+        let rgba = [
+            11, 22, 33, 44, 55, 66, 77, 88, 99, 111, 123, 135, 147, 159, 171, 183,
+        ];
+        let pixels = padded_image_pixels(2, 2, &rgba);
+        assert_eq!(pixels.len(), 4 * 4 * 4);
+        for y in 0..4 {
+            for x in 0..4 {
+                let pixel = &pixels[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
+                if (1..3).contains(&x) && (1..3).contains(&y) {
+                    let offset = ((y - 1) * 2 + x - 1) * 4;
+                    assert_eq!(pixel, &rgba[offset..offset + 4]);
+                } else {
+                    assert_eq!(pixel, &[0; 4]);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn glyph_gutters_preserve_masks_and_color_convention() {
         for content in [
             SwashContent::Mask,
@@ -1047,6 +1115,146 @@ mod tests {
             assert!(atlas.allocate(w, h).is_err());
             assert_eq!((atlas.x, atlas.y, atlas.row_h), cursor);
             assert_eq!(atlas.glyphs[&key()].uv(), uv);
+        }
+    }
+
+    fn assert_disjoint(entries: &[AtlasEntry]) {
+        for (i, a) in entries.iter().enumerate() {
+            assert!(a.x >= 1 && a.y >= 1 && a.w > 0 && a.h > 0);
+            assert!(a.x + a.w < ATLAS_SIZE && a.y + a.h < ATLAS_SIZE);
+            for b in &entries[i + 1..] {
+                assert!(
+                    a.x + a.w + 2 <= b.x
+                        || b.x + b.w + 2 <= a.x
+                        || a.y + a.h + 2 <= b.y
+                        || b.y + b.h + 2 <= a.y,
+                    "padded slots overlap: {a:?}, {b:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn free_region_splits_preserve_disjoint_gutters_and_small_remainders() {
+        for width in 1..14 {
+            for height in 1..14 {
+                for w in 1..=width {
+                    for h in 1..=height {
+                        let mut atlas = Atlas::new();
+                        let original = atlas.allocate_image(width, height).unwrap();
+                        atlas.images.insert(1, original);
+                        atlas.release_image(1).unwrap();
+                        let cursor = (atlas.x, atlas.y, atlas.row_h);
+                        let used = atlas.allocate(w, h).unwrap();
+                        assert_eq!((used.x, used.y), (original.x, original.y));
+                        assert_eq!((atlas.x, atlas.y, atlas.row_h), cursor);
+                        let mut regions = atlas.free_regions.clone();
+                        regions.push(used);
+                        assert_disjoint(&regions);
+                        for e in &regions {
+                            assert!(e.x + e.w <= original.x + original.w);
+                            assert!(e.y + e.h <= original.y + original.h);
+                        }
+                        let area: u32 = regions.iter().map(|e| (e.w + 2) * (e.h + 2)).sum();
+                        assert!(area <= (width + 2) * (height + 2));
+                        assert_eq!(
+                            atlas.free_regions.len(),
+                            usize::from(width >= w + 3) + usize::from(height >= h + 3)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn exhausted_atlas_reuses_released_space_without_losing_it_on_failure() {
+        let mut atlas = Atlas::new();
+        let full = atlas
+            .allocate_image(ATLAS_SIZE - 2, ATLAS_SIZE - 2)
+            .unwrap();
+        atlas.images.insert(1, full);
+        assert!(atlas.allocate(1, 1).is_err());
+        atlas.release_image(1).unwrap();
+        let cursor = (atlas.x, atlas.y, atlas.row_h);
+        for (w, h) in [(0, 1), (u32::MAX, 1), (1, u32::MAX)] {
+            assert!(atlas.allocate(w, h).is_err());
+            assert_eq!(atlas.free_regions, [full]);
+        }
+        let glyph_uv = atlas.resolve(key(), 17, 29, |_| {}).unwrap();
+        let image = atlas.allocate_image(31, 37).unwrap();
+        atlas.images.insert(2, image);
+        let free = atlas.free_regions.clone();
+        assert!(atlas.allocate(ATLAS_SIZE - 2, ATLAS_SIZE - 2).is_err());
+        assert_eq!(atlas.free_regions, free);
+        assert_eq!((atlas.x, atlas.y, atlas.row_h), cursor);
+        assert_eq!(
+            atlas
+                .resolve(key(), 17, 29, |_| panic!("live glyph reuploaded"))
+                .unwrap(),
+            glyph_uv
+        );
+        assert!(atlas.release_image(1).is_err());
+        assert_eq!(atlas.images[&2], image);
+        assert_eq!(atlas.free_regions, free);
+        let mut entries = free;
+        entries.extend(atlas.images.values().copied());
+        entries.extend(atlas.glyphs.values().copied());
+        assert_disjoint(&entries);
+    }
+
+    #[test]
+    fn free_region_best_fit_does_not_claim_to_coalesce_fragmented_space() {
+        let mut atlas = Atlas::new();
+        let small = atlas.allocate_image(7, 7).unwrap();
+        let large = atlas.allocate_image(17, 17).unwrap();
+        atlas.images.insert(1, small);
+        atlas.images.insert(2, large);
+        atlas.release_image(2).unwrap();
+        atlas.release_image(1).unwrap();
+        assert_eq!(atlas.allocate_image(7, 7).unwrap(), small);
+        assert_eq!(atlas.free_regions, [large]);
+
+        // Separate adjacent padded slots are intentionally not coalesced.
+        let mut fragmented = Atlas::new();
+        let left = fragmented.allocate_image(1022, 2046).unwrap();
+        let right = fragmented.allocate_image(1022, 2046).unwrap();
+        fragmented.images.insert(1, left);
+        fragmented.images.insert(2, right);
+        fragmented.release_image(1).unwrap();
+        fragmented.release_image(2).unwrap();
+        let free = fragmented.free_regions.clone();
+        assert!(fragmented.allocate(2046, 2046).is_err());
+        assert_eq!(fragmented.free_regions, free);
+        assert_eq!(fragmented.allocate_image(1022, 2046).unwrap(), left);
+    }
+
+    #[test]
+    fn repeated_mixed_size_image_recycling_never_overlaps_live_or_free_slots() {
+        let mut atlas = Atlas::new();
+        let full = atlas
+            .allocate_image(ATLAS_SIZE - 2, ATLAS_SIZE - 2)
+            .unwrap();
+        atlas.images.insert(1, full);
+        atlas.release_image(1).unwrap();
+        let mut seed = 7u32;
+        for id in 2..700 {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            let w = 1 + seed % 83;
+            let h = 1 + (seed >> 8) % 79;
+            if let Ok(entry) = atlas.allocate_image(w, h) {
+                atlas.images.insert(id, entry);
+            }
+            if id % 3 != 0 {
+                let victim = atlas.images.keys().copied().min();
+                if let Some(victim) = victim {
+                    atlas.release_image(victim).unwrap();
+                    assert!(atlas.release_image(victim).is_err());
+                }
+            }
+            let mut entries = atlas.free_regions.clone();
+            entries.extend(atlas.images.values().copied());
+            assert_disjoint(&entries);
         }
     }
 
