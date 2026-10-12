@@ -6,7 +6,9 @@ if (args.Length != 0)
 {
     if (args.Length == 1 && args[0] == "--gpu-resource-budget") { ResourceBudgetTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--gpu-text-input") { TextInputTests.RunGpu(); return; }
-    throw new ArgumentException("Supported optional arguments: --gpu-resource-budget, --gpu-text-input");
+    if (args.Length == 1 && args[0] == "--gpu-glyph-residency") { GlyphResidencyTests.RunGpu(); return; }
+    if (args.Length == 1 && args[0] == "--missing-glyph-residency-api") { GlyphResidencyTests.RunMissingApi(); return; }
+    throw new ArgumentException("Supported optional arguments: --gpu-resource-budget, --gpu-text-input, --gpu-glyph-residency, --missing-glyph-residency-api");
 }
 
 int passed = 0;
@@ -17,6 +19,7 @@ void Click(UiDocument doc, float x, float y) { doc.Dispatch(new(EventKind.Pointe
 
 Test("ABI sizes and offsets", () => { Require(Marshal.SizeOf<DrawCommand>() == 80); Require(Marshal.OffsetOf<DrawCommand>(nameof(DrawCommand.Rect)).ToInt32() == 16); Require(Marshal.SizeOf<FrameStats>() == 48); });
 ResourceBudgetTests.RunLogic(Test, Require);
+GlyphResidencyTests.RunLogic(Test, Require);
 TextInputTests.RunLogic(Test, Require);
 LayoutUpdateTests.Run(Test, Require);
 Test("stretched and centered RectTransform", () =>

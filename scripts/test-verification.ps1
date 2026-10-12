@@ -33,7 +33,7 @@ try {
         foreach ($layer in 'Logic','Gpu') {
             Run-Verification $configuration $layer
             $trace = $global:YoUIVerificationCalls -join "`n"
-            $expected = if ($layer -eq 'Logic') { 14 } else { 20 }
+            $expected = if ($layer -eq 'Logic') { 14 } else { 22 }
             Require ($global:YoUIVerificationCalls.Count -eq $expected) "Unexpected $layer command count"
             foreach ($command in $global:YoUIVerificationCalls | Where-Object { $_ -like 'cargo|*' -and $_ -notlike '*<fmt>*' }) {
                 Require ($command.Contains('<--locked>')) 'Cargo command omitted the lockfile guard'
@@ -43,7 +43,7 @@ try {
             $managed = @($global:YoUIVerificationCalls | Where-Object { $_ -like 'dotnet|*' })
             $expectedProjects = @('samples/YoUI.Showcase/YoUI.Showcase.csproj','tools/YoUI.Editor/YoUI.Editor.csproj','samples/YoUI.Exporter.Sample/YoUI.Exporter.Sample.csproj','docs/examples/HelloYoUI/HelloYoUI.csproj','samples/YoUI.Linux.Sample/YoUI.Linux.Sample.csproj')
             if ($layer -eq 'Logic') { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Editor.Tests','tests/YoUI.Component.Tests','tests/YoUI.Profiling.Tests','tests/YoUI.Platform.Linux.Tests') }
-            else { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Tests','tools/YoUI.Editor','samples/YoUI.Showcase','samples/YoUI.Showcase','samples/YoUI.Showcase','tests/YoUI.Component.Tests') }
+            else { $expectedProjects += @('tests/YoUI.Tests','tests/YoUI.Tests','tests/YoUI.Tests','tools/YoUI.Editor','samples/YoUI.Showcase','samples/YoUI.Showcase','samples/YoUI.Showcase','tests/YoUI.Component.Tests') }
             Require ($managed.Count -eq $expectedProjects.Count) 'Managed project count mismatch'
             for ($index = 0; $index -lt $managed.Count; $index++) {
                 Require ($managed[$index].Contains("<-c><$configuration>")) 'Managed configuration mismatch'
@@ -53,6 +53,7 @@ try {
             }
             Require ($trace.Contains('<--gpu-resource-budget>') -eq ($layer -eq 'Gpu')) 'Managed resource-budget GPU invocation mismatch'
             Require ($trace.Contains('<--gpu-text-input>') -eq ($layer -eq 'Gpu')) 'Managed text-input GPU invocation mismatch'
+            Require ($trace.Contains('<--gpu-glyph-residency>') -eq ($layer -eq 'Gpu')) 'Managed glyph residency GPU invocation mismatch'
             Require ($trace.Contains('<--gallery><--headless>') -eq ($layer -eq 'Gpu')) 'Gallery headless invocation mismatch'
             Require ($trace.Contains('<--gpu>') -eq ($layer -eq 'Gpu')) 'External component GPU invocation mismatch'
             Require ($trace.Contains('<--ignored>') -eq ($layer -eq 'Gpu')) 'GPU test invocation layer mismatch'
@@ -60,14 +61,17 @@ try {
             Require ($trace.Contains("<$residencyTest>") -eq ($layer -eq 'Gpu')) 'Text residency test invocation layer mismatch'
             $reuseTest = 'renderer::text_residency_tests::released_image_regions_recover_space_with_live_text_and_images'
             Require ($trace.Contains("<$reuseTest>") -eq ($layer -eq 'Gpu')) 'Atlas free-region reuse test invocation layer mismatch'
+            $purgeTest = 'renderer::text_residency_tests::glyph_purge_recovers_text_pressure_with_live_images'
+            Require ($trace.Contains("<$purgeTest>") -eq ($layer -eq 'Gpu')) 'Glyph purge test invocation layer mismatch'
             if ($layer -eq 'Gpu') {
                 $cargoOptions = "<--locked><--target-dir><$repo/target>"
                 if ($configuration -eq 'Release') { $cargoOptions += '<--release>' }
-                Require ($global:YoUIVerificationCalls[8] -eq "cargo|<test><-p><youi-render><--test><gpu>$cargoOptions<--><--ignored><--nocapture>") 'GPU integration test command mismatch'
-                Require ($global:YoUIVerificationCalls[9] -eq "cargo|<test><-p><youi-render><--lib><$residencyTest>$cargoOptions<--><--exact><--ignored><--nocapture>") 'Text residency GPU unit test command mismatch'
-                Require ($global:YoUIVerificationCalls[10] -eq "cargo|<test><-p><youi-render><--lib><$reuseTest>$cargoOptions<--><--exact><--ignored><--nocapture>") 'Atlas free-region reuse GPU unit test command mismatch'
-                Require ($global:YoUIVerificationCalls[11] -eq "cargo|<test><-p><youi-render><--lib><renderer::text_filter_tests::>$cargoOptions<--><--ignored><--nocapture>") 'Text filter GPU unit test command mismatch'
-                Require ($global:YoUIVerificationCalls[18] -eq "cargo|<run><-p><youi-scene><--example><textured_mesh>$cargoOptions<--><artifacts/textured-mesh.png>") 'Textured mesh example command mismatch'
+                Require ($global:YoUIVerificationCalls[9] -eq "cargo|<test><-p><youi-render><--test><gpu>$cargoOptions<--><--ignored><--nocapture>") 'GPU integration test command mismatch'
+                Require ($global:YoUIVerificationCalls[10] -eq "cargo|<test><-p><youi-render><--lib><$residencyTest>$cargoOptions<--><--exact><--ignored><--nocapture>") 'Text residency GPU unit test command mismatch'
+                Require ($global:YoUIVerificationCalls[11] -eq "cargo|<test><-p><youi-render><--lib><$reuseTest>$cargoOptions<--><--exact><--ignored><--nocapture>") 'Atlas free-region reuse GPU unit test command mismatch'
+                Require ($global:YoUIVerificationCalls[12] -eq "cargo|<test><-p><youi-render><--lib><$purgeTest>$cargoOptions<--><--exact><--ignored><--nocapture>") 'Glyph purge GPU unit test command mismatch'
+                Require ($global:YoUIVerificationCalls[13] -eq "cargo|<test><-p><youi-render><--lib><renderer::text_filter_tests::>$cargoOptions<--><--ignored><--nocapture>") 'Text filter GPU unit test command mismatch'
+                Require ($global:YoUIVerificationCalls[20] -eq "cargo|<run><-p><youi-scene><--example><textured_mesh>$cargoOptions<--><artifacts/textured-mesh.png>") 'Textured mesh example command mismatch'
             }
             Require (!$trace.Contains('<--smoke>')) 'A headless layer invoked native-window checks'
             Require ((Get-Location).Path -eq $unrelated) 'Working directory was not restored'
@@ -79,7 +83,7 @@ try {
         }
     }
     foreach ($layer in 'Logic','Gpu') {
-        $count = if ($layer -eq 'Logic') { 14 } else { 20 }
+        $count = if ($layer -eq 'Logic') { 14 } else { 22 }
         for ($step = 1; $step -le $count; $step++) {
             $global:YoUIVerificationFailAt = $step
             $failed = $false

@@ -79,7 +79,7 @@ impl Atlas {
         }
     }
     // Transactional failure: exhaustion must not move the allocation cursor.
-    // Live slots never move. Only explicitly released image regions can be
+    // Live slots never move. Only explicitly released image or purged glyph regions can be
     // reused, including their reserved one-texel gutters.
     fn allocate(&mut self, w: u32, h: u32) -> Result<AtlasEntry, String> {
         if w == 0 || h == 0 || w > ATLAS_SIZE - 2 || h > ATLAS_SIZE - 2 {
@@ -127,7 +127,7 @@ impl Atlas {
             (self.x, self.y, self.row_h)
         };
         if y + h + 1 > ATLAS_SIZE {
-            return Err("atlas budget exhausted; recreate renderer or use fewer resources".into());
+            return Err("atlas budget exhausted; purge glyph residency between frames and retry once, or use fewer resources".into());
         }
         let entry = AtlasEntry { x, y, w, h };
         self.x = x + w + 2;
@@ -145,6 +145,10 @@ impl Atlas {
             .ok_or("invalid or released image handle")?;
         self.free_regions.push(entry);
         Ok(())
+    }
+    fn purge_glyph_residency(&mut self) {
+        self.free_regions
+            .extend(self.glyphs.drain().map(|(_, entry)| entry));
     }
     fn resolve(
         &mut self,
@@ -288,6 +292,9 @@ impl TextSystem {
     }
     pub fn release_image(&mut self, id: u32) -> Result<(), String> {
         self.atlas.release_image(id)
+    }
+    pub fn purge_glyph_residency(&mut self) {
+        self.atlas.purge_glyph_residency();
     }
     pub fn layout(&mut self, text: &str, size: f32, width: f32, bold: bool) -> TextLayout {
         self.layout.layout(text, size, width, bold)
@@ -1116,6 +1123,62 @@ mod tests {
             assert_eq!((atlas.x, atlas.y, atlas.row_h), cursor);
             assert_eq!(atlas.glyphs[&key()].uv(), uv);
         }
+    }
+
+    #[test]
+    fn glyph_purge_recycles_once_preserves_images_and_reports_fragmentation() {
+        let mut atlas = Atlas::new();
+        let image = atlas.allocate_image(20, 20).unwrap();
+        atlas.images.insert(7, image);
+        let mut keys = Vec::new();
+        for id in 1..200 {
+            let mut k = key();
+            k.glyph_id = id;
+            if atlas.resolve(k, 190, 190, |_| {}).is_err() {
+                break;
+            }
+            keys.push(k);
+        }
+        assert!(keys.len() > 1 && keys.len() < 199);
+        let cursor = (atlas.x, atlas.y, atlas.row_h);
+        atlas.purge_glyph_residency();
+        assert!(atlas.glyphs.is_empty());
+        assert_eq!(atlas.free_regions.len(), keys.len());
+        assert_eq!(atlas.images[&7], image);
+        assert_eq!((atlas.x, atlas.y, atlas.row_h), cursor);
+        atlas.purge_glyph_residency();
+        assert_eq!(
+            atlas.free_regions.len(),
+            keys.len(),
+            "double purge cannot double free"
+        );
+        let free = atlas.free_regions.clone();
+        assert!(
+            atlas.allocate(400, 400).is_err(),
+            "separate holes are not coalesced"
+        );
+        assert_eq!(atlas.free_regions, free);
+        for _ in 0..5 {
+            for k in &keys {
+                atlas.resolve(*k, 190, 190, |_| {}).unwrap();
+            }
+            let mut occupied: Vec<_> = atlas.glyphs.values().copied().collect();
+            occupied.extend(atlas.images.values().copied());
+            occupied.extend(atlas.free_regions.iter().copied());
+            assert_disjoint(&occupied);
+            assert_eq!(atlas.images[&7], image);
+            atlas.purge_glyph_residency();
+        }
+        // Images may consume reclaimed glyph slots too, with their own handles.
+        let replacement = atlas.allocate_image(30, 25).unwrap();
+        atlas.images.insert(8, replacement);
+        atlas.purge_glyph_residency();
+        let mut regions = atlas.free_regions.clone();
+        regions.extend(atlas.images.values().copied());
+        assert_disjoint(&regions);
+        atlas.release_image(8).unwrap();
+        assert!(atlas.release_image(8).is_err());
+        assert_eq!(atlas.images[&7], image);
     }
 
     fn assert_disjoint(entries: &[AtlasEntry]) {

@@ -33,8 +33,7 @@
 | 文字或子节点超出区域 | 设置 ClipToBounds；圆角 Radius 本身不定义圆角裁剪 |
 | 内容空间不足时溢出 | StackPanel 不自动收缩；调整尺寸、布局或添加有有限视口的 ScrollView |
 | 图片跨窗口使用报无效 ID | 图像只能由上传它的 renderer 使用；每个 renderer 单独上传 |
-| `glyph atlas budget exhausted` | 已缓存字形不会自动驱逐，释放图片也不回收字形空间；重建 renderer 后减少字形集和字号变化 |
-| `atlas budget exhausted` | 没有可容纳请求的连续图集区域；释放图片区域可由较小或同尺寸图像/字形复用，但不合并碎片、不驱逐字形；纯文字/字号变化仍可能耗尽，需控制资源或重建 renderer |
+| `atlas budget exhausted` | 字形不会自动驱逐；可在帧间调用 PurgeGlyphResidency 并仅重试一次。碎片或单帧字形集仍可能超限；减少资源或重建 renderer，见[驻留与回收契约](text-residency.md) |
 | 层数、层深度或像素预算错误 | 减少 CompositedOpacity 隔离层；每层按整个视口分配，见[帧限制](api/native.md#帧与资源限制) |
 | `unbalanced frame scopes` / 栈下溢 | 核对 PushClip/PopClip、BeginLayer/EndLayer 的配对顺序 |
 | 自定义宿主 Ctrl+C/V 不工作 | 设置 Document.Clipboard；DesktopWindow 已注入内部实现 |

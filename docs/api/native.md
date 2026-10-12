@@ -108,7 +108,7 @@ read_pixels / save_png 保存的是 sRGB 目标中的预乘内容，未做反预
 | `commands`、`instances`、`draw_calls`、`layers` | u32 | 命令、实例、绘制调用、隔离层数 |
 | `upload_bytes` | u64 | 实例缓冲上传量 |
 | `prepare_us`、`submit_us` | u64 | CPU 准备 / 编码提交微秒 |
-| `atlas_glyphs`、`text_cache_hits` | u32 | 累计缓存字形数 / 本次渲染文字缓存命中 |
+| `atlas_glyphs`、`text_cache_hits` | u32 | 本次成功帧的驻留字形数 / 本次渲染文字缓存命中 |
 
 instances 不含最终窗口呈现实例，draw_calls 在确实呈现时多一次。upload_bytes 包含预留的合成实例。时间不是 GPU 时间或 FPS，详见 [C# 字段说明](rendering.md#framestats)。
 
@@ -339,3 +339,13 @@ Copy-Item -LiteralPath target/release/youi_render.dll -Destination artifacts/you
 `youi_create_xlib(width, height, void* display, uintptr_t window, int32_t screen, uint64_t* result)` 与 `youi_create_xlib_with_budget(..., const youi_resource_budget_t* budget, uint64_t* result)` 接收宿主拥有的 Xlib Display 指针和窗口 XID。旧 `youi_create` 的非零窗口参数仍只表示 Windows HWND，不重新解释为 XID。
 
 仅 Linux 支持该入口。display、window、screen 必须来自同一个有效窗口；调用方负责创建线程与 Xlib 线程规则，并在销毁窗口或关闭 display 前销毁 renderer。库只能验证空指针、零 XID、负 screen、输出对齐、尺寸和预算，不能验证任意指针的有效性。失败时有效输出置零。ABI v1 不保证旧库包含新增符号，部署需使用匹配版本。窗口 swapchain 不计入保留资源预算，与 HWND 行为一致。参见 [Linux X11 实验宿主](../linux-window.md) 的验证边界。
+
+## Explicit glyph-residency purge (additive ABI v1)
+
+Rust `Renderer::purge_glyph_residency()` / C
+`int32_t youi_purge_glyph_residency(uint64_t renderer)` reclaim only resident glyph
+slots between render calls. Live images and cached text geometry remain valid;
+the next render resolves/uploads glyphs anew. Calls are idempotent, do not wait
+for the GPU, and leave last successful output/stats and GPU allocations unchanged.
+Invalid/disposed C handles return an error. Older ABI v1 binaries may lack this
+symbol. See [residency and explicit retry contract](../text-residency.md).

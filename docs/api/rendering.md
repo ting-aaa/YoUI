@@ -162,3 +162,13 @@ Console.WriteLine(renderer.ResourceUsage.AtlasBytes); // 16777216
 `NativeRenderer.CreateXlib(uint width, uint height, nint display, nuint window, int screen)` 及末尾接收 `ResourceBudget` 的重载创建借用 Xlib 句柄的 renderer。它不创建窗口、事件循环或 SDL 依赖，也不使旧 HWND 构造函数接受 XID。仅 Linux 可调用；非空 display、非零 window 和非负 screen 必须真实有效并属于同一个窗口，构造后的 renderer 必须在原线程先于窗口/display 释放。空句柄、非法尺寸和预算在 GPU 初始化前拒绝；错误的非空原生指针仍是调用方责任。旧 native library 缺少新增符号时给出明确的版本匹配错误。
 
 [`YoUI.Platform.Linux`](../linux-window.md) 封装这一生命周期；原型使用物理像素，无 Windows DIP 适配。原生窗口成功路径仍需独立验收。
+
+## Glyph-residency reclamation
+
+`NativeRenderer.PurgeGlyphResidency()` explicitly reclaims glyph atlas slots
+between `Render` calls, preserving live images and cached layouts. Owner-thread
+and disposal checks apply. Deploy the matching native library; older ABI v1
+binaries report a missing-symbol error. The next render uploads visible glyphs
+again. Use one explicit purge/retry for an atlas-exhaustion error, never an
+unbounded or arbitrary-error retry. Fragmentation/current-frame capacity still
+apply, and GPU allocations do not shrink. See [full contract](../text-residency.md).
