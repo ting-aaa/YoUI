@@ -172,3 +172,18 @@ binaries report a missing-symbol error. The next render uploads visible glyphs
 again. Use one explicit purge/retry for an atlas-exhaustion error, never an
 unbounded or arbitrary-error retry. Fragmentation/current-frame capacity still
 apply, and GPU allocations do not shrink. See [full contract](../text-residency.md).
+
+## Offscreen-layer reclamation
+
+Call `NativeRenderer.TrimOffscreenLayers()` between `Render` calls when a modal
+closes or at another known idle boundary. It releases all retained scratch layer
+targets/views/bind groups; `ResourceUsage.LayerCount` and `LayerBytes` become zero.
+The last output and frame stats, glyph/image residency, instance-buffer capacity
+and budgets remain unchanged. The next admitted layered frame recreates only
+needed targets. Repeated calls are harmless; avoid doing this every frame.
+
+This does not wait for submitted GPU work. In-flight work/driver caches may retain
+old allocations, so the accounting decrease is not a promise of immediate VRAM
+release. Owner-thread/disposed checks apply. Older native libraries lacking
+`youi_trim_offscreen_layers` raise a matching-library diagnostic, even with ABI v1.
+See [full scope and budget behavior](../resource-budgets.md).

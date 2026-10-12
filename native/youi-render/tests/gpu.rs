@@ -794,3 +794,166 @@ fn textured_mesh_budget_exact_fit_rejection_and_recovery() -> Result<(), String>
     );
     Ok(())
 }
+
+#[test]
+#[ignore = "requires a GPU adapter; run explicitly in the quality gate"]
+fn offscreen_trim_reclaims_recreates_and_preserves_queued_frames() -> Result<(), String> {
+    use youi_render::ResourceBudget;
+    let target = 64 * 64 * 4;
+    let budget = ResourceBudget {
+        max_texture_bytes: 2048 * 2048 * 4 + target * 3,
+        max_instance_buffer_bytes: 2048 * 112,
+    };
+    let mut renderer = unsafe { Renderer::new_with_budget(64, 64, 0, budget)? };
+    let initial = renderer.resource_usage();
+    renderer.trim_offscreen_layers();
+    assert_eq!(renderer.resource_usage(), initial);
+    let image = renderer.upload_image(4, 4, &[0, 255, 255, 255].repeat(16))?;
+    let begin = Command {
+        kind: 4,
+        color: [0., 0., 0., 0.5],
+        ..Default::default()
+    };
+    let end = Command {
+        kind: 5,
+        ..Default::default()
+    };
+    let background = Command::rect(Rect::new(0., 0., 64., 64.), [0., 0., 0., 1.], 0.);
+    let frame = vec![
+        background,
+        Command {
+            kind: 2,
+            rect: Rect::new(4., 4., 52., 52.),
+            ..Default::default()
+        },
+        begin,
+        Command::rect(Rect::new(0., 0., 40., 40.), [1., 0., 0., 1.], 0.),
+        begin,
+        Command::rect(Rect::new(12., 12., 40., 40.), [0., 1., 0., 1.], 0.),
+        Command {
+            kind: 7,
+            flags: image,
+            rect: Rect::new(24., 24., 16., 16.),
+            color: [1.; 4],
+            ..Default::default()
+        },
+        Command::text(Rect::new(4., 36., 48., 20.), [1.; 4], 12., 0, 4),
+        end,
+        Command::rect(Rect::new(44., 4., 16., 8.), [0., 0., 1., 1.], 0.),
+        end,
+        Command {
+            kind: 3,
+            ..Default::default()
+        },
+        Command::rect(Rect::new(0., 60., 64., 4.), [1., 1., 0., 1.], 0.),
+    ];
+    // Grow the independent instance buffer; layer trim must not shrink it.
+    renderer.render(&vec![background; 1024], b"")?;
+    assert_eq!(renderer.resource_usage().instance_buffer_bytes, 2048 * 112);
+    let reference_stats = renderer.render(&frame, b"Trim")?;
+    let reference = renderer.read_pixels()?;
+    let retained = renderer.resource_usage();
+    assert_eq!(retained.layer_count, 2);
+    assert_eq!(retained.layer_bytes, target * 2);
+    assert!(reference_stats.atlas_glyphs > 0);
+    let at = |x: usize, y: usize| &reference[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4];
+    assert_eq!(at(2, 2), &[0, 0, 0, 255], "outer clip");
+    assert_eq!(at(60, 8), &[0, 0, 0, 255], "right clip");
+    assert_eq!(at(12, 62), &[255, 255, 0, 255], "ordered overlay");
+    assert!((at(8, 8)[0] as i32 - 188).abs() <= 2, "group opacity");
+    assert!((at(28, 28)[0] as i32 - 137).abs() <= 2, "nested group red");
+    assert!(
+        (at(28, 28)[1] as i32 - 137).abs() <= 2,
+        "nested image green: {:?}",
+        at(28, 28)
+    );
+    assert!(
+        (at(28, 28)[2] as i32 - 137).abs() <= 2,
+        "nested image blue: {:?}",
+        at(28, 28)
+    );
+    let measured = renderer.measure("Trim", 12., 48., false)?;
+
+    for _ in 0..3 {
+        // Submit then drop layer textures/views/binds with no wait/readback in
+        // between. A rejected next frame cannot overwrite the pending output.
+        let pending_stats = renderer.render(&frame, b"Trim")?;
+        renderer.trim_offscreen_layers();
+        renderer.trim_offscreen_layers();
+        let trimmed = renderer.resource_usage();
+        assert_eq!(trimmed.layer_bytes, 0);
+        assert_eq!(trimmed.layer_count, 0);
+        assert_eq!(trimmed.atlas_bytes, retained.atlas_bytes);
+        assert_eq!(trimmed.output_bytes, retained.output_bytes);
+        assert_eq!(
+            trimmed.instance_buffer_bytes,
+            retained.instance_buffer_bytes
+        );
+        assert_eq!(renderer.resource_budget(), budget);
+        // Compare all FrameStats fields including timings, without reading padding.
+        assert_eq!(
+            format!("{:?}", renderer.stats),
+            format!("{pending_stats:?}")
+        );
+        let over_texture = [begin, begin, begin, background, end, end, end];
+        assert!(renderer
+            .render(&over_texture, b"")
+            .unwrap_err()
+            .contains("texture payload budget"));
+        let mut over_instances = vec![begin];
+        over_instances.extend(std::iter::repeat_n(background, 2048));
+        over_instances.push(end);
+        assert!(renderer
+            .render(&over_instances, b"")
+            .unwrap_err()
+            .contains("instance buffer payload budget"));
+        assert!(renderer.render(&[end], b"").is_err());
+        assert_eq!(renderer.resource_usage(), trimmed);
+        assert_eq!(
+            format!("{:?}", renderer.stats),
+            format!("{pending_stats:?}")
+        );
+        assert_eq!(
+            renderer.read_pixels()?,
+            reference,
+            "queued pre-trim frame survives"
+        );
+        assert_eq!(renderer.measure("Trim", 12., 48., false)?, measured);
+        let recreated = renderer.render(&frame, b"Trim")?;
+        assert_eq!(renderer.resource_usage(), retained);
+        assert_eq!(recreated.atlas_glyphs, reference_stats.atlas_glyphs);
+        assert_eq!(recreated.layers, reference_stats.layers);
+        assert_eq!(recreated.draw_calls, reference_stats.draw_calls);
+        assert_eq!(
+            renderer.read_pixels()?,
+            reference,
+            "nested clip/opacity/order recreation"
+        );
+    }
+    // Modal closes: ordinary flat/empty frames retain high-water layers until
+    // explicitly trimmed, and a subsequent single layer allocates just one.
+    renderer.render(&[], b"")?;
+    assert_eq!(renderer.resource_usage(), retained);
+    renderer.trim_offscreen_layers();
+    renderer.render(&[background], b"")?;
+    assert_eq!(renderer.resource_usage().layer_count, 0);
+    renderer.render(&[begin, background, end], b"")?;
+    assert_eq!(renderer.resource_usage().layer_count, 1);
+    assert_eq!(renderer.resource_usage().layer_bytes, target);
+    // Repeated successful submissions/recreations also need no intervening poll.
+    for _ in 0..4 {
+        renderer.render(&frame, b"Trim")?;
+        renderer.trim_offscreen_layers();
+    }
+    assert_eq!(renderer.read_pixels()?, reference);
+    if let Ok(dir) = std::env::var("YOUI_ARTIFACT_DIR") {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        renderer.save_png(&format!("{dir}/offscreen-trim.png"))?;
+    }
+    renderer.release_image(image)?;
+    println!(
+        "Offscreen trim/recreate/queued-frame pixels verified on {}",
+        renderer.adapter_name
+    );
+    Ok(())
+}

@@ -229,6 +229,15 @@ pub extern "C" fn youi_purge_glyph_residency(id: u64) -> i32 {
         })
     })
 }
+#[no_mangle]
+pub extern "C" fn youi_trim_offscreen_layers(id: u64) -> i32 {
+    guard(|| {
+        with_engine(id, |e| {
+            e.trim_offscreen_layers();
+            Ok(())
+        })
+    })
+}
 /// # Safety
 /// Pointers must reference readable arrays of the given lengths; stats is writable.
 #[no_mangle]
@@ -581,6 +590,8 @@ mod tests {
     }
     #[test]
     fn invalid_handle_is_error() {
+        assert_eq!(youi_trim_offscreen_layers(0), -1);
+        assert_eq!(youi_trim_offscreen_layers(u64::MAX), -1);
         assert_eq!(youi_purge_glyph_residency(0), -1);
         assert_eq!(youi_resize(u64::MAX, 10, 10), -1);
         assert_eq!(youi_destroy(u64::MAX), -1);

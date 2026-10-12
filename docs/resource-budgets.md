@@ -10,7 +10,7 @@
 |---|---|
 | AtlasBytes / atlas_bytes | 固定 2048×2048×4 = 16 MiB；glyph 与 image 共用。图片上传/释放改变占用，不改变纹理分配大小 |
 | OutputBytes / output_bytes | 当前 width×height×4，RGBA8 输出目标 |
-| LayerBytes / layer_bytes | 已保留层数量×width×height×4；按历史高水位保留，空帧不释放 |
+| LayerBytes / layer_bytes | 已保留层数量×width×height×4；按历史高水位保留，空帧不释放；显式 TrimOffscreenLayers 清零 |
 | InstanceBufferBytes / instance_buffer_bytes | 当前 GPU 实例缓冲容量×112；初始 1024 个实例，按高水位复用 |
 | LayerCount / layer_count | 已保留的离屏层数量，不是上一帧使用数量 |
 
@@ -53,7 +53,34 @@ C ABI 增加 `youi_create_with_budget`、`youi_resource_budget`、`youi_resource
 - 实例缓冲通常按 2 的幂增长；若舍入将超过预算/设备限制，但精确大小可容纳，则按精确大小分配。因此上限边界不会被预留容量误拒绝。
 - 全部实例通过检查后才扩展 layer targets 和 GPU 实例缓冲。预算拒绝的帧不提交绘制，保留上一张输出、FrameStats、live image handles 与 GPU 分配快照；可以继续提交较小帧。
 - 失败不是全部状态事务：准备中的 CPU 文本缓存、glyph atlas residency 可能已经变化；固定 atlas 的分配大小不变。不要把此保证推广到 GPU/驱动错误或 panic。
-- 释放 image 的空闲区域可复用给较小或同尺寸 image/glyph；显式 PurgeGlyphResidency 可回收 glyph 区域；不合并碎片、不缩小 atlas；空帧不缩小层和实例缓冲。没有 LRU 驱逐、通用 trim、资源搬迁或设备重建。
+- 释放 image 的空闲区域可复用给较小或同尺寸 image/glyph；显式 PurgeGlyphResidency 可回收 glyph 区域；不合并碎片、不缩小 atlas；空帧不缩小层和实例缓冲。显式 TrimOffscreenLayers 仅回收离屏层；没有 LRU 驱逐、通用 trim、资源搬迁或设备重建。
+
+## 显式离屏层回收（Alpha）
+
+Rust `Renderer::trim_offscreen_layers()`、C `youi_trim_offscreen_layers(renderer)`、
+.NET `NativeRenderer.TrimOffscreenLayers()` 在两次 render 调用之间，释放全部保留的
+scratch layer targets（texture、view、bind group 一并释放）。适合 modal 关闭或应用
+已知的空闲边界；不会自动每帧回收，避免反复分配。重复调用无副作用。
+
+`ResourceUsage.LayerCount/LayerBytes` 立即变为零；输出及其像素、上一帧完整
+`FrameStats`、atlas/glyph/image residency、布局/raster cache、实例缓冲容量和预算不变。
+下一次通过预算准入的 layered frame 按实际需要重新创建；flat frame 不创建层。
+预算/命令校验失败不会重建层或覆盖已有输出、stats。原有 16 层、像素总量、
+texture 和 instance 上限继续生效。
+
+操作只丢弃 renderer 持有的对象，不调用 texture destroy，不等待 GPU。
+已经提交的队列工作保持所需资源的生命周期；驱动和在途提交可能继续持有旧分配，
+因此这是**当前保留 payload 的减少**，不保证实际 VRAM 立即下降，也不测量驱动显存。
+快速 trim/recreate 的在途重叠仍不计入预算。API 不改变离屏目标的全 viewport 尺寸。
+
+实例缓冲是独立高水位：仍按几何增长或预算边缘精确分配，不随 trim 缩小；
+CPU arena 也不作内存回收保证。本增量不引入 instance trim、局部 bounds、设备重建。
+新增符号保持 ABI v1，旧 DLL 缺符号时托管 API 明确报匹配库部署错误；
+仍要求 renderer owner thread，disposed renderer 不能调用。
+
+GPU 回归覆盖嵌套 clip/group opacity/图像/文本/绘制顺序的逐像素重建一致性，
+无 wait 的 submit→trim→预算拒绝保持旧输出，以及重复 queued trim/recreate。
+托管 `--gpu-offscreen-trim` 纳入 `verify.ps1 -Layer Gpu`。
 
 ## 验证
 
