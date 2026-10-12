@@ -135,7 +135,10 @@ provides no such WM-state evidence. The subsequent Release run
 [38238087429](https://github.com/ting-aaa/YoUI/actions/runs/38238087429), at
 `d9ea357326b7b1adb14838f85552497549bffec5`, observed the real WM-state transitions
 and resumed rendering but **FAILED** the restored click assertion. The revised
-activation/target-readiness path below has **NOT RUN** on a native display.
+activation/target-readiness path at `bc7ed454820cd9205d7e98a6a338e564fcdc28be`
+was **NOT RUN** when introduced. The later run on its merge reached activation
+but failed during positioning before readiness or clicking; see the idempotent
+pointer-positioning section below for that result and the current correction.
 
 Neither result establishes physical keyboard/mouse input, hardware GPU
 behavior/performance, native Wayland, IME, accessibility, Windows or macOS
@@ -221,3 +224,26 @@ Primary references: [EWMH active-window protocol](https://specifications.freedes
 [Xlib pointer queries and coordinate translation](https://www.x.org/releases/X11R7.5/doc/libX11/libX11.html),
 [SDL 2.30.0 X11 focus-click filtering](https://raw.githubusercontent.com/libsdl-org/SDL/release-2.30.0/src/video/x11/SDL_x11events.c),
 [xdotool version-matched input/activation behavior](https://raw.githubusercontent.com/jordansissel/xdotool/v3.20160805.1/xdotool.pod).
+
+### Idempotent pointer positioning
+
+The subsequent native run [38243514555](https://github.com/ting-aaa/YoUI/actions/runs/38243514555)
+on merge `2aea51ebc1156eb19b299ab424c4b1fc52074c59` passed 23 checks,
+including restored rendering and focus, but timed out in the pointer-positioning
+command before the readiness check and restored click. Its failure snapshot
+already showed the pointer at the requested client-relative button center.
+The version-matched [xdotool mousemove implementation](https://raw.githubusercontent.com/jordansissel/xdotool/v3.20160805.1/cmd_mousemove.c)
+waits for departure from the original position with `--sync`, even if an ordinary
+move already starts at its target. This is a harness liveness failure; it does
+not establish whether the original restored-click failure is fixed.
+
+Element positioning now issues one `mousemove --window` without `--sync`, then
+uses bounded Xlib observations to require exact client-relative target coordinates,
+a viewable client, and its presence in the topmost pointer hierarchy. It neither
+requires a PointerMove event nor moves away and back to manufacture one. Missing
+arrival, occlusion, command failure, or observation failure cannot pass. The
+non-WM mode does not require WM_STATE or an active-window property for positioning.
+The restored path still separately requires all focus/activation/button-release
+preconditions sampled across 100 ms and exactly one real click/down/up sequence.
+No retry click or product input change is introduced. This correction has only
+no-display regression evidence until a new authorized native run completes.
