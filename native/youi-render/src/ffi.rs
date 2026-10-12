@@ -1,4 +1,5 @@
-//! Versioned C ABI. Never retain caller memory. Handles are checked registry IDs.
+//! Versioned C ABI. Never retain caller buffers; platform handles are borrowed.
+//! Renderer handles are checked registry IDs.
 //! Calls are serialized, and errors/panics are contained at this boundary.
 use crate::{Command, FrameStats, Renderer, ResourceBudget, ResourceUsage, TextCell};
 use std::{
@@ -30,6 +31,15 @@ fn with_engine(id: u64, f: impl FnOnce(&mut Renderer) -> Result<(), String>) -> 
     f(engines
         .get_mut(&id)
         .ok_or("invalid or disposed renderer handle")?)
+}
+fn register(renderer: Renderer) -> Result<u64, String> {
+    let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    ENGINES
+        .get_or_init(Default::default)
+        .lock()
+        .map_err(|_| "renderer registry poisoned")?
+        .insert(id, renderer);
+    Ok(id)
 }
 fn checked_pointer<T>(ptr: *const T, name: &str) -> Result<(), String> {
     if ptr.is_null() || !(ptr as usize).is_multiple_of(std::mem::align_of::<T>()) {
@@ -90,13 +100,57 @@ pub unsafe extern "C" fn youi_create_with_budget(
         *out = 0;
         checked_pointer(budget, "resource budget")?;
         let renderer = Renderer::new_with_budget(w, h, hwnd, *budget)?;
-        let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        ENGINES
-            .get_or_init(Default::default)
-            .lock()
-            .map_err(|_| "renderer registry poisoned")?
-            .insert(id, renderer);
-        *out = id;
+        *out = register(renderer)?;
+        Ok(())
+    })
+}
+/// Additive v1 Linux Xlib surface API. Older v1 libraries may lack this symbol.
+/// This does not reinterpret the existing HWND/offscreen API.
+/// # Safety
+/// `out` must be writable and aligned. `display` must be a live Xlib Display
+/// pointer and `window` a live XID on its valid `screen`. Destroy the renderer
+/// before the window or display. Calls must obey the host's Xlib thread rules.
+#[no_mangle]
+pub unsafe extern "C" fn youi_create_xlib(
+    w: u32,
+    h: u32,
+    display: *mut std::ffi::c_void,
+    window: usize,
+    screen: i32,
+    out: *mut u64,
+) -> i32 {
+    youi_create_xlib_with_budget(
+        w,
+        h,
+        display,
+        window,
+        screen,
+        &ResourceBudget::default(),
+        out,
+    )
+}
+/// Creates a Linux Xlib renderer using explicit retained-resource ceilings.
+/// Swapchain allocations are excluded from the budget, as for HWND surfaces.
+/// # Safety
+/// The borrowed display/window and threading contract of `youi_create_xlib`
+/// applies. `budget` must be readable and aligned; `out` writable and aligned.
+/// The budget is copied. A valid `out` is zeroed before any fallible work.
+#[no_mangle]
+pub unsafe extern "C" fn youi_create_xlib_with_budget(
+    w: u32,
+    h: u32,
+    display: *mut std::ffi::c_void,
+    window: usize,
+    screen: i32,
+    budget: *const ResourceBudget,
+    out: *mut u64,
+) -> i32 {
+    guard(|| {
+        checked_pointer(out, "result")?;
+        *out = 0;
+        checked_pointer(budget, "resource budget")?;
+        let renderer = Renderer::new_xlib_with_budget(w, h, display, window, screen, *budget)?;
+        *out = register(renderer)?;
         Ok(())
     })
 }
@@ -412,6 +466,109 @@ mod tests {
             assert_eq!(youi_create_with_budget(10, 10, 0, &budget, &mut handle), -1);
         }
         assert_eq!(handle, 0);
+    }
+    #[test]
+    fn xlib_rejects_null_handles_and_negative_screen_before_gpu() {
+        let display = std::ptr::NonNull::<u8>::dangling().as_ptr().cast();
+        for (display, window, screen) in [
+            (std::ptr::null_mut(), 1, 0),
+            (display, 0, 0),
+            (display, 1, -1),
+        ] {
+            let mut handle = u64::MAX;
+            unsafe {
+                assert_eq!(
+                    youi_create_xlib(10, 10, display, window, screen, &mut handle),
+                    -1
+                );
+            }
+            assert_eq!(handle, 0);
+        }
+    }
+    #[test]
+    fn xlib_checks_budget_and_output_pointers_before_dereferencing() {
+        let display = std::ptr::NonNull::<u8>::dangling().as_ptr().cast();
+        let budget = ResourceBudget::default();
+        let mut handle = u64::MAX;
+        let mut storage = [0_u64; 8];
+        let misaligned = unsafe { storage.as_mut_ptr().cast::<u8>().add(1) };
+        unsafe {
+            for bad_budget in [std::ptr::null(), misaligned.cast::<ResourceBudget>()] {
+                assert_eq!(
+                    youi_create_xlib_with_budget(10, 10, display, 1, 0, bad_budget, &mut handle),
+                    -1
+                );
+                assert_eq!(handle, 0);
+                handle = u64::MAX;
+            }
+            for bad_out in [std::ptr::null_mut(), misaligned.cast::<u64>()] {
+                assert_eq!(youi_create_xlib(10, 10, display, 1, 0, bad_out), -1);
+                assert_eq!(
+                    youi_create_xlib_with_budget(10, 10, display, 1, 0, &budget, bad_out),
+                    -1
+                );
+            }
+        }
+        assert_eq!(storage, [0; 8]);
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn xlib_rejects_dimensions_and_insufficient_budgets_before_gpu() {
+        let display = std::ptr::NonNull::<u8>::dangling().as_ptr().cast();
+        let default = ResourceBudget::default();
+        for (w, h, budget, expected) in [
+            (0, 10, default, "target size"),
+            (10, 8193, default, "target size"),
+            (
+                10,
+                10,
+                ResourceBudget {
+                    max_texture_bytes: 0,
+                    ..default
+                },
+                "texture payload budget",
+            ),
+            (
+                10,
+                10,
+                ResourceBudget {
+                    max_instance_buffer_bytes: 0,
+                    ..default
+                },
+                "instance buffer payload budget",
+            ),
+        ] {
+            let mut handle = u64::MAX;
+            unsafe {
+                assert_eq!(
+                    youi_create_xlib_with_budget(w, h, display, 1, 0, &budget, &mut handle),
+                    -1
+                );
+            }
+            assert_eq!(handle, 0);
+            ERROR.with(|error| assert!(error.borrow().contains(expected), "{}", error.borrow()));
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn xlib_rejects_unsupported_platform_before_gpu() {
+        let display = std::ptr::NonNull::<u8>::dangling().as_ptr().cast();
+        let mut handle = u64::MAX;
+        unsafe {
+            assert_eq!(youi_create_xlib(10, 10, display, 1, 0, &mut handle), -1);
+        }
+        assert_eq!(handle, 0);
+        ERROR.with(|error| assert!(error.borrow().contains("only on Linux")));
+    }
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn hwnd_does_not_become_an_implicit_xlib_handle() {
+        let mut handle = u64::MAX;
+        unsafe {
+            assert_eq!(youi_create(10, 10, 1, &mut handle), -1);
+        }
+        assert_eq!(handle, 0);
+        ERROR.with(|error| assert!(error.borrow().contains("Windows HWND only")));
     }
     #[test]
     fn invalid_handle_is_error() {

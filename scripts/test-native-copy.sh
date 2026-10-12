@@ -25,7 +25,7 @@ cp "$root/global.json" "$scratch/global.json"
 
 # An unrelated working directory catches project-relative source path regressions.
 cd "$scratch"
-for project in samples/YoUI.Showcase tools/YoUI.Editor docs/examples/HelloYoUI; do
+for project in samples/YoUI.Showcase tools/YoUI.Editor docs/examples/HelloYoUI samples/YoUI.Linux.Sample; do
     name="${project##*/}"
     project_file="$root/$project/$name.csproj"
     cmp "$native" "$root/$project/bin/$configuration/net10.0/libyoui_render.so"

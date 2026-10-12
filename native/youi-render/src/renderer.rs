@@ -105,8 +105,50 @@ impl Pass {
     }
 }
 
-/// Rendering is driven by the host. A window handle, when supplied, must remain
-/// alive until this renderer is dropped. Offscreen rendering needs no window.
+enum SurfaceTarget {
+    Offscreen,
+    Hwnd(isize),
+    Xlib {
+        display: *mut std::ffi::c_void,
+        window: usize,
+        screen: i32,
+    },
+}
+impl SurfaceTarget {
+    // Validate before creating the wgpu instance or touching any platform handle.
+    fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::Offscreen => Ok(()),
+            Self::Hwnd(_) if !cfg!(target_os = "windows") => {
+                Err("this host adapter accepts Windows HWND only".into())
+            }
+            Self::Hwnd(_) => Ok(()),
+            Self::Xlib { .. } if !cfg!(target_os = "linux") => {
+                Err("Xlib surfaces are supported only on Linux".into())
+            }
+            Self::Xlib {
+                display,
+                window,
+                screen,
+            } => {
+                if display.is_null() {
+                    return Err("null Xlib display".into());
+                }
+                if *window == 0 {
+                    return Err("null Xlib window XID".into());
+                }
+                if *screen < 0 {
+                    return Err("Xlib screen must be nonnegative".into());
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Rendering is driven by the host. Borrowed window handles and display
+/// connections must remain alive until this renderer is dropped. Offscreen
+/// rendering needs neither. The renderer never destroys the host's window.
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -145,6 +187,66 @@ impl Renderer {
         hwnd: isize,
         budget: ResourceBudget,
     ) -> Result<Self, String> {
+        let target = if hwnd == 0 {
+            SurfaceTarget::Offscreen
+        } else {
+            SurfaceTarget::Hwnd(hwnd)
+        };
+        Self::new_for_target(width, height, target, budget)
+    }
+    /// Creates a Linux X11 surface using the host's Xlib connection and window.
+    /// # Safety
+    /// `display` must be a live Xlib Display pointer; `window` must belong to
+    /// that display and `screen` must be its valid screen index. Both borrowed
+    /// handles must remain valid until Self is dropped, before destroying the
+    /// window or closing the display. Call on the owning host thread, with no
+    /// concurrent access to that display unless Xlib threading was initialized.
+    pub unsafe fn new_xlib(
+        width: u32,
+        height: u32,
+        display: *mut std::ffi::c_void,
+        window: usize,
+        screen: i32,
+    ) -> Result<Self, String> {
+        Self::new_xlib_with_budget(
+            width,
+            height,
+            display,
+            window,
+            screen,
+            ResourceBudget::default(),
+        )
+    }
+    /// Creates a Linux Xlib renderer with retained-resource admission limits.
+    /// Swapchain allocations are excluded, as with the HWND surface API.
+    /// # Safety
+    /// The display, window, screen and threading requirements of `new_xlib` apply.
+    pub unsafe fn new_xlib_with_budget(
+        width: u32,
+        height: u32,
+        display: *mut std::ffi::c_void,
+        window: usize,
+        screen: i32,
+        budget: ResourceBudget,
+    ) -> Result<Self, String> {
+        Self::new_for_target(
+            width,
+            height,
+            SurfaceTarget::Xlib {
+                display,
+                window,
+                screen,
+            },
+            budget,
+        )
+    }
+    unsafe fn new_for_target(
+        width: u32,
+        height: u32,
+        target: SurfaceTarget,
+        budget: ResourceBudget,
+    ) -> Result<Self, String> {
+        target.validate()?;
         budget.textures(width, height, 0)?;
         budget.capacity(INITIAL_CAPACITY, 0, wgpu::Limits::default().max_buffer_size)?;
         let trace = |stage: &str| {
@@ -161,41 +263,75 @@ impl Renderer {
             backends,
             ..Default::default()
         });
-        let surface = if hwnd != 0 {
-            #[cfg(target_os = "windows")]
-            {
-                use raw_window_handle::*;
-                let mut window =
-                    Win32WindowHandle::new(std::num::NonZeroIsize::new(hwnd).ok_or("null HWND")?);
-                // Vulkan needs the instance belonging to this window's class,
-                // which can differ from the renderer DLL's module instance.
-                #[link(name = "user32")]
-                unsafe extern "system" {
-                    #[cfg_attr(target_pointer_width = "64", link_name = "GetWindowLongPtrW")]
-                    #[cfg_attr(target_pointer_width = "32", link_name = "GetWindowLongW")]
-                    fn window_instance(hwnd: isize, index: i32) -> isize;
+        let surface = match target {
+            SurfaceTarget::Offscreen => None,
+            SurfaceTarget::Hwnd(hwnd) => {
+                #[cfg(target_os = "windows")]
+                {
+                    use raw_window_handle::*;
+                    let mut window = Win32WindowHandle::new(
+                        std::num::NonZeroIsize::new(hwnd).ok_or("null HWND")?,
+                    );
+                    // Vulkan needs the instance belonging to this window's class,
+                    // which can differ from the renderer DLL's module instance.
+                    #[link(name = "user32")]
+                    unsafe extern "system" {
+                        #[cfg_attr(target_pointer_width = "64", link_name = "GetWindowLongPtrW")]
+                        #[cfg_attr(target_pointer_width = "32", link_name = "GetWindowLongW")]
+                        fn window_instance(hwnd: isize, index: i32) -> isize;
+                    }
+                    window.hinstance = Some(
+                        std::num::NonZeroIsize::new(window_instance(hwnd, -6))
+                            .ok_or("could not obtain HWND HINSTANCE")?,
+                    );
+                    Some(
+                        instance
+                            .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                                raw_display_handle: RawDisplayHandle::Windows(
+                                    WindowsDisplayHandle::new(),
+                                ),
+                                raw_window_handle: RawWindowHandle::Win32(window),
+                            })
+                            .map_err(|e| e.to_string())?,
+                    )
                 }
-                window.hinstance = Some(
-                    std::num::NonZeroIsize::new(window_instance(hwnd, -6))
-                        .ok_or("could not obtain HWND HINSTANCE")?,
-                );
-                Some(
-                    instance
-                        .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
-                            raw_display_handle: RawDisplayHandle::Windows(
-                                WindowsDisplayHandle::new(),
-                            ),
-                            raw_window_handle: RawWindowHandle::Win32(window),
-                        })
-                        .map_err(|e| e.to_string())?,
-                )
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let _ = hwnd;
+                    return Err("this host adapter accepts Windows HWND only".into());
+                }
             }
-            #[cfg(not(target_os = "windows"))]
-            {
-                return Err("this host adapter accepts Windows HWND only".into());
+            SurfaceTarget::Xlib {
+                display,
+                window,
+                screen,
+            } => {
+                #[cfg(target_os = "linux")]
+                {
+                    use raw_window_handle::*;
+                    Some(
+                        instance
+                            .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                                raw_display_handle: RawDisplayHandle::Xlib(XlibDisplayHandle::new(
+                                    Some(
+                                        std::ptr::NonNull::new(display)
+                                            .ok_or("null Xlib display")?,
+                                    ),
+                                    screen,
+                                )),
+                                raw_window_handle: RawWindowHandle::Xlib(XlibWindowHandle::new(
+                                    window as std::ffi::c_ulong,
+                                )),
+                            })
+                            .map_err(|e| e.to_string())?,
+                    )
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    let _ = (display, window, screen);
+                    return Err("Xlib surfaces are supported only on Linux".into());
+                }
             }
-        } else {
-            None
         };
         trace("adapter");
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

@@ -14,4 +14,6 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Exporter plugin build failed' }
     dotnet build docs/examples/HelloYoUI/HelloYoUI.csproj -c $Configuration -m:1
     if ($LASTEXITCODE -ne 0) { throw 'HelloYoUI build failed' }
+    dotnet build samples/YoUI.Linux.Sample/YoUI.Linux.Sample.csproj -c $Configuration -m:1
+    if ($LASTEXITCODE -ne 0) { throw 'Linux sample build failed' }
 } finally { Pop-Location }

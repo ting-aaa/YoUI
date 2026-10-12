@@ -83,11 +83,25 @@ int32_t YOUI_CALL youi_create(uint32_t width, uint32_t height, intptr_t hwnd, ui
    The budget must cover the initial atlas, output and instance-buffer capacity.
    The budget is copied; the caller may release it immediately after the call. */
 int32_t YOUI_CALL youi_create_with_budget(uint32_t width, uint32_t height, intptr_t hwnd, const youi_resource_budget_t* budget, uint64_t* result);
+/* Additive v1 Linux Xlib symbols; older v1 libraries may not export them.
+   display is a live Xlib Display*, window is its nonzero X11 window XID, and
+   screen is the window's valid, nonnegative screen index. These are borrowed:
+   destroy the renderer before destroying the window or closing the display.
+   Follow the host's Xlib thread rules; avoid concurrent display use unless
+   Xlib threading was initialized. No platform window is created or destroyed.
+   Other operating systems reject this API before GPU initialization. Null
+   display, zero window, negative screen and invalid dimensions are errors;
+   pointer validity and window/screen membership remain caller obligations.
+   A non-NULL, writable, aligned result is zeroed before creation. The budgeted
+   variant copies budget using the same contract as youi_create_with_budget;
+   swapchain allocations are excluded from resource accounting. */
+int32_t YOUI_CALL youi_create_xlib(uint32_t width, uint32_t height, void* display, uintptr_t window, int32_t screen, uint64_t* result);
+int32_t YOUI_CALL youi_create_xlib_with_budget(uint32_t width, uint32_t height, void* display, uintptr_t window, int32_t screen, const youi_resource_budget_t* budget, uint64_t* result);
 /* Outputs must be non-NULL, writable and naturally aligned. Invalid pointers
    or handles return an error; outputs remain unchanged on error. */
 int32_t YOUI_CALL youi_resource_usage(uint64_t renderer, youi_resource_usage_t* result);
 int32_t YOUI_CALL youi_resource_budget(uint64_t renderer, youi_resource_budget_t* result);
-/* Destroy before the borrowed HWND; a second destroy is an error. */
+/* Destroy before the borrowed window/display; a second destroy is an error. */
 int32_t YOUI_CALL youi_destroy(uint64_t renderer);
 int32_t YOUI_CALL youi_resize(uint64_t renderer, uint32_t width, uint32_t height);
 /* Synchronous input borrowing, asynchronous GPU work. stats must be writable.
