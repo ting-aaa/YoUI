@@ -8,9 +8,10 @@ if (args.Length != 0)
     if (args.Length == 1 && args[0] == "--gpu-text-input") { TextInputTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--gpu-glyph-residency") { GlyphResidencyTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--missing-glyph-residency-api") { GlyphResidencyTests.RunMissingApi(); return; }
+    if (args.Length == 1 && args[0] == "--gpu-renderer-recovery") { RendererRecoveryTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--gpu-offscreen-trim") { OffscreenTrimTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--missing-offscreen-trim-api") { OffscreenTrimTests.RunMissingApi(); return; }
-    throw new ArgumentException("Supported optional arguments: --gpu-resource-budget, --gpu-text-input, --gpu-glyph-residency, --missing-glyph-residency-api, --gpu-offscreen-trim, --missing-offscreen-trim-api");
+    throw new ArgumentException("Supported optional arguments: --gpu-resource-budget, --gpu-text-input, --gpu-glyph-residency, --missing-glyph-residency-api, --gpu-offscreen-trim, --missing-offscreen-trim-api, --gpu-renderer-recovery");
 }
 
 int passed = 0;
@@ -23,6 +24,7 @@ Test("ABI sizes and offsets", () => { Require(Marshal.SizeOf<DrawCommand>() == 8
 ResourceBudgetTests.RunLogic(Test, Require);
 GlyphResidencyTests.RunLogic(Test, Require);
 OffscreenTrimTests.RunLogic(Test, Require);
+RendererRecoveryTests.RunLogic(Test, Require);
 TextInputTests.RunLogic(Test, Require);
 LayoutUpdateTests.Run(Test, Require);
 Test("stretched and centered RectTransform", () =>

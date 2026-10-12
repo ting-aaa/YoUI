@@ -209,3 +209,10 @@ SetModal 要求目标属于本文档；它不改变 Visible、不创建遮罩、
 `Element.OnDocumentChanged(previous, current)` 在子树文档关联完成后调用。示例在加入文档时订阅，在移出时退订，并在重新加入时应用最新状态。它不是窗口生命周期或文档 Dispose API。
 
 文档在布局/绘制/语义回调之前消费整棵树对应失效位，保留回调期间的新失效。每次实际布局都请求绘制和语义更新；失败阶段恢复待处理工作。同一文档的更新回调中不能嵌套更新。完整的有限次收敛、重入、隐藏节点和重挂契约见 [A09 布局更新](../layout-updates.md)。
+
+### Rebinding a text provider
+
+`UiDocument.RebindTextMeasurer(ITextMeasurer)` replaces the host-owned provider
+between updates on the document's creating thread, clears cached commands and
+invalidates layout, paint and semantics. It does not dispose either provider or
+reupload images. See [renderer reconstruction](../renderer-recovery.md).

@@ -5,10 +5,22 @@ using YoUI;
 
 internal static class TexturedDrawingTests
 {
-    // A zero-handle owner allows disposal without loading native code or requiring a GPU.
-    private static NativeImage Image(uint id = 41, uint width = 100, uint height = 80) =>
-        (NativeImage)Activator.CreateInstance(typeof(NativeImage), BindingFlags.Instance | BindingFlags.NonPublic,
-            binder: null, args: [RuntimeHelpers.GetUninitializedObject(typeof(NativeRenderer)), id, width, height], culture: null)!;
+    // Managed-only encoding fixture: a synthetic live owner, never sent to native code.
+    // Clear its fake handle before disposal so cleanup cannot enter the native ABI.
+    private sealed class ImageFixture : IDisposable
+    {
+        private readonly NativeRenderer owner = (NativeRenderer)RuntimeHelpers.GetUninitializedObject(typeof(NativeRenderer));
+        private static readonly FieldInfo Handle = typeof(NativeRenderer).GetField("handle", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        public NativeImage Value { get; }
+        public ImageFixture(uint id, uint width, uint height)
+        {
+            Handle.SetValue(owner, 1UL);
+            Value = (NativeImage)Activator.CreateInstance(typeof(NativeImage), BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null, args: [owner, id, width, height], culture: null)!;
+        }
+        public void Dispose() { Handle.SetValue(owner, 0UL); Value.Dispose(); }
+    }
+    private static ImageFixture Image(uint id = 41, uint width = 100, uint height = 80) => new(id, width, height);
     private static void Reject<T>(Action action) where T : Exception
     {
         try { action(); } catch (T) { return; }
@@ -19,7 +31,7 @@ internal static class TexturedDrawingTests
         void Check(bool value) => require(value, "Textured drawing assertion failed");
         test("textured triangle encodes image-local UVs and straight-alpha tint", () =>
         {
-            using var image = Image(); var list = new DrawList(); var tint = new Color(.8f, .4f, .2f, .25f);
+            using var fixture = Image(); var image = fixture.Value; var list = new DrawList(); var tint = new Color(.8f, .4f, .2f, .25f);
             list.TexturedTriangle(new(2, 3), new(8, 5), new(4, 9), new(.1f, .2f), new(.9f, .3f), new(.6f, .8f), image, tint);
             var c = list.Commands[0];
             Check(c.Kind == 8 && c.Flags == 41 && c.Rect == new Rect(2, 3, 8, 5));
@@ -29,7 +41,7 @@ internal static class TexturedDrawingTests
         });
         test("indexed textured mesh preserves triangle and painter order", () =>
         {
-            using var image = Image(); var list = new DrawList();
+            using var fixture = Image(); var image = fixture.Value; var list = new DrawList();
             Vector2[] p = [new(0, 0), new(10, 0), new(10, 20), new(0, 20)];
             Vector2[] uv = [new(0, 0), new(1, 0), new(1, 1), new(0, 1)];
             list.Rectangle(new(0, 0, 1, 1), Color.Transparent);
@@ -42,7 +54,7 @@ internal static class TexturedDrawingTests
         });
         test("malformed meshes reject atomically including late and unused vertices", () =>
         {
-            using var image = Image(); var list = new DrawList(); list.Rectangle(new(0, 0, 1, 1), Color.Transparent);
+            using var fixture = Image(); var image = fixture.Value; var list = new DrawList(); list.Rectangle(new(0, 0, 1, 1), Color.Transparent);
             Vector2[] p = [new(0, 0), new(10, 0), new(10, 20), new(0, 20)];
             Vector2[] uv = [new(0, 0), new(1, 0), new(1, 1), new(0, 1)];
             Reject<ArgumentException>(() => list.TexturedMesh(p, uv[..3], [0, 1, 2], image));
@@ -56,7 +68,7 @@ internal static class TexturedDrawingTests
         });
         test("textured helpers reject missing released images and invalid triangle values", () =>
         {
-            using var image = Image(); var list = new DrawList();
+            using var fixture = Image(); var image = fixture.Value; var list = new DrawList();
             void Triangle(NativeImage value, Vector2 p = default, Vector2 uv = default, Color? tint = null) =>
                 list.TexturedTriangle(p, Vector2.One, Vector2.UnitY, uv, Vector2.UnitX, Vector2.UnitY, value, tint);
             Reject<ArgumentNullException>(() => Triangle(null!));
@@ -65,7 +77,7 @@ internal static class TexturedDrawingTests
             Reject<ArgumentOutOfRangeException>(() => Triangle(image, uv: new(0, -.01f)));
             Reject<ArgumentOutOfRangeException>(() => Triangle(image, uv: new(float.PositiveInfinity, 0)));
             Reject<ArgumentOutOfRangeException>(() => Triangle(image, tint: new Color(1, 1, 1, float.NaN)));
-            image.Dispose();
+            fixture.Dispose();
             Reject<ObjectDisposedException>(() => Triangle(image));
             Reject<ObjectDisposedException>(() => list.TexturedMesh([], [], [], image));
             Reject<ObjectDisposedException>(() => list.NineSlice(new(0, 0, 10, 10), image, 1, 1, 1, 1));
@@ -75,7 +87,7 @@ internal static class TexturedDrawingTests
         });
         test("textured helpers atomically reject each out-of-range tint component", () =>
         {
-            using var image = Image(); var list = new DrawList(); list.Rectangle(new(0, 0, 1, 1), Color.Transparent);
+            using var fixture = Image(); var image = fixture.Value; var list = new DrawList(); list.Rectangle(new(0, 0, 1, 1), Color.Transparent);
             Color[] invalid = [new(-.01f, 1, 1), new(1.01f, 1, 1), new(1, -.01f, 1), new(1, 1.01f, 1),
                 new(1, 1, -.01f), new(1, 1, 1.01f), new(1, 1, 1, -.01f), new(1, 1, 1, 1.01f)];
             foreach (var tint in invalid)
@@ -90,7 +102,7 @@ internal static class TexturedDrawingTests
         });
         test("append and copy scale textured positions without changing any UV or tint", () =>
         {
-            using var image = Image(); var source = new DrawList(); var target = new DrawList();
+            using var fixture = Image(); var image = fixture.Value; var source = new DrawList(); var target = new DrawList();
             source.PushClip(new(1, 2, 20, 30)); source.BeginLayer(.5f);
             source.TexturedTriangle(new(2, 3), new(8, 5), new(4, 9), new(.1f, .2f), new(.9f, .3f), new(.6f, .8f), image);
             source.Triangle(new(2, 3), new(8, 5), new(4, 9), new(1, 0, 0)); source.EndLayer(); source.PopClip();
@@ -106,7 +118,7 @@ internal static class TexturedDrawingTests
         });
         test("mixed text and textured geometry retain independent flags and UVs through transforms", () =>
         {
-            using var image = Image(); var source = new DrawList(); var target = new DrawList();
+            using var fixture = Image(); var image = fixture.Value; var source = new DrawList(); var target = new DrawList();
             source.Text(new(1, 2, 40, 20), "office אבג", new(1, 1, 1), 12, bold: true, wrap: false, clip: false);
             source.NineSlice(new(5, 7, 200, 160), image, 10, 20, 30, 10);
             target.Text(new(0, 0, 1, 1), "prefix", new(1, 1, 1));
@@ -126,7 +138,7 @@ internal static class TexturedDrawingTests
         });
         test("nine-slice uses source pixel borders and emits row-major triangles", () =>
         {
-            using var image = Image(); var list = new DrawList(); var tint = new Color(.2f, .4f, .6f, .5f);
+            using var fixture = Image(); var image = fixture.Value; var list = new DrawList(); var tint = new Color(.2f, .4f, .6f, .5f);
             list.NineSlice(new(5, 7, 200, 160), image, 10, 20, 30, 10, tint); Check(list.Commands.Length == 18);
             var first = list.Commands[0];
             Check(first.Rect == new Rect(5, 7, 15, 7) && first.Reserved0 == 15 && first.Reserved1 == 27);
@@ -138,7 +150,7 @@ internal static class TexturedDrawingTests
         });
         test("nine-slice proportionally shrinks opposite borders and handles zero extents", () =>
         {
-            using var image = Image(); var list = new DrawList();
+            using var fixture = Image(); var image = fixture.Value; var list = new DrawList();
             list.NineSlice(new(0, 0, 20, 15), image, 10, 20, 30, 10); Check(list.Commands.Length == 8);
             Check(list.Commands[0].Rect == new Rect(0, 0, 5, 0) && list.Commands[0].Reserved1 == 10);
             Check(list.Commands[2].Rect == new Rect(5, 0, 20, 0));
@@ -149,7 +161,7 @@ internal static class TexturedDrawingTests
         });
         test("nine-slice omits collapsed source cells even for larger destinations", () =>
         {
-            using var image = Image(); var list = new DrawList();
+            using var fixture = Image(); var image = fixture.Value; var list = new DrawList();
             list.NineSlice(new(0, 0, 200, 160), image, 30, 24, 70, 56); Check(list.Commands.Length == 8);
             Check(list.Commands[0].Rect == new Rect(0, 0, 30, 0)); Check(list.Commands[2].Rect == new Rect(130, 0, 200, 0));
             foreach (var c in list.Commands)
@@ -161,7 +173,7 @@ internal static class TexturedDrawingTests
         });
         test("nine-slice rejects invalid rectangles borders and source overlap atomically", () =>
         {
-            using var image = Image(); var list = new DrawList();
+            using var fixture = Image(); var image = fixture.Value; var list = new DrawList();
             Reject<ArgumentException>(() => list.NineSlice(new(0, 0, 10, 10), image, 60, 0, 41, 0));
             Reject<ArgumentException>(() => list.NineSlice(new(0, 0, 10, 10), image, 0, 41, 0, 40));
             Reject<ArgumentException>(() => list.NineSlice(new(0, 0, 10, 10), image, -1, 0, 0, 0));
@@ -171,7 +183,7 @@ internal static class TexturedDrawingTests
             Reject<ArgumentOutOfRangeException>(() => list.NineSlice(new(float.NaN, 0, 10, 10), image, 0, 0, 0, 0));
             Reject<ArgumentOutOfRangeException>(() => list.NineSlice(new(float.MaxValue, 0, float.MaxValue, 10), image, 0, 0, 0, 0));
             Reject<ArgumentOutOfRangeException>(() => list.NineSlice(new(0, 0, 10, 10), image, 0, 0, 0, 0, new Color(float.NaN, 1, 1)));
-            using var empty = Image(width: 0); Reject<ArgumentException>(() => list.NineSlice(new(0, 0, 10, 10), empty, 0, 0, 0, 0));
+            using var emptyFixture = Image(width: 0); var empty = emptyFixture.Value; Reject<ArgumentException>(() => list.NineSlice(new(0, 0, 10, 10), empty, 0, 0, 0, 0));
             Check(list.Commands.Length == 0);
             list.NineSlice(new(0, 0, 100, 80), image, 50, 40, 50, 40); Check(list.Commands.Length == 8);
         });

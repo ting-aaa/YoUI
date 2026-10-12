@@ -1,3 +1,4 @@
+use crate::failure::{acquire, wait_readback, DeviceFailure};
 use crate::{ir::validate, text::TextSystem, Command, FrameStats, Rect, TextCell};
 use crate::{
     resource::{INITIAL_CAPACITY, INSTANCE_BYTES},
@@ -151,6 +152,7 @@ impl SurfaceTarget {
 /// rendering needs neither. The renderer never destroys the host's window.
 pub struct Renderer {
     device: wgpu::Device,
+    failure: DeviceFailure,
     queue: wgpu::Queue,
     surface: Option<wgpu::Surface<'static>>,
     surface_config: Option<wgpu::SurfaceConfiguration>,
@@ -361,6 +363,9 @@ impl Renderer {
             trace: wgpu::Trace::Off,
         }))
         .map_err(|e| e.to_string())?;
+        let failure = DeviceFailure::default();
+        let callback = failure.clone();
+        device.set_device_lost_callback(move |reason, message| callback.observe(reason, message));
         let surface_config = surface.as_ref().map(|s| {
             let caps = s.get_capabilities(&adapter);
             let format = caps
@@ -448,8 +453,10 @@ impl Renderer {
         let capacity = INITIAL_CAPACITY;
         debug_assert_eq!(std::mem::size_of::<Instance>() as u64, INSTANCE_BYTES);
         let instance_buffer = Self::buffer(&device, capacity);
+        failure.check()?;
         Ok(Self {
             device,
+            failure,
             queue,
             surface,
             surface_config,
@@ -471,6 +478,13 @@ impl Renderer {
             adapter_name,
             stats: FrameStats::default(),
         })
+    }
+    fn check_device(&self) -> Result<(), String> {
+        self.failure.check()?;
+        self.device
+            .poll(wgpu::PollType::Poll)
+            .map_err(|e| e.to_string())?;
+        self.failure.check()
     }
     fn buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
@@ -579,6 +593,7 @@ impl Renderer {
         Ok(())
     }
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), String> {
+        self.check_device()?;
         if width == 0 || height == 0 || width > 8192 || height > 8192 {
             return Err("target size outside 1..8192".into());
         }
@@ -646,6 +661,7 @@ impl Renderer {
             .cells)
     }
     pub fn upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> Result<u32, String> {
+        self.check_device()?;
         self.text.upload_image(&self.queue, width, height, rgba)
     }
     pub fn release_image(&mut self, id: u32) -> Result<(), String> {
@@ -674,6 +690,7 @@ impl Renderer {
         self.layers.clear();
     }
     pub fn render(&mut self, commands: &[Command], text: &[u8]) -> Result<FrameStats, String> {
+        self.check_device()?;
         validate(commands, text)?;
         for c in commands {
             if matches!(c.kind, 7 | 8) {
@@ -900,50 +917,44 @@ impl Renderer {
         }
         let mut frame = None;
         if let Some(surface) = &self.surface {
-            let acquired = match surface.get_current_texture() {
-                Ok(f) => Ok(f),
-                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                    surface.configure(&self.device, self.surface_config.as_ref().unwrap());
-                    surface.get_current_texture()
+            let acquired = acquire(
+                || surface.get_current_texture(),
+                || surface.configure(&self.device, self.surface_config.as_ref().unwrap()),
+            )?;
+            if let Some(f) = acquired {
+                let view = f.texture.create_view(&Default::default());
+                let attachments = [Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })];
+                {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("present"),
+                        color_attachments: &attachments,
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    pass.set_pipeline(&self.surface_pipeline);
+                    pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
+                    pass.set_bind_group(0, &self.output.bind, &[]);
+                    pass.draw(0..6, present_index..present_index + 1);
                 }
-                Err(e) => Err(e),
-            };
-            match acquired {
-                Ok(f) => {
-                    let view = f.texture.create_view(&Default::default());
-                    let attachments = [Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })];
-                    {
-                        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("present"),
-                            color_attachments: &attachments,
-                            depth_stencil_attachment: None,
-                            timestamp_writes: None,
-                            occlusion_query_set: None,
-                        });
-                        pass.set_pipeline(&self.surface_pipeline);
-                        pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
-                        pass.set_bind_group(0, &self.output.bind, &[]);
-                        pass.draw(0..6, present_index..present_index + 1);
-                    }
-                    frame = Some(f);
-                }
-                Err(wgpu::SurfaceError::Timeout) => {}
-                Err(e) => return Err(format!("surface: {e}")),
+                frame = Some(f);
             }
         }
+        self.failure.check()?;
         self.queue.submit(Some(encoder.finish()));
         let presented = frame.is_some();
         if let Some(f) = frame {
             f.present();
         }
+        self.failure.check()?;
         self.stats = FrameStats {
             commands: commands.len() as u32,
             instances: present_index,
@@ -960,6 +971,7 @@ impl Renderer {
     }
     /// Synchronous readback, intended for exports and tests rather than the frame loop.
     pub fn read_pixels(&self) -> Result<Vec<u8>, String> {
+        self.check_device()?;
         let stride = (self.width * 4).div_ceil(256) * 256;
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("screenshot readback"),
@@ -989,17 +1001,15 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
+        self.failure.check()?;
         self.queue.submit(Some(encoder.finish()));
         let (tx, rx) = std::sync::mpsc::channel();
         buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r);
+            let _ = tx.send(r.map_err(|e| e.to_string()));
         });
-        self.device
-            .poll(wgpu::PollType::Wait)
-            .map_err(|e| e.to_string())?;
-        rx.recv()
-            .map_err(|e| e.to_string())?
-            .map_err(|e| e.to_string())?;
+        wait_readback(rx, std::time::Duration::from_secs(10), || {
+            self.check_device()
+        })?;
         let mapped = buffer.slice(..).get_mapped_range();
         let mut result = Vec::with_capacity((self.width * self.height * 4) as usize);
         for row in mapped.chunks_exact(stride as usize) {
@@ -1010,6 +1020,8 @@ impl Renderer {
         Ok(result)
     }
     pub fn save_png(&self, path: &str) -> Result<(), String> {
+        // A GPU/readback failure must not truncate an existing export.
+        let pixels = self.read_pixels()?;
         let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
         let mut encoder = png::Encoder::new(file, self.width, self.height);
         encoder.set_color(png::ColorType::Rgba);
@@ -1017,7 +1029,7 @@ impl Renderer {
         encoder
             .write_header()
             .map_err(|e| e.to_string())?
-            .write_image_data(&self.read_pixels()?)
+            .write_image_data(&pixels)
             .map_err(|e| e.to_string())
     }
 }
@@ -1368,6 +1380,90 @@ mod text_residency_tests {
         assert_eq!(renderer.text.image_uv(image)?, image_uv);
         assert_eq!(renderer.measure("Hello", 18., 100., false)?, measured);
         assert_eq!(renderer.read_pixels()?, before);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires GPU adapter; injected callback loss, not hardware device-loss evidence"]
+    fn injected_loss_stops_gpu_work_and_fresh_renderer_rejects_stale_images() -> Result<(), String>
+    {
+        let mut renderer = unsafe { Renderer::new(32, 32, 0)? };
+        println!(
+            "Recovery adapter: {}; failure source: injected callback state",
+            renderer.adapter_name
+        );
+        let old = renderer.upload_image(2, 2, &[255, 0, 0, 255].repeat(4))?;
+        let image = |id| Command {
+            kind: 7,
+            flags: id,
+            rect: Rect::new(0., 0., 32., 32.),
+            color: [1.; 4],
+            ..Default::default()
+        };
+        renderer.render(&[image(old)], b"")?;
+        assert_eq!(
+            &renderer.read_pixels()?[(16 * 32 + 16) * 4..][..4],
+            &[255, 0, 0, 255]
+        );
+        let stats = format!("{:?}", renderer.stats);
+        renderer.failure.observe(
+            wgpu::DeviceLostReason::Unknown,
+            "test injection (device remains healthy)".into(),
+        );
+        for _ in 0..3 {
+            assert!(renderer
+                .render(&[image(old)], b"")
+                .unwrap_err()
+                .starts_with("device lost:"));
+            assert!(renderer.resize(64, 64).is_err());
+            assert!(renderer.upload_image(1, 1, &[255; 4]).is_err());
+            assert!(renderer.read_pixels().is_err());
+        }
+        assert_eq!(format!("{:?}", renderer.stats), stats);
+        assert_eq!((renderer.width, renderer.height), (32, 32));
+        let directory = std::env::temp_dir().join(format!("youi-recovery-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+        let export = directory.join("preserved.png");
+        std::fs::write(&export, b"previous export").map_err(|e| e.to_string())?;
+        assert!(renderer.save_png(export.to_str().unwrap()).is_err());
+        assert_eq!(std::fs::read(&export).unwrap(), b"previous export");
+        std::fs::remove_file(export).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+        // CPU-side cleanup remains valid; it cannot revive a failed device.
+        renderer.release_image(old)?;
+        renderer.purge_glyph_residency();
+        renderer.trim_offscreen_layers();
+        assert!(renderer.failure.check().is_err());
+        drop(renderer);
+
+        let mut rebuilt = unsafe { Renderer::new(32, 32, 0)? };
+        let new = rebuilt.upload_image(2, 2, &[0, 255, 0, 255].repeat(4))?;
+        assert_ne!(new, old);
+        rebuilt.render(&[image(new)], b"")?;
+        let pixels = rebuilt.read_pixels()?;
+        assert_eq!(&pixels[(16 * 32 + 16) * 4..][..4], &[0, 255, 0, 255]);
+        let stats = format!("{:?}", rebuilt.stats);
+        for kind in [7, 8] {
+            let mut stale = image(old);
+            stale.kind = kind;
+            if kind == 8 {
+                stale.rect = Rect::new(0., 0., 32., 0.);
+                stale.reserved = [0., 32.];
+            }
+            assert!(rebuilt
+                .render(&[stale], b"")
+                .unwrap_err()
+                .contains("image handle"));
+        }
+        assert!(rebuilt.release_image(old).is_err());
+        assert_eq!(rebuilt.read_pixels()?, pixels);
+        assert_eq!(format!("{:?}", rebuilt.stats), stats);
+        rebuilt.render(&[image(new)], b"")?;
         Ok(())
     }
 }
