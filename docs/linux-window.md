@@ -191,3 +191,11 @@ from successful native-window runner artifacts.
 
 For an unwritable default uv cache, select a writable cache directory through
 `UV_CACHE_DIR`; this changes only the Python tool cache, not display access.
+
+## Prepared GitHub-hosted virtual display workflow
+
+The [manual Xvfb/Openbox CI workflow](x11-ci.md) prepares a standard Ubuntu
+runner with authenticated local X11 and software Vulkan. It is separate from
+this existing-display runner. Publication and dispatch require their own
+approval; its definition, mocked tests and static checks are not a hosted
+native-window pass.
