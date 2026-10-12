@@ -1,7 +1,8 @@
 //! Admission limits for owned GPU payloads, not a measurement of total VRAM.
 use crate::text::ATLAS_SIZE;
 
-pub(crate) const INSTANCE_BYTES: u64 = 96;
+// Derive accounting from the actual GPU payload so added attributes cannot bypass budgets.
+pub(crate) const INSTANCE_BYTES: u64 = std::mem::size_of::<crate::renderer::Instance>() as u64;
 pub(crate) const INITIAL_CAPACITY: usize = 1024;
 
 /// Immutable per-renderer limits. Includes retained allocations, not just a frame's use.

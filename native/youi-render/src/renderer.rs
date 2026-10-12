@@ -47,13 +47,14 @@ mod backend_tests {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct Instance {
+pub(crate) struct Instance {
     rect: Rect,
     color: [f32; 4],
     color2: [f32; 4],
     uv: [f32; 4],
     clip: Rect,
     params: [f32; 4],
+    uv_bounds: [f32; 4],
 }
 impl Instance {
     fn new(
@@ -72,6 +73,7 @@ impl Instance {
             uv,
             clip,
             params: [radius, kind, 0., 0.],
+            uv_bounds: [0., 0., 1., 1.],
         }
     }
 }
@@ -414,7 +416,7 @@ impl Renderer {
             bind_group_layouts: &[l],
             push_constant_ranges: &[],
         });
-        d.create_render_pipeline(&wgpu::RenderPipelineDescriptor{label:Some("ordered premultiplied 2D"),layout:Some(&layout),vertex:wgpu::VertexState{module:&shader,entry_point:Some("vs"),compilation_options:Default::default(),buffers:&[wgpu::VertexBufferLayout{array_stride:96,step_mode:wgpu::VertexStepMode::Instance,attributes:&wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4]}]},primitive:Default::default(),depth_stencil:None,multisample:Default::default(),fragment:Some(wgpu::FragmentState{module:&shader,entry_point:Some("fs"),compilation_options:Default::default(),targets:&[Some(wgpu::ColorTargetState{format,blend:Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),write_mask:wgpu::ColorWrites::ALL})]}),multiview:None,cache:None})
+        d.create_render_pipeline(&wgpu::RenderPipelineDescriptor{label:Some("ordered premultiplied 2D"),layout:Some(&layout),vertex:wgpu::VertexState{module:&shader,entry_point:Some("vs"),compilation_options:Default::default(),buffers:&[wgpu::VertexBufferLayout{array_stride:std::mem::size_of::<Instance>() as u64,step_mode:wgpu::VertexStepMode::Instance,attributes:&wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x4,2=>Float32x4,3=>Float32x4,4=>Float32x4,5=>Float32x4,6=>Float32x4]}]},primitive:Default::default(),depth_stencil:None,multisample:Default::default(),fragment:Some(wgpu::FragmentState{module:&shader,entry_point:Some("fs"),compilation_options:Default::default(),targets:&[Some(wgpu::ColorTargetState{format,blend:Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),write_mask:wgpu::ColorWrites::ALL})]}),multiview:None,cache:None})
     }
     pub fn resource_budget(&self) -> ResourceBudget {
         self.budget
@@ -516,7 +518,7 @@ impl Renderer {
     pub fn render(&mut self, commands: &[Command], text: &[u8]) -> Result<FrameStats, String> {
         validate(commands, text)?;
         for c in commands {
-            if c.kind == 7 {
+            if matches!(c.kind, 7 | 8) {
                 self.text.image_uv(c.flags)?;
             }
         }
@@ -612,6 +614,32 @@ impl Renderer {
                     let mut item =
                         Instance::new(c.rect, c.color, c.color, clip, c.reserved[0], 3., [0.; 4]);
                     item.params[2] = c.reserved[1];
+                    self.push_instance(item)?;
+                }
+                8 => {
+                    let uv = self.text.image_uv(c.flags)?;
+                    let map = |u: f32, v: f32| [uv[0] + u * uv[2], uv[1] + v * uv[3]];
+                    let a = map(c.color2[0], c.color2[1]);
+                    let b = map(c.color2[2], c.color2[3]);
+                    let d = map(c.radius, c.font_size);
+                    let mut item = Instance::new(
+                        c.rect,
+                        c.color,
+                        [d[0], d[1], 0., 0.],
+                        clip,
+                        c.reserved[0],
+                        4.,
+                        [a[0], a[1], b[0], b[1]],
+                    );
+                    item.params[2] = c.reserved[1];
+                    let half = 0.5 / crate::text::ATLAS_SIZE as f32;
+                    item.uv_bounds = [
+                        uv[0] + half,
+                        uv[1] + half,
+                        uv[0] + uv[2] - half,
+                        uv[1] + uv[3] - half,
+                    ];
+                    passes[current].add(self.instances.len() as u32, None);
                     self.push_instance(item)?;
                 }
                 7 => {

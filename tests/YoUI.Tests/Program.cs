@@ -156,6 +156,7 @@ Test("Toggle and Slider preserve direct access, notifications and clamp semantic
     doc.Focus(toggle); doc.Dispatch(new(EventKind.KeyDown) { Key = 32 }); Require(!toggle.Value && toggles == 2);
     doc.Focus(slider); doc.Dispatch(new(EventKind.KeyDown) { Key = 39 }); Require(slider.Value == .55f && slides == 6);
 });
+TexturedDrawingTests.Run(Test, Require);
 ShowcaseStateTests.Run(Test, Require);
 ComponentGalleryTests.Run(Test, Require);
 Console.WriteLine($"{passed} managed tests passed");

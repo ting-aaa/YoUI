@@ -4,7 +4,7 @@ using YoUI;
 static class ResourceBudgetTests
 {
     private const ulong AtlasBytes = 2048UL * 2048 * 4;
-    private const ulong InitialInstanceBytes = 1024UL * 96;
+    private const ulong InitialInstanceBytes = 1024UL * 112;
 
     public static void RunLogic(Action<string, Action> test, Action<bool, string> require)
     {
@@ -102,6 +102,21 @@ static class ResourceBudgetTests
         renderer.Resize(32, 32);
         var resized = renderer.ResourceUsage;
         Require(resized.OutputBytes == 32UL * 32 * 4 && resized.LayerCount == 0 && resized.LayerBytes == 0, "successful resize resets pooled layers");
+
+        // Nine-slice shares the guarded textured-triangle path and the 112-byte payload.
+        using (var image = renderer.UploadImage(3, 3, Enumerable.Repeat((byte)255, 3 * 3 * 4).ToArray()))
+        {
+            frame.Clear();
+            for (int i = 0; i < 56; i++) frame.NineSlice(new(0, 0, 32, 32), image, 1, 1, 1, 1);
+            Require(renderer.Render(frame).Instances == 1008, "nine-slice instances fit exact initial allocation");
+            var meshUsage = renderer.ResourceUsage;
+            Require(meshUsage.InstanceBufferBytes == InitialInstanceBytes, "textured payload accounting");
+            frame.NineSlice(new(0, 0, 32, 32), image, 1, 1, 1, 1);
+            Rejected(() => renderer.Render(frame));
+            Require(SameUsage(meshUsage, renderer.ResourceUsage), "nine-slice rejection leaves allocations intact");
+            frame.Clear(); frame.NineSlice(new(0, 0, 32, 32), image, 1, 1, 1, 1);
+            Require(renderer.Render(frame).Instances == 18, "nine-slice recovers after budget rejection");
+        }
 
         renderer.Dispose();
         bool disposedUsage = false, disposedBudget = false;

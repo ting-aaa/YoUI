@@ -11,7 +11,7 @@
 | AtlasBytes / atlas_bytes | 固定 2048×2048×4 = 16 MiB；glyph 与 image 共用。图片上传/释放改变占用，不改变纹理分配大小 |
 | OutputBytes / output_bytes | 当前 width×height×4，RGBA8 输出目标 |
 | LayerBytes / layer_bytes | 已保留层数量×width×height×4；按历史高水位保留，空帧不释放 |
-| InstanceBufferBytes / instance_buffer_bytes | 当前 GPU 实例缓冲容量×96；初始 1024 个实例，按高水位复用 |
+| InstanceBufferBytes / instance_buffer_bytes | 当前 GPU 实例缓冲容量×112；初始 1024 个实例，按高水位复用 |
 | LayerCount / layer_count | 已保留的离屏层数量，不是上一帧使用数量 |
 
 不包含：CPU 实例/布局/字体/raster cache、atlas 空洞的逻辑占用、uniform、bind group、pipeline、驱动对齐/内部开销、surface/swapchain、PNG/readback staging buffer、上传 staging、GPU 在途旧分配。
@@ -38,7 +38,7 @@ assert!(usage.atlas_bytes + usage.output_bytes + usage.layer_bytes <= budget.max
 ```
 
 `Renderer::new` 保留原签名并使用默认预算；`resource_budget()` 返回配置快照。
-预算不能运行时修改。零不是“无限制”；创建至少要容纳 atlas、输出和 1024×96 字节初始实例缓冲。
+预算不能运行时修改。零不是“无限制”；创建至少要容纳 atlas、输出和 1024×112 字节初始实例缓冲。
 
 C ABI 增加 `youi_create_with_budget`、`youi_resource_budget`、`youi_resource_usage` 及对应 size 查询；见 [native API](api/native.md)。原有 ABI 版本、command/frame-stats 布局与函数保持不变。旧 native binary 没有这些新增符号，不能仅凭 ABI v1 推断支持预算。
 
@@ -61,3 +61,5 @@ C ABI 增加 `youi_create_with_budget`、`youi_resource_budget`、`youi_resource
 GPU 测试覆盖真实分配快照、层/实例拒绝、无提交像素保持、失败 resize、同尺寸 no-op、成功 resize 清层、释放图片和空帧高水位复用。
 `verify.ps1 -Layer Gpu` 还运行托管预算绑定回归（`--gpu-resource-budget`），覆盖 native/managed 往返。
 按 Debug 与 Release 分别运行 [分层验收](verification-layers.md)。软件 GL 的结果不能替代 Windows/DX12/Vulkan、硬件 GPU 或原生窗口验收。
+
+A06 的纹理 UV 边界将内部 GPU 实例从 96 扩展为 112 字节，初始实例缓冲需 114688 字节。原生计费由实际实例结构大小派生；C# 创建前校验使用相同下限。对外 Command 仍为 80 字节，ResourceBudget/ResourceUsage 结构和 ABI 版本不变。旧的精确字节预算若低于新下限会被明确拒绝，不会超额分配。

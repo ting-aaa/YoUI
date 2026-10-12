@@ -59,6 +59,7 @@ try {
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--benchmark')
         Invoke-Checked 'cargo' (@('run','-p','youi-render','--example','render_scene') + $cargoOptions + @('--','artifacts/render-scene.png'))
         Invoke-Checked 'cargo' (@('run','-p','youi-scene','--example','scene_graph') + $cargoOptions + @('--','artifacts/scene-graph.png'))
+        Invoke-Checked 'cargo' (@('run','-p','youi-scene','--example','textured_mesh') + $cargoOptions + @('--','artifacts/textured-mesh.png'))
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Component.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu')
     }
     if ($Layer -eq 'Window' -or $Layer -eq 'All') {
