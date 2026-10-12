@@ -14,6 +14,7 @@ public sealed class UiDocument
     private Theme theme = Theme.Dark;
     private readonly DrawList frame = new();
     private bool updating;
+    private int dispatchDepth;
     private readonly int ownerThread = Environment.CurrentManagedThreadId;
     private readonly List<Element.DirtyState> consumedDirty = [];
     public Element Root { get; }
@@ -43,7 +44,7 @@ public sealed class UiDocument
     {
         ArgumentNullException.ThrowIfNull(textMeasurer);
         if (Environment.CurrentManagedThreadId != ownerThread) throw new InvalidOperationException("Document rebind must stay on the creating thread.");
-        if (updating) throw new InvalidOperationException("Cannot rebind during a document update.");
+        if (updating || dispatchDepth != 0) throw new InvalidOperationException("Cannot rebind during a document update or input dispatch.");
         TextMeasurer = textMeasurer;
         frame.Clear();
         Root.Invalidate(DirtyFlags.All);
@@ -161,6 +162,12 @@ public sealed class UiDocument
         if (old != null) old.Route(new(EventKind.PointerCancel) { Target = old, Phase = EventPhase.Target });
     }
     public void Dispatch(UiEvent e)
+    {
+        dispatchDepth++;
+        try { DispatchCore(e); }
+        finally { dispatchDepth--; }
+    }
+    private void DispatchCore(UiEvent e)
     {
         EnsureLayout();
         PreviewInput?.Invoke(e);

@@ -63,7 +63,11 @@ original failure has unwound. Bound any reconstruction attempts outside the loop
 5. Call `document.RebindTextMeasurer(newProvider)` on each affected document. This
    replaces only the borrowed provider, clears the document's cached command arena
    and requests full layout, paint and semantics, even for the same provider object.
-   It rejects null, a foreign thread and calls during layout/paint/semantic updates.
+   It rejects null, a foreign thread and calls during layout/paint/semantic updates
+   or input dispatch. TextBox normalizes stored selection/caret to the current
+   provider before paint and editing/copy/cut, including input before the first
+   rebuilt frame and same-instance provider changes. A failed boundary query
+   leaves text/selection/history unchanged; undo/redo use current-provider stops.
    Neither provider is disposed by the document. For a DPI adapter, create/rebind
    the correctly scaled provider, not an unscaled renderer. Custom controls with
    their own provider/layout/image caches must refresh those caches explicitly.
