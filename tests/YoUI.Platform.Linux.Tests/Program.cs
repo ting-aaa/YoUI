@@ -73,6 +73,7 @@ if (args.Length != 0)
         catch (InvalidOperationException ex) when (!ex.Message.Contains("Only one") && !ex.Message.Contains("already owned")) { failedAtVideo = true; }
         Check(failedAtVideo, "missing display fails explicitly and releases singleton ownership");
         Check(Sdl.SDL_WasInit(0) == 0, "failed native video init leaves no SDL subsystem");
+        Check(Sdl.SDL_GetHint(SdlClosePolicy.Hint) == 0, "failed construction restores absent close hint");
     }
     // This is a no-window lifecycle regression, not native window evidence. SDL_PollEvent
     // sees an uninitialized queue; no X display or renderer is created. The public Run path
@@ -84,6 +85,7 @@ if (args.Length != 0)
         typeof(DesktopWindow).GetProperty(nameof(DesktopWindow.Document))!.SetValue(host, new UiDocument(root, new StubMeasurer(), 640, 400));
         return host;
     }
+    ClosePolicyTests.Run(Check, LogicalHost);
     using (var host = LogicalHost(new StackPanel()))
     {
         host.Run(() => host.Dispose());

@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace YoUI.Platform.Linux;
 
 /// <summary>
-/// Experimental single-window Linux X11 host using SDL2 2.0.18+ (LP64).
+/// Experimental single-window Linux X11 host using SDL2 2.0.22+ (LP64).
 /// Owns the event loop and native handles. All calls, including Dispose, stay on the creating thread.
 /// One X11 pixel is one logical unit; Wayland, automatic DPI scaling and IME acceptance are not provided.
 /// </summary>
@@ -16,6 +16,7 @@ public sealed class DesktopWindow : IDisposable
     private bool videoInitialized, ownsHost, disposed, closed, suspended, pointerDown;
     private bool focused;
     private NativeRenderer? renderer;
+    private SdlClosePolicy? closePolicy;
     public NativeRenderer Renderer => renderer ?? throw new ObjectDisposedException(nameof(DesktopWindow));
     public UiDocument Document { get; private set; } = null!;
     public nuint X11Window { get; private set; }
@@ -45,10 +46,11 @@ public sealed class DesktopWindow : IDisposable
         {
             Sdl.SDL_GetVersion(out var version);
             SdlVersion = $"{version.Major}.{version.Minor}.{version.Patch}";
-            if (version.Major != 2 || (version.Minor == 0 && version.Patch < 18))
-                throw new PlatformNotSupportedException("SDL2 2.0.18 or newer is required.");
+            if (version.Major != 2 || (version.Minor == 0 && version.Patch < 22))
+                throw new PlatformNotSupportedException("SDL2 2.0.22 or newer is required for vetoable window close.");
             if (Sdl.SDL_WasInit(0) != 0)
                 throw new InvalidOperationException("SDL is already owned by another host; sharing its global event queue is unsupported.");
+            closePolicy = new SdlClosePolicy();
             Sdl.Check(Sdl.SDL_VideoInit("x11"));
             videoInitialized = true;
             Sdl.SDL_EnableScreenSaver(); // Desktop UI must not suppress the user's screensaver.
@@ -222,6 +224,7 @@ public sealed class DesktopWindow : IDisposable
         if (videoInitialized) { Sdl.SDL_CaptureMouse(0); Sdl.SDL_StopTextInput(); }
         if (window != 0) { Sdl.SDL_DestroyWindow(window); window = 0; X11Window = 0; }
         if (videoInitialized) { Sdl.SDL_VideoQuit(); videoInitialized = false; }
+        closePolicy?.Dispose(); closePolicy = null;
         if (ownsHost) { Interlocked.Exchange(ref activeHost, 0); ownsHost = false; }
     }
     private sealed class Clipboard(DesktopWindow owner) : IClipboard
