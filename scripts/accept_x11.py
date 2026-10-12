@@ -356,7 +356,9 @@ class XlibNative:
 
     def capture_root(self, path: Path) -> dict:
         screen = self.lib.XDefaultScreen(self.display)
-        result = self.capture_window(dict(xid=self.root,
+        # Desktop diagnostics can legitimately be blank/low-color; they must
+        # not inherit the client presentation acceptance threshold.
+        result = self.capture_drawable(dict(xid=self.root,
             width=self.lib.XDisplayWidth(self.display, screen),
             height=self.lib.XDisplayHeight(self.display, screen)), path)
         result["method"] = "XGetImage of X11 root (visible desktop, including occlusion)"
@@ -478,6 +480,14 @@ class XlibNative:
         raise ValueError("DISPLAY has no pointer-accessible space outside the sample; use a larger display")
 
     def capture_window(self, state: dict, path: Path) -> dict:
+        result = self.capture_drawable(state, path)
+        if result["distinctColorsAtLeast"] < 8:
+            raise ValueError("Native X11 window contains fewer than eight distinct colors; surface rendering was not established")
+        result["validation"] = "nonuniform native pixels; manual visual inspection remains separate"
+        return result
+
+    def capture_drawable(self, state: dict, path: Path) -> dict:
+        """Decode bounded TrueColor pixels; acceptance policy belongs to caller."""
         width, height = state["width"], state["height"]
         if not 1 <= width <= 8192 or not 1 <= height <= 8192:
             raise ValueError("Native window dimensions exceed the capture bound")
@@ -503,10 +513,8 @@ class XlibNative:
                     if len(colors) < 256:
                         colors.add(rgb)
             save_rgb_png(path, width, height, pixels)
-            if len(colors) < 8:
-                raise ValueError("Native X11 window contains fewer than eight distinct colors; surface rendering was not established")
             return dict(width=width, height=height, distinctColorsAtLeast=len(colors), method="XGetImage of mapped X11 client",
-                        validation="nonuniform native pixels; manual visual inspection remains separate")
+                        validation="decoded native pixels only; manual visual inspection remains separate")
         finally:
             self.lib.XDestroyImage(native)
 

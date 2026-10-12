@@ -197,7 +197,8 @@ XID, the harness focus-sink XID, client root origin, pointer path/root coordinat
 and button mask. Named `sample/wm-restored-*-desktop.png` files capture the
 visible X11 root including occlusion, unlike the later client-only capture.
 These are diagnostic observations, not atomic server snapshots or visual golden
-tests. Pre-activation and pre-click observations remain distinguishable. On a
+tests. Root captures accept low-color or blank pixels; only the separate client
+presentation acceptance capture requires at least eight distinct colors. Pre-activation and pre-click observations remain distinguishable. On a
 restore/activation/readiness/click error, the runner attempts the same diagnostics
 before teardown, without replacing the original failure. Capture errors are
 recorded; no screenshot is promised if the worker, server, sample, or shared

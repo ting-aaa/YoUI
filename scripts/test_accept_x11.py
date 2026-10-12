@@ -1030,6 +1030,46 @@ for line in sys.stdin:
         self.assertFalse((self.folder / "never-produced.png").exists())
         self.assert_reaped()
 
+    def test_low_color_root_capture_keeps_worker_ready_for_input_observation(self):
+        # Real pipe RPC + real pixel decoder, but fake Xlib: no native display.
+        # Previously the diagnostic inherited the >=8-color client assertion,
+        # producing an RPC error that poisoned/killed the shared worker.
+        for colors in (1, 2, 7):
+            source = """
+import ctypes, sys
+sys.path.insert(0, SCRIPT_DIRECTORY)
+import accept_x11 as accept
+class Library:
+    def __init__(self):
+        self.header = accept.XImageHeader(width=4, height=4, red_mask=0xFF0000, green_mask=0xFF00, blue_mask=0xFF)
+    def XDefaultScreen(self, *_): return 0
+    def XDisplayWidth(self, *_): return 4
+    def XDisplayHeight(self, *_): return 4
+    def XSync(self, *_): pass
+    def XGetImage(self, *_): return ctypes.addressof(self.header)
+    def XGetPixel(self, pointer, x, y): return ((y * 4 + x) % COLOR_COUNT) * 30
+    def XDestroyImage(self, *_): pass
+class Native(accept.XlibNative):
+    def __init__(self, display):
+        self.library, self.lib, self.display, self.root, self.sink = 'fake Xlib', Library(), 1, 1, 99
+    def input_snapshot(self, xid): return OBSERVATION
+    def close(self): pass
+accept.XlibNative = Native
+raise SystemExit(accept.xlib_worker_main())
+""".replace("SCRIPT_DIRECTORY", repr(str(Path(__file__).resolve().parent))).replace(
+                    "COLOR_COUNT", str(colors)).replace("OBSERVATION", repr(FakeDriver().input_snapshot(12345)))
+            worker = self.create(source)
+            try:
+                result = worker.capture_root(self.folder / (str(colors) + "-colors.png"))
+                self.assertEqual(result["distinctColorsAtLeast"], colors)
+                self.assertNotIn("nonuniform", result["validation"])
+                self.assertFalse(worker.failed)
+                self.assertIsNone(worker.process.poll())
+                self.assertTrue(accept.pointer_ready(worker.input_snapshot(12345), state(), "button"))
+            finally:
+                self.assertIsNone(worker.close())
+            self.assertEqual(worker.process.returncode, 0)
+
     def test_input_snapshot_and_root_capture_use_shared_remaining_budget(self):
         for operation in ("input-snapshot", "capture-root"):
             worker = self.create(self.BLOCKING)
