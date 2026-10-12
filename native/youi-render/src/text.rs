@@ -925,8 +925,10 @@ mod tests {
             SwashContent::SubpixelMask,
             SwashContent::Color,
         ] {
-            let mut image = cosmic_text::SwashImage::default();
-            image.content = content;
+            let mut image = cosmic_text::SwashImage {
+                content,
+                ..Default::default()
+            };
             image.placement.width = 1;
             image.placement.height = 1;
             image.data = if content == SwashContent::Mask {
