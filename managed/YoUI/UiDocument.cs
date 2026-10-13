@@ -156,6 +156,11 @@ public sealed class UiDocument
         if (element != null) { focusBeforeModal = Focused; modal = element; CancelPointer(); Focus(Traverse(element).FirstOrDefault(e => e.Focusable)); }
         else { modal = null; Focus(focusBeforeModal); focusBeforeModal = null; }
     }
+    // Recycled controls invalidate only gestures tied to their old subtree identity.
+    internal void CancelPointer(Element subtree)
+    {
+        if (captured?.IsDescendantOf(subtree) == true) CancelPointer();
+    }
     public void CancelPointer()
     {
         var old = captured; captured = null;
