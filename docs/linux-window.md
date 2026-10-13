@@ -230,6 +230,28 @@ recorded. An outstanding button press is released during cleanup.
 
 ## Runner and no-display tests
 
+The existing SDL no-display lifecycle regressions run separately from window
+acceptance. Install SDL2 2.24.0 or newer (`libsdl2-2.0-0` on Ubuntu), then run:
+
+```sh
+bash scripts/verify-linux.sh Debug
+bash scripts/verify-linux-lifecycle.sh Debug
+# Repeat both commands with Release for that configuration.
+```
+
+The lifecycle entrypoint uses the already-built matching configuration. It
+clears display variables and the close-hint override only in its child process,
+bounds the probe to 30 seconds plus a 5-second forced-cleanup allowance, and
+records source/configuration/status/exit code under `artifacts/verification/`.
+Missing dependencies or builds and timeouts fail rather than skip. It checks
+failed SDL video initialization, singleton/hint cleanup, close-veto contracts,
+and disposal from logical callbacks without creating a window or renderer.
+Its success is neither native-window nor GPU evidence. Both Ubuntu logic CI
+configurations run this probe; `scripts/test-linux-lifecycle.sh` tests only its
+orchestration and does not substitute for the real SDL checks.
+
+The separate Python runner tests are:
+
 ```sh
 uv run scripts/test_accept_x11.py
 ```
