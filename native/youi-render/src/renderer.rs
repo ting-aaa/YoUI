@@ -174,6 +174,7 @@ pub struct Renderer {
     pub adapter_name: String,
     capabilities: RendererCapabilities,
     pub stats: FrameStats,
+    pending_present: Option<u32>,
 }
 impl Renderer {
     /// # Safety
@@ -481,6 +482,7 @@ impl Renderer {
             adapter_name,
             capabilities,
             stats: FrameStats::default(),
+            pending_present: None,
         })
     }
     /// Immutable selected-device diagnostics. Available even after a latched device failure;
@@ -610,6 +612,7 @@ impl Renderer {
             return Ok(());
         }
         self.budget.textures(width, height, 0)?;
+        self.pending_present = None; // Resizing replaces the cached output; the host must render again.
         self.width = width;
         self.height = height;
         self.layers.clear();
@@ -878,6 +881,7 @@ impl Renderer {
             self.capacity = capacity;
             self.instance_buffer = Self::buffer(&self.device, self.capacity);
         }
+        self.pending_present = None; // The retained instance buffer now belongs to this frame.
         let bytes = bytemuck::cast_slice(&self.instances);
         self.queue.write_buffer(&self.instance_buffer, 0, bytes);
         let prepare_us = start.elapsed().as_micros() as u64;
@@ -924,6 +928,34 @@ impl Renderer {
                 pass.draw(0..6, batch.range.clone());
             }
         }
+        let frame = self.encode_present(&mut encoder, present_index)?;
+        self.failure.check()?;
+        self.queue.submit(Some(encoder.finish()));
+        let presented = frame.is_some();
+        self.pending_present = (self.surface.is_some() && !presented).then_some(present_index);
+        if let Some(f) = frame {
+            f.present();
+        }
+        self.failure.check()?;
+        self.stats = FrameStats {
+            commands: commands.len() as u32,
+            instances: present_index,
+            draw_calls: passes.iter().map(|p| p.batches.len() as u32).sum::<u32>()
+                + u32::from(presented),
+            layers: passes.len() as u32 - 1,
+            upload_bytes: bytes.len() as u64,
+            prepare_us,
+            submit_us: submit.elapsed().as_micros() as u64,
+            atlas_glyphs: self.text.glyph_count(),
+            text_cache_hits: self.text.hits(),
+        };
+        Ok(self.stats)
+    }
+    fn encode_present(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        present_index: u32,
+    ) -> Result<Option<wgpu::SurfaceTexture>, String> {
         let mut frame = None;
         if let Some(surface) = &self.surface {
             let acquired = acquire(
@@ -957,26 +989,33 @@ impl Renderer {
                 frame = Some(f);
             }
         }
-        self.failure.check()?;
-        self.queue.submit(Some(encoder.finish()));
-        let presented = frame.is_some();
-        if let Some(f) = frame {
-            f.present();
-        }
-        self.failure.check()?;
-        self.stats = FrameStats {
-            commands: commands.len() as u32,
-            instances: present_index,
-            draw_calls: passes.iter().map(|p| p.batches.len() as u32).sum::<u32>()
-                + u32::from(presented),
-            layers: passes.len() as u32 - 1,
-            upload_bytes: bytes.len() as u64,
-            prepare_us,
-            submit_us: submit.elapsed().as_micros() as u64,
-            atlas_glyphs: self.text.glyph_count(),
-            text_cache_hits: self.text.hits(),
+        Ok(frame)
+    }
+    /// Whether the latest submitted output still needs presentation after a surface timeout.
+    /// Offscreen renderers never become pending. This does not imply UI invalidation.
+    pub fn presentation_pending(&self) -> bool {
+        self.pending_present.is_some()
+    }
+    /// Retry only the cached output's presentation, without rebuilding commands or layers.
+    /// Returns true while another bounded, host-scheduled retry is needed. No-op when idle.
+    pub fn retry_presentation(&mut self) -> Result<bool, String> {
+        self.check_device()?;
+        let Some(index) = self.pending_present else {
+            return Ok(false);
         };
-        Ok(self.stats)
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("YoUI presentation retry"),
+            });
+        if let Some(frame) = self.encode_present(&mut encoder, index)? {
+            self.failure.check()?;
+            self.queue.submit(Some(encoder.finish()));
+            frame.present();
+            self.failure.check()?;
+            self.pending_present = None;
+        }
+        Ok(self.presentation_pending())
     }
     /// Synchronous readback, intended for exports and tests rather than the frame loop.
     pub fn read_pixels(&self) -> Result<Vec<u8>, String> {

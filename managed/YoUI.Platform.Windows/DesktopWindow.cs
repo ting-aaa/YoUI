@@ -52,10 +52,18 @@ public sealed class DesktopWindow : IDisposable
         }
     }
     private readonly DrawList scaled = new();
+    private readonly PresentationLoop presentation = new();
+    private bool suspended;
     public void RenderNow()
+    {
+        if (closed || disposed || suspended) return;
+        presentation.CompleteAttempt(RenderFrame());
+    }
+    private bool RenderFrame()
     {
         var list = Document.BuildFrame();
         LastFrame = Renderer.Render(Scale == 1 ? list : ScaleFrame(list));
+        return Renderer.PresentationPending;
     }
     private DrawList ScaleFrame(DrawList source)
     {
@@ -70,11 +78,13 @@ public sealed class DesktopWindow : IDisposable
         {
             PumpEvents(); tick?.Invoke(iterations);
             if (closed) break;
-            if (Document.NeedsRender) RenderNow();
+            presentation.Step(Document.NeedsRender, suspended, RenderFrame, Renderer.RetryPresentation);
             iterations++;
             if (frameLimit.HasValue && iterations >= frameLimit) break;
-            if (tick != null) Thread.Sleep(16);
-            else if (!Document.NeedsRender) WaitMessage();
+            int? retryWait = presentation.WaitMilliseconds(suspended);
+            if (tick != null || retryWait.HasValue)
+                MsgWaitForMultipleObjectsEx(0, 0, (uint)Math.Min(16, retryWait ?? 16), 0x04FF, 0x0004);
+            else if (suspended || !Document.NeedsRender) WaitMessage();
         }
     }
     public void PumpEvents()
@@ -111,7 +121,8 @@ public sealed class DesktopWindow : IDisposable
             case 0x0113: AnimationFrame?.Invoke(); return 0;
             case 0x0005:
                 GetClientRect(hwnd, out var client);
-                if (client.Right > 0 && client.Bottom > 0) { Renderer.Resize((uint)client.Right, (uint)client.Bottom); Document.Resize(client.Right / Scale, client.Bottom / Scale); }
+                suspended = wParam == 1 || client.Right <= 0 || client.Bottom <= 0;
+                if (!suspended) { Renderer.Resize((uint)client.Right, (uint)client.Bottom); Document.Resize(client.Right / Scale, client.Bottom / Scale); Document.Root.Invalidate(); }
                 return 0;
             case 0x02E0:
                 Scale = (float)(wParam & 0xffff) / 96;
@@ -201,6 +212,7 @@ public sealed class DesktopWindow : IDisposable
     [DllImport("user32")] private static extern bool TranslateMessage(ref Message m);
     [DllImport("user32", CharSet = CharSet.Unicode)] private static extern nint DispatchMessage(ref Message m);
     [DllImport("user32")] private static extern bool WaitMessage();
+    [DllImport("user32")] private static extern uint MsgWaitForMultipleObjectsEx(uint count, nint handles, uint milliseconds, uint wakeMask, uint flags);
     [DllImport("user32")] private static extern nuint SetTimer(nint h, nuint id, uint ms, nint callback);
     [DllImport("user32")] private static extern bool KillTimer(nint h, nuint id);
     [DllImport("user32")] private static extern bool ValidateRect(nint h, nint rect);

@@ -15,6 +15,7 @@ public sealed class DesktopWindow : IDisposable
     private uint windowId;
     private bool videoInitialized, ownsHost, disposed, closed, suspended, pointerDown;
     private bool focused;
+    private readonly PresentationLoop presentation = new();
     private NativeRenderer? renderer;
     private SdlClosePolicy? closePolicy;
     public NativeRenderer Renderer => renderer ?? throw new ObjectDisposedException(nameof(DesktopWindow));
@@ -86,10 +87,15 @@ public sealed class DesktopWindow : IDisposable
     {
         Verify();
         if (closed || suspended) return;
+        presentation.CompleteAttempt(RenderFrame());
+    }
+    private bool RenderFrame()
+    {
         var frame = Document.BuildFrame();
-        if (closed || disposed) return; // Layout/paint callbacks may dispose the host.
+        if (closed || disposed) return false; // Layout/paint callbacks may dispose the host.
         LastFrame = Renderer.Render(frame);
         RenderedFrames++;
+        return Renderer.PresentationPending;
     }
     public void PumpEvents()
     {
@@ -106,10 +112,11 @@ public sealed class DesktopWindow : IDisposable
             if (closed) break;
             tick?.Invoke();
             if (closed) break; // Tick/input callbacks may dispose the native window.
-            if (Document.NeedsRender && !suspended) RenderNow();
+            presentation.Step(Document.NeedsRender, suspended, RenderFrame, Renderer.RetryPresentation);
             if (closed) break;
             // Wake for native input without spinning while idle, hidden or minimized.
-            if (Sdl.SDL_WaitEventTimeout(out var value, tick == null ? 100 : 16) != 0) Process(value);
+            int wait = Math.Min(tick == null ? 100 : 16, presentation.WaitMilliseconds(suspended) ?? 100);
+            if (Sdl.SDL_WaitEventTimeout(out var value, wait) != 0) Process(value);
         }
     }
     private void CancelPointer()

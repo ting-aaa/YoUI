@@ -292,6 +292,32 @@ pub unsafe extern "C" fn youi_render(
         })
     })
 }
+/// Additive v1 API: query whether the last surface frame timed out.
+/// # Safety
+/// pending must be writable and aligned; writes 0 or 1 only on success.
+#[no_mangle]
+pub unsafe extern "C" fn youi_presentation_pending(id: u64, pending: *mut u32) -> i32 {
+    guard(|| {
+        checked_pointer(pending, "presentation pending")?;
+        with_engine(id, |e| {
+            *pending = u32::from(e.presentation_pending());
+            Ok(())
+        })
+    })
+}
+/// Additive v1 API: retry cached output only; caller schedules bounded waits.
+/// # Safety
+/// pending must be writable and aligned; writes 0 or 1 only on success.
+#[no_mangle]
+pub unsafe extern "C" fn youi_retry_presentation(id: u64, pending: *mut u32) -> i32 {
+    guard(|| {
+        checked_pointer(pending, "presentation pending")?;
+        with_engine(id, |e| {
+            *pending = u32::from(e.retry_presentation()?);
+            Ok(())
+        })
+    })
+}
 /// # Safety
 /// text must reference len bytes. width/height must be writable f32 pointers.
 #[no_mangle]
@@ -421,6 +447,21 @@ pub unsafe extern "C" fn youi_adapter_name(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn presentation_api_rejects_invalid_handles_and_output_pointers() {
+        unsafe {
+            let mut pending = 42_u32;
+            assert_eq!(youi_presentation_pending(0, &mut pending), -1);
+            assert_eq!(youi_retry_presentation(u64::MAX, &mut pending), -1);
+            assert_eq!(pending, 42);
+            assert_eq!(youi_presentation_pending(0, std::ptr::null_mut()), -1);
+            assert_eq!(youi_retry_presentation(0, std::ptr::null_mut()), -1);
+            let mut aligned = [0_u32; 2];
+            let unaligned = aligned.as_mut_ptr().cast::<u8>().add(1).cast::<u32>();
+            assert_eq!(youi_presentation_pending(0, unaligned), -1);
+            assert_eq!(youi_retry_presentation(0, unaligned), -1);
+        }
+    }
     #[test]
     fn capabilities_layout_and_error_outputs_are_stable() {
         assert_eq!(youi_renderer_capabilities_size(), 32);
