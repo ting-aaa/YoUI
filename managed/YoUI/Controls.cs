@@ -332,7 +332,8 @@ public sealed class VirtualList : Element
     public int ItemCount { get => count; set { if (value < 0) throw new ArgumentOutOfRangeException(nameof(value)); count = value; selected = Math.Min(selected, count - 1); ScrollOffset = offset; Invalidate(DirtyFlags.Layout); } }
     public int RealizedCount => pool.Count;
     public int FirstVisibleIndex => (int)(offset / RowHeight);
-    public float ScrollOffset { get => offset; set { if (!float.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value)); Set(ref offset, Math.Clamp(value, 0, Math.Max(0, count * RowHeight - Bounds.Height)), DirtyFlags.Layout); } }
+    private float ViewportHeight => Bounds.Inset(Padding).Height;
+    public float ScrollOffset { get => offset; set { if (!float.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value)); Set(ref offset, Math.Clamp(value, 0, Math.Max(0, count * RowHeight - ViewportHeight)), DirtyFlags.Layout); } }
     public int SelectedIndex { get => selected; set { int next = Math.Clamp(value, -1, count - 1); if (Set(ref selected, next, DirtyFlags.Layout | DirtyFlags.Semantics)) SelectionChanged?.Invoke(next); } }
     public event Action<int>? SelectionChanged;
     public void Refresh() => Invalidate(DirtyFlags.Layout);
@@ -350,7 +351,11 @@ public sealed class VirtualList : Element
         while (pool.Count > needed) { var row = pool[^1]; pool.RemoveAt(pool.Count - 1); indices.Remove(row); Remove(row); }
         for (int n = 0; n < pool.Count; n++)
         {
-            var row = pool[n]; int index = first + n; indices[row] = index;
+            var row = pool[n]; int index = first + n;
+            // A pooled element can outlive its business identity. End the old gesture
+            // before rebinding so a later release cannot activate the replacement item.
+            if (indices.TryGetValue(row, out int previous) && previous != index) Document?.CancelPointer(row);
+            indices[row] = index;
             row.Text = ItemText(index); row.Selected = index == selected;
             row.Arrange(new(content.X, content.Y + index * RowHeight - offset, Math.Max(0, content.Width - 10), RowHeight - 6));
         }
@@ -360,14 +365,21 @@ public sealed class VirtualList : Element
         if (e.Kind == EventKind.KeyDown && e.Key is 38 or 40 or 36 or 35)
         {
             SelectedIndex = e.Key switch { 38 => selected - 1, 40 => selected + 1, 36 => 0, _ => count - 1 };
-            if (selected >= 0) ScrollOffset = Math.Clamp(offset, Math.Max(0, (selected + 1) * RowHeight - Bounds.Height), selected * RowHeight);
+            if (selected >= 0)
+            {
+                float start = selected * RowHeight, viewport = ViewportHeight;
+                // An oversized row cannot fit: align its start instead of constructing
+                // an inverted Clamp interval. The setter applies the final scroll range.
+                ScrollOffset = RowHeight >= viewport ? start : Math.Clamp(offset, Math.Max(0, start + RowHeight - viewport), start);
+            }
             e.Handled = true;
         }
     }
     protected override void Paint(DrawList list, Rect b, float opacity, Theme theme)
     {
-        if (count * RowHeight <= b.Height) return;
-        float thumb = Math.Max(24, b.Height * b.Height / (count * RowHeight));
+        b = b.Inset(Padding);
+        if (count * RowHeight <= b.Height || b.Height <= 0) return;
+        float thumb = Math.Min(b.Height, Math.Max(24, b.Height * b.Height / (count * RowHeight)));
         list.Rectangle(new(b.Right - 4, b.Y + offset / (count * RowHeight - b.Height) * (b.Height - thumb), 3, thumb), theme.Border.Opacity(opacity), 1.5f);
     }
     public override string SemanticValue => $"{selected + 1} of {count}";

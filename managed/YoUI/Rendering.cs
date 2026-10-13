@@ -360,6 +360,26 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
             catch (EntryPointNotFoundException ex) { throw MissingResourceApi(ex); }
         }
     }
+    /// <summary>True when a surface timeout left cached output awaiting presentation.</summary>
+    public bool PresentationPending
+    {
+        get
+        {
+            Verify();
+            try { Check(Native.PresentationPending(handle, out uint pending)); return pending != 0; }
+            catch (EntryPointNotFoundException ex) { throw MissingPresentationApi(ex); }
+        }
+    }
+    /// <summary>Retries only cached output, without layout, paint, or command preparation.
+    /// Returns true if still pending. Hosts must wait between retries and pause while suspended.</summary>
+    public bool RetryPresentation()
+    {
+        Verify();
+        try { Check(Native.RetryPresentation(handle, out uint pending)); return pending != 0; }
+        catch (EntryPointNotFoundException ex) { throw MissingPresentationApi(ex); }
+    }
+    private static InvalidOperationException MissingPresentationApi(EntryPointNotFoundException ex) =>
+        new("This YoUI native library lacks the additive presentation retry API. Rebuild or deploy the matching native library; ABI v1 alone does not guarantee these symbols.", ex);
     public FrameStats Render(DrawList list)
     {
         Verify();
@@ -478,6 +498,8 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
         [DllImport(Dll, EntryPoint = "youi_resize", CallingConvention = CallingConvention.Cdecl)] internal static extern int Resize(ulong handle, uint w, uint h);
         [DllImport(Dll, EntryPoint = "youi_upload_image", CallingConvention = CallingConvention.Cdecl)] internal static extern int UploadImage(ulong handle, uint w, uint h, byte* data, uint length, out uint image);
         [DllImport(Dll, EntryPoint = "youi_release_image", CallingConvention = CallingConvention.Cdecl)] internal static extern int ReleaseImage(ulong handle, uint image);
+        [DllImport(Dll, EntryPoint = "youi_presentation_pending", CallingConvention = CallingConvention.Cdecl)] internal static extern int PresentationPending(ulong handle, out uint pending);
+        [DllImport(Dll, EntryPoint = "youi_retry_presentation", CallingConvention = CallingConvention.Cdecl)] internal static extern int RetryPresentation(ulong handle, out uint pending);
         [DllImport(Dll, EntryPoint = "youi_render", CallingConvention = CallingConvention.Cdecl)] internal static extern int Render(ulong handle, DrawCommand* commands, uint count, byte* text, uint length, out FrameStats stats);
         [DllImport(Dll, EntryPoint = "youi_purge_glyph_residency", CallingConvention = CallingConvention.Cdecl)] internal static extern int PurgeGlyphResidency(ulong handle);
         [DllImport(Dll, EntryPoint = "youi_trim_offscreen_layers", CallingConvention = CallingConvention.Cdecl)] internal static extern int TrimOffscreenLayers(ulong handle);

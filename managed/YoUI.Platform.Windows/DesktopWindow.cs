@@ -11,6 +11,7 @@ public sealed class DesktopWindow : IDisposable
     private nint handle;
     private readonly string className = "YoUI_" + Guid.NewGuid().ToString("N");
     private bool closed, disposed, releasingPointer;
+    private readonly MouseLeaveTracker mouseLeave = new();
     private Exception? callbackError;
     private char pendingHighSurrogate;
     private readonly int minimumWidth, minimumHeight;
@@ -52,10 +53,18 @@ public sealed class DesktopWindow : IDisposable
         }
     }
     private readonly DrawList scaled = new();
+    private readonly PresentationLoop presentation = new();
+    private bool suspended;
     public void RenderNow()
+    {
+        if (closed || disposed || suspended) return;
+        presentation.CompleteAttempt(RenderFrame());
+    }
+    private bool RenderFrame()
     {
         var list = Document.BuildFrame();
         LastFrame = Renderer.Render(Scale == 1 ? list : ScaleFrame(list));
+        return Renderer.PresentationPending;
     }
     private DrawList ScaleFrame(DrawList source)
     {
@@ -70,11 +79,13 @@ public sealed class DesktopWindow : IDisposable
         {
             PumpEvents(); tick?.Invoke(iterations);
             if (closed) break;
-            if (Document.NeedsRender) RenderNow();
+            presentation.Step(Document.NeedsRender, suspended, RenderFrame, Renderer.RetryPresentation);
             iterations++;
             if (frameLimit.HasValue && iterations >= frameLimit) break;
-            if (tick != null) Thread.Sleep(16);
-            else if (!Document.NeedsRender) WaitMessage();
+            int? retryWait = presentation.WaitMilliseconds(suspended);
+            if (tick != null || retryWait.HasValue)
+                MsgWaitForMultipleObjectsEx(0, 0, (uint)Math.Min(16, retryWait ?? 16), 0x04FF, 0x0004);
+            else if (suspended || !Document.NeedsRender) WaitMessage();
         }
     }
     public void PumpEvents()
@@ -111,14 +122,22 @@ public sealed class DesktopWindow : IDisposable
             case 0x0113: AnimationFrame?.Invoke(); return 0;
             case 0x0005:
                 GetClientRect(hwnd, out var client);
-                if (client.Right > 0 && client.Bottom > 0) { Renderer.Resize((uint)client.Right, (uint)client.Bottom); Document.Resize(client.Right / Scale, client.Bottom / Scale); }
+                suspended = wParam == 1 || client.Right <= 0 || client.Bottom <= 0;
+                if (!suspended) { Renderer.Resize((uint)client.Right, (uint)client.Bottom); Document.Resize(client.Right / Scale, client.Bottom / Scale); Document.Root.Invalidate(); }
                 return 0;
             case 0x02E0:
                 Scale = (float)(wParam & 0xffff) / 96;
                 Document.Root.Invalidate(DirtyFlags.All);
                 var suggested = Marshal.PtrToStructure<NativeRect>(lParam);
                 SetWindowPos(hwnd, 0, suggested.Left, suggested.Top, suggested.Right - suggested.Left, suggested.Bottom - suggested.Top, 0x0014); return 0;
-            case 0x0200: Document.Dispatch(new(EventKind.PointerMove) { Position = point }); return 0;
+            case 0x0200:
+                GetClientRect(hwnd, out var mouseClient);
+                mouseLeave.Move(hwnd, point.X >= 0 && point.Y >= 0 && point.X * Scale < mouseClient.Right && point.Y * Scale < mouseClient.Bottom);
+                Document.Dispatch(new(EventKind.PointerMove) { Position = point }); return 0;
+            case 0x02A3: // WM_MOUSELEAVE has no coordinates; clear hover, but preserve captured drags.
+                if (mouseLeave.Leave(GetCapture() == hwnd))
+                    Document.Dispatch(new(EventKind.PointerMove) { Position = new(-1, -1) });
+                return 0;
             case 0x0201: SetCapture(hwnd); Document.Dispatch(new(EventKind.PointerDown) { Position = point, Shift = shift, Control = control }); UpdateIme(hwnd); return 0;
             case 0x0202:
                 // A Clicked handler can enter a modal file dialog. Release OS capture before that
@@ -201,11 +220,13 @@ public sealed class DesktopWindow : IDisposable
     [DllImport("user32")] private static extern bool TranslateMessage(ref Message m);
     [DllImport("user32", CharSet = CharSet.Unicode)] private static extern nint DispatchMessage(ref Message m);
     [DllImport("user32")] private static extern bool WaitMessage();
+    [DllImport("user32")] private static extern uint MsgWaitForMultipleObjectsEx(uint count, nint handles, uint milliseconds, uint wakeMask, uint flags);
     [DllImport("user32")] private static extern nuint SetTimer(nint h, nuint id, uint ms, nint callback);
     [DllImport("user32")] private static extern bool KillTimer(nint h, nuint id);
     [DllImport("user32")] private static extern bool ValidateRect(nint h, nint rect);
     [DllImport("user32")] private static extern short GetKeyState(int key);
     [DllImport("user32")] private static extern nint SetCapture(nint h);
+    [DllImport("user32")] private static extern nint GetCapture();
     [DllImport("user32")] private static extern bool ReleaseCapture();
     [DllImport("user32")] private static extern bool ScreenToClient(nint h, ref NativePoint p);
     [DllImport("user32")] private static extern bool SetProcessDpiAwarenessContext(nint context);

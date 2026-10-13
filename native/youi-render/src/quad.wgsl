@@ -36,14 +36,20 @@ fn linear(c:vec3<f32>)->vec3<f32> {return select(pow((c+vec3(0.055))/1.055,vec3(
  if i.params.y>3.5 {
    let tex=textureSample(atlas,texSampler,clamp(i.uv,i.uv_bounds.xy,i.uv_bounds.zw));
    let alpha=tex.a*i.color.a;
-   return vec4(linear(i.color.rgb)*tex.rgb*alpha,alpha);
+   // Atlas image RGB is already premultiplied BEFORE filtering. Apply tint
+   // alpha once; multiplying by tex.a again would darken transparent edges.
+   return vec4(linear(i.color.rgb)*tex.rgb*i.color.a,alpha);
  }
  if i.params.y>2.5 {return vec4(linear(i.color.rgb)*i.color.a,i.color.a);}
  if i.params.y>1.5 {return textureSample(atlas,texSampler,i.uv)*i.color.a;}
  let t=clamp(i.local.y/max(i.rect.w,1.),0.,1.);
  var color=mix(vec4(linear(i.color.rgb),i.color.a),vec4(linear(i.color2.rgb),i.color2.a),t);
  if i.params.y>0.5 {
-   let tex=textureSample(atlas,texSampler,i.uv);color=vec4(color.rgb*tex.rgb,color.a*tex.a);
+   let tex=textureSample(atlas,texSampler,i.uv);
+   // Internal image-quad kind, matched by IMAGE_QUAD_KIND in renderer.rs.
+   // Glyph kind 1.0 retains straight RGB plus independently filtered coverage.
+   if i.params.y==1.25 {return vec4(color.rgb*tex.rgb*color.a,color.a*tex.a);}
+   color=vec4(color.rgb*tex.rgb,color.a*tex.a);
  } else {
    let r=min(i.params.x,min(i.rect.z,i.rect.w)*0.5);
    let q=abs(i.local-i.rect.zw*0.5)-(i.rect.zw*0.5-vec2(r));

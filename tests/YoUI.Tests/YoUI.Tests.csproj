@@ -11,4 +11,5 @@
     <Compile Include="../../samples/YoUI.Showcase/RenderingGallery.cs" Link="Showcase/RenderingGallery.cs" />
   </ItemGroup>
   <Import Project="../../scripts/NativeLibrary.targets" />
+  <ItemGroup><Compile Include="../../managed/YoUI.Platform.Shared/PresentationLoop.cs" Link="PresentationLoop.cs" /></ItemGroup>
 </Project>

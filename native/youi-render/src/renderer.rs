@@ -46,6 +46,10 @@ mod backend_tests {
     }
 }
 
+// Internal shader discriminant (not the public Command kind/ABI). Keep glyph
+// coverage (1.0), premultiplied images (1.25) and layer composites (2.0) distinct.
+const IMAGE_QUAD_KIND: f32 = 1.25;
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub(crate) struct Instance {
@@ -103,6 +107,30 @@ impl Pass {
             range: index..index + 1,
             source,
         });
+    }
+}
+
+// Keep acquisition and presentation replaceable in GPU tests without creating an OS window.
+// Encoding and queue submission below are shared by real surfaces and injected frames.
+enum PresentFrame {
+    Surface(wgpu::SurfaceTexture),
+    #[cfg(test)]
+    Injected(presentation_tests::InjectedFrame),
+}
+impl PresentFrame {
+    fn texture(&self) -> &wgpu::Texture {
+        match self {
+            Self::Surface(frame) => &frame.texture,
+            #[cfg(test)]
+            Self::Injected(frame) => &frame.texture,
+        }
+    }
+    fn present(self) {
+        match self {
+            Self::Surface(frame) => frame.present(),
+            #[cfg(test)]
+            Self::Injected(frame) => frame.present(),
+        }
     }
 }
 
@@ -174,6 +202,9 @@ pub struct Renderer {
     pub adapter_name: String,
     capabilities: RendererCapabilities,
     pub stats: FrameStats,
+    pending_present: Option<u32>,
+    #[cfg(test)]
+    injected_surface: Option<presentation_tests::InjectedSurface>,
 }
 impl Renderer {
     /// # Safety
@@ -481,6 +512,9 @@ impl Renderer {
             adapter_name,
             capabilities,
             stats: FrameStats::default(),
+            pending_present: None,
+            #[cfg(test)]
+            injected_surface: None,
         })
     }
     /// Immutable selected-device diagnostics. Available even after a latched device failure;
@@ -610,6 +644,7 @@ impl Renderer {
             return Ok(());
         }
         self.budget.textures(width, height, 0)?;
+        self.pending_present = None; // Resizing replaces the cached output; the host must render again.
         self.width = width;
         self.height = height;
         self.layers.clear();
@@ -842,7 +877,7 @@ impl Renderer {
                         c.color,
                         clip,
                         0.,
-                        1.,
+                        IMAGE_QUAD_KIND,
                         self.text.image_uv(c.flags)?,
                     ))?;
                 }
@@ -878,6 +913,7 @@ impl Renderer {
             self.capacity = capacity;
             self.instance_buffer = Self::buffer(&self.device, self.capacity);
         }
+        self.pending_present = None; // The retained instance buffer now belongs to this frame.
         let bytes = bytemuck::cast_slice(&self.instances);
         self.queue.write_buffer(&self.instance_buffer, 0, bytes);
         let prepare_us = start.elapsed().as_micros() as u64;
@@ -924,42 +960,11 @@ impl Renderer {
                 pass.draw(0..6, batch.range.clone());
             }
         }
-        let mut frame = None;
-        if let Some(surface) = &self.surface {
-            let acquired = acquire(
-                || surface.get_current_texture(),
-                || surface.configure(&self.device, self.surface_config.as_ref().unwrap()),
-            )?;
-            if let Some(f) = acquired {
-                let view = f.texture.create_view(&Default::default());
-                let attachments = [Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })];
-                {
-                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("present"),
-                        color_attachments: &attachments,
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
-                    pass.set_pipeline(&self.surface_pipeline);
-                    pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
-                    pass.set_bind_group(0, &self.output.bind, &[]);
-                    pass.draw(0..6, present_index..present_index + 1);
-                }
-                frame = Some(f);
-            }
-        }
+        let frame = self.encode_present(&mut encoder, present_index)?;
         self.failure.check()?;
         self.queue.submit(Some(encoder.finish()));
         let presented = frame.is_some();
+        self.pending_present = (self.has_surface() && !presented).then_some(present_index);
         if let Some(f) = frame {
             f.present();
         }
@@ -977,6 +982,83 @@ impl Renderer {
             text_cache_hits: self.text.hits(),
         };
         Ok(self.stats)
+    }
+    fn has_surface(&self) -> bool {
+        #[cfg(test)]
+        if self.injected_surface.is_some() {
+            return true;
+        }
+        self.surface.is_some()
+    }
+    fn acquire_frame(&self) -> Result<Option<PresentFrame>, String> {
+        #[cfg(test)]
+        if let Some(surface) = &self.injected_surface {
+            return acquire(|| surface.acquire(), || surface.configure());
+        }
+        match &self.surface {
+            Some(surface) => acquire(
+                || surface.get_current_texture().map(PresentFrame::Surface),
+                || surface.configure(&self.device, self.surface_config.as_ref().unwrap()),
+            ),
+            None => Ok(None),
+        }
+    }
+    fn encode_present(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        present_index: u32,
+    ) -> Result<Option<PresentFrame>, String> {
+        let frame = self.acquire_frame()?;
+        if let Some(f) = &frame {
+            let view = f.texture().create_view(&Default::default());
+            let attachments = [Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })];
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("present"),
+                color_attachments: &attachments,
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.surface_pipeline);
+            pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
+            pass.set_bind_group(0, &self.output.bind, &[]);
+            pass.draw(0..6, present_index..present_index + 1);
+        }
+        Ok(frame)
+    }
+    /// Whether the latest submitted output still needs presentation after a surface timeout.
+    /// Offscreen renderers never become pending. This does not imply UI invalidation.
+    pub fn presentation_pending(&self) -> bool {
+        self.pending_present.is_some()
+    }
+    /// Retry only the cached output's presentation, without rebuilding commands or layers.
+    /// Returns true while another bounded, host-scheduled retry is needed. No-op when idle.
+    pub fn retry_presentation(&mut self) -> Result<bool, String> {
+        self.check_device()?;
+        let Some(index) = self.pending_present else {
+            return Ok(false);
+        };
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("YoUI presentation retry"),
+            });
+        if let Some(frame) = self.encode_present(&mut encoder, index)? {
+            self.failure.check()?;
+            self.queue.submit(Some(encoder.finish()));
+            frame.present();
+            self.failure.check()?;
+            self.pending_present = None;
+        }
+        Ok(self.presentation_pending())
     }
     /// Synchronous readback, intended for exports and tests rather than the frame loop.
     pub fn read_pixels(&self) -> Result<Vec<u8>, String> {
@@ -1042,6 +1124,9 @@ impl Renderer {
             .map_err(|e| e.to_string())
     }
 }
+
+#[cfg(test)]
+mod presentation_tests;
 
 #[cfg(test)]
 mod text_filter_tests;

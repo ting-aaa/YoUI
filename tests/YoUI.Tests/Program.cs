@@ -12,6 +12,7 @@ if (args.Length != 0)
     if (args.Length == 1 && args[0] == "--gpu-glyph-residency") { GlyphResidencyTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--missing-glyph-residency-api") { GlyphResidencyTests.RunMissingApi(); return; }
     if (args.Length == 1 && args[0] == "--gpu-gallery-rendering") { RenderingGalleryTests.RunGpu(); return; }
+    if (args.Length == 1 && args[0] == "--gpu-presentation-retry") { PresentationRetryTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--gpu-renderer-recovery") { RendererRecoveryTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--gpu-offscreen-trim") { OffscreenTrimTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--missing-offscreen-trim-api") { OffscreenTrimTests.RunMissingApi(); return; }
@@ -30,9 +31,11 @@ RendererCapabilitiesTests.RunLogic(Test, Require);
 GlyphResidencyTests.RunLogic(Test, Require);
 OffscreenTrimTests.RunLogic(Test, Require);
 RendererRecoveryTests.RunLogic(Test, Require);
+PresentationRetryTests.Run(Test, Require);
 TextInputTests.RunLogic(Test, Require);
 RenderingGalleryTests.RunLogic(Test, Require);
 LayoutUpdateTests.Run(Test, Require);
+VirtualListRegressionTests.Run(Test, Require);
 Test("stretched and centered RectTransform", () =>
 {
     Require(RectTransform.Stretch(10, 20, 30, 40).Resolve(new(0, 0, 200, 100)) == new Rect(10, 20, 160, 40));

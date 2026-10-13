@@ -136,6 +136,11 @@ int32_t YOUI_CALL youi_resize(uint64_t renderer, uint32_t width, uint32_t height
 /* Synchronous input borrowing, asynchronous GPU work. stats must be writable.
    NULL input is allowed only for zero count/length. Clip/layer scopes must balance. */
 int32_t YOUI_CALL youi_render(uint64_t renderer, const youi_command* commands, uint32_t count, const uint8_t* text, uint32_t length, youi_frame_stats* stats);
+/* Additive v1 symbols; frame stats retain their 48-byte ABI. Pending is 0/1.
+   Retry presents the retained output only; wait between retries (e.g. 16 ms).
+   Resize discards pending output and requires a fresh render. */
+int32_t YOUI_CALL youi_presentation_pending(uint64_t renderer, uint32_t* pending);
+int32_t YOUI_CALL youi_retry_presentation(uint64_t renderer, uint32_t* pending);
 /* size: 1..512, max_width: finite and >=0; outputs are physical pixels.
    Any nonzero bold selects bold text. Measurement does not populate the GPU atlas. */
 int32_t YOUI_CALL youi_measure(uint64_t renderer, const uint8_t* text, uint32_t length, float size, float max_width, uint32_t bold, float* width, float* height);
