@@ -31,8 +31,8 @@ fn gpu_selected_capabilities_and_ffi_lifetime() -> Result<(), String> {
         b"",
     )?;
     renderer.resize(64, 64)?;
-    renderer.trim_offscreen_layers()?;
-    renderer.purge_glyph_residency()?;
+    renderer.trim_offscreen_layers();
+    renderer.purge_glyph_residency();
     assert_eq!(renderer.capabilities(), capabilities);
 
     let mut handle = 0;
