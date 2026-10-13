@@ -2,6 +2,57 @@ use youi_render::{Command, Rect, Renderer};
 
 #[test]
 #[ignore = "requires a GPU adapter; run explicitly in the quality gate"]
+fn gpu_selected_capabilities_and_ffi_lifetime() -> Result<(), String> {
+    use youi_render::{ffi::*, RendererCapabilities, ResourceBudget};
+    let budget = ResourceBudget {
+        max_instance_buffer_bytes: 229_413,
+        ..Default::default()
+    };
+    let mut renderer = unsafe { Renderer::new_with_budget(32, 32, 0, budget)? };
+    let capabilities = renderer.capabilities();
+    println!(
+        "Capabilities adapter: {}; {capabilities:?}",
+        renderer.adapter_name
+    );
+    assert!(renderer.adapter_name.contains(&format!(
+        "({:?}; {:?};",
+        capabilities.backend, capabilities.device_kind
+    )));
+    assert_eq!(capabilities.max_target_dimension_2d, 8192);
+    assert_eq!(capabilities.max_image_dimension_2d, 2046);
+    assert_eq!(capabilities.atlas_dimension_2d, 2048);
+    assert_eq!(capabilities.reserved, 0);
+    assert_eq!(capabilities.max_instance_buffer_bytes, 229_413);
+    let usage = renderer.resource_usage();
+    assert_eq!(renderer.capabilities(), capabilities);
+    assert_eq!(renderer.resource_usage(), usage);
+    renderer.render(
+        &[Command::rect(Rect::new(0., 0., 32., 32.), [1.; 4], 0.)],
+        b"",
+    )?;
+    renderer.resize(64, 64)?;
+    renderer.trim_offscreen_layers()?;
+    renderer.purge_glyph_residency()?;
+    assert_eq!(renderer.capabilities(), capabilities);
+
+    let mut handle = 0;
+    let mut output = RendererCapabilities::default();
+    unsafe {
+        assert_eq!(youi_create_with_budget(32, 32, 0, &budget, &mut handle), 0);
+        assert_eq!(youi_renderer_capabilities(handle, &mut output), 0);
+        assert_eq!(output, capabilities);
+        assert_eq!(youi_destroy(handle), 0);
+        assert_eq!(youi_renderer_capabilities(handle, &mut output), -1);
+    }
+    assert_eq!(
+        output, capabilities,
+        "destroyed handle leaves output untouched"
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a GPU adapter; run explicitly in the quality gate"]
 fn gpu_pixels_order_clip_alpha_layers_and_reuse() -> Result<(), String> {
     let mut renderer = unsafe { Renderer::new(64, 64, 0)? };
     let rect = |x, y, w, h, color| Command::rect(Rect::new(x, y, w, h), color, 0.);

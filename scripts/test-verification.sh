@@ -57,11 +57,23 @@ for configuration in Debug Release; do
     else
         ! grep -F '<--release>' "$TRACE"
     fi
-    ! grep -E -- '--ignored|--headless|--smoke|--benchmark' "$TRACE"
+    ! grep -E -- '--gpu|--ignored|--headless|--smoke|--benchmark' "$TRACE"
     grep -F "Linux $configuration compilation" "$scratch/output" > /dev/null
     grep -F 'layer=Logic' "$scratch/output" > /dev/null
     echo "PASS Linux $configuration commands, profile, layer and independent working directory"
 done
+
+# The shell entrypoint remains logic-only. Check that the additive capability
+# probe is wired into the existing PowerShell GPU phase, without inventing a gate.
+# test-verification.ps1 executes and fault-injects that full phase with mocked tools.
+capability_flag='--gpu-renderer-capabilities'
+[[ "$(grep -cF -- "$capability_flag" "$root/scripts/verify.ps1")" == 1 ]]
+gpu_block="$(sed -n "/if (\$Layer -eq 'Gpu' -or \$Layer -eq 'All') {/,/^    }/p" "$root/scripts/verify.ps1")"
+[[ "$(printf '%s\n' "$gpu_block" | grep -cF -- "$capability_flag")" == 1 ]]
+printf '%s\n' "$gpu_block" | grep -F "'run','--project','tests/YoUI.Tests','-c',\$Configuration,'-p:BuildInParallel=false','--','$capability_flag'" > /dev/null
+grep -F 'RendererCapabilitiesTests.RunLogic(Test, Require);' "$root/tests/YoUI.Tests/Program.cs" > /dev/null
+grep -F 'args[0] == "--gpu-renderer-capabilities") { RendererCapabilitiesTests.RunGpu(); return; }' "$root/tests/YoUI.Tests/Program.cs" > /dev/null
+echo 'PASS capability logic/GPU wiring preserves existing verification layers (source checks only)'
 for step in {1..13}; do
     export FAIL_AT="$step"
     code=0; run Release || code=$?

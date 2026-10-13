@@ -64,6 +64,35 @@ typedef struct {
     uint64_t atlas_bytes, output_bytes, layer_bytes, instance_buffer_bytes;
     uint32_t layer_count, reserved;
 } youi_resource_usage_t;
+/* Stable selected-backend and adapter-reported device-kind identifiers. */
+#define YOUI_BACKEND_OTHER 0u
+#define YOUI_BACKEND_VULKAN 1u
+#define YOUI_BACKEND_METAL 2u
+#define YOUI_BACKEND_DX12 3u
+#define YOUI_BACKEND_GL 4u
+#define YOUI_BACKEND_BROWSER_WEB_GPU 5u
+#define YOUI_DEVICE_OTHER 0u
+#define YOUI_DEVICE_INTEGRATED_GPU 1u
+#define YOUI_DEVICE_DISCRETE_GPU 2u
+#define YOUI_DEVICE_VIRTUAL_GPU 3u
+#define YOUI_DEVICE_CPU 4u
+/* Effective immutable limits, not available capacity or an allocation promise.
+   Target ceiling includes renderer policy and enabled device limit. Image ceiling
+   excludes atlas padding; atlas space is shared and may be fragmented. Instance
+   byte ceiling includes enabled device limit and configured resource budget.
+   reserved is zero. All other resource/frame validation continues to apply. */
+typedef struct {
+    uint32_t backend, device_kind;
+    uint32_t max_target_dimension_2d, max_image_dimension_2d, atlas_dimension_2d, reserved;
+    uint64_t max_instance_buffer_bytes;
+} youi_renderer_capabilities_t;
+/* Additive ABI v1 symbols: check availability and 32-byte layout first.
+   Queries a successfully created renderer, not pre-creation backend support.
+   result must be non-NULL, writable, aligned; unchanged on error. No GPU work.
+   Still available after a latched device failure while the handle remains live;
+   values do not prove device health or native-window/platform support. */
+uint32_t YOUI_CALL youi_renderer_capabilities_size(void);
+int32_t YOUI_CALL youi_renderer_capabilities(uint64_t renderer, youi_renderer_capabilities_t* result);
 /* ABI 0x00010000. Status functions return 0, -1 (error), or -2 (contained panic).
    Read youi_last_error on the failing thread. Panic recovery is not guaranteed.
    See docs/api/native.md for ownership, frame budgets and full contracts. */
@@ -151,6 +180,8 @@ uint32_t YOUI_CALL youi_last_error(uint8_t* output, uint32_t capacity);
 int32_t YOUI_CALL youi_adapter_name(uint64_t renderer, uint8_t* output, uint32_t capacity, uint32_t* written);
 #ifdef __cplusplus
 }
+static_assert(sizeof(youi_renderer_capabilities_t) == 32, "YoUI capabilities ABI mismatch");
+static_assert(offsetof(youi_renderer_capabilities_t, max_instance_buffer_bytes) == 24, "YoUI capabilities offset mismatch");
 static_assert(sizeof(youi_text_cell) == 32, "YoUI text cell ABI mismatch");
 static_assert(offsetof(youi_text_cell, x) == 16, "YoUI text cell offset mismatch");
 static_assert(sizeof(youi_command) == 80, "YoUI command ABI mismatch");

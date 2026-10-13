@@ -47,6 +47,24 @@ public readonly struct ResourceUsage
     public readonly uint LayerCount, Reserved;
 }
 
+/// <summary>Stable identifiers for the selected backend, independent of wgpu numeric values.</summary>
+public enum RendererBackend : uint { Other = 0, Vulkan = 1, Metal = 2, Dx12 = 3, Gl = 4, BrowserWebGpu = 5 }
+/// <summary>Adapter-reported classification; it is not independent hardware verification.</summary>
+public enum RendererDeviceKind : uint { Other = 0, IntegratedGpu = 1, DiscreteGpu = 2, VirtualGpu = 3, Cpu = 4 }
+/// <summary>
+/// Immutable selected-device diagnostics and effective static ceilings. Uses enabled device
+/// limits, not adapter maxima. Resource budgets, shared atlas capacity/fragmentation and frame
+/// validation still apply. Not a promise of free space, device health or platform support.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct RendererCapabilities
+{
+    public readonly RendererBackend Backend;
+    public readonly RendererDeviceKind DeviceKind;
+    public readonly uint MaxTargetDimension2D, MaxImageDimension2D, AtlasDimension2D, Reserved;
+    public readonly ulong MaxInstanceBufferBytes;
+}
+
 /// <summary>Reusable command and UTF-8 arenas, pinned only during synchronous submission.</summary>
 public sealed class DrawList
 {
@@ -301,6 +319,29 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
     private static InvalidOperationException MissingResourceApi(EntryPointNotFoundException inner) => new(
         "This YoUI native library does not export the resource-budget API. ABI v1 alone does not guarantee these additive symbols; rebuild or deploy the matching native library.", inner);
     private void Verify() { ObjectDisposedException.ThrowIf(handle == 0, this); if (ownerThread != Environment.CurrentManagedThreadId) throw new InvalidOperationException("Renderer calls must stay on the creating thread."); }
+    /// <summary>
+    /// Query the selected device on the creating thread. Available on a live renderer even
+    /// after a latched device failure; it does not poll or validate current device health.
+    /// Requires the additive capability API in the matching native library.
+    /// </summary>
+    public RendererCapabilities Capabilities
+    {
+        get
+        {
+            Verify();
+            try
+            {
+                if (Native.RendererCapabilitiesSize() != Marshal.SizeOf<RendererCapabilities>())
+                    throw new InvalidOperationException("Incompatible YoUI native renderer-capabilities layout.");
+                Check(Native.RendererCapabilities(handle, out var capabilities));
+                return capabilities;
+            }
+            catch (EntryPointNotFoundException ex)
+            {
+                throw new InvalidOperationException("This YoUI native library does not export the renderer-capabilities API (youi_renderer_capabilities_size / youi_renderer_capabilities). Rebuild or deploy the matching native library; ABI v1 alone does not guarantee these additive symbols.", ex);
+            }
+        }
+    }
     public ResourceBudget ResourceBudget
     {
         get
@@ -430,6 +471,8 @@ public sealed unsafe class NativeRenderer : IDisposable, ITextLayoutProvider
         [DllImport(Dll, EntryPoint = "youi_create_xlib", CallingConvention = CallingConvention.Cdecl)] internal static extern int CreateXlib(uint w, uint h, nint display, nuint window, int screen, out ulong handle);
         [DllImport(Dll, EntryPoint = "youi_create_xlib_with_budget", CallingConvention = CallingConvention.Cdecl)] internal static extern int CreateXlibWithBudget(uint w, uint h, nint display, nuint window, int screen, in ResourceBudget budget, out ulong handle);
         [DllImport(Dll, EntryPoint = "youi_resource_budget", CallingConvention = CallingConvention.Cdecl)] internal static extern int ResourceBudget(ulong handle, out ResourceBudget budget);
+        [DllImport(Dll, EntryPoint = "youi_renderer_capabilities_size", CallingConvention = CallingConvention.Cdecl)] internal static extern uint RendererCapabilitiesSize();
+        [DllImport(Dll, EntryPoint = "youi_renderer_capabilities", CallingConvention = CallingConvention.Cdecl)] internal static extern int RendererCapabilities(ulong handle, out RendererCapabilities capabilities);
         [DllImport(Dll, EntryPoint = "youi_resource_usage", CallingConvention = CallingConvention.Cdecl)] internal static extern int ResourceUsage(ulong handle, out ResourceUsage usage);
         [DllImport(Dll, EntryPoint = "youi_destroy", CallingConvention = CallingConvention.Cdecl)] internal static extern int Destroy(ulong handle);
         [DllImport(Dll, EntryPoint = "youi_resize", CallingConvention = CallingConvention.Cdecl)] internal static extern int Resize(ulong handle, uint w, uint h);

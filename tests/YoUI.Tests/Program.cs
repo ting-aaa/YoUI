@@ -5,6 +5,9 @@ using YoUI;
 if (args.Length != 0)
 {
     if (args.Length == 1 && args[0] == "--gpu-resource-budget") { ResourceBudgetTests.RunGpu(); return; }
+    if (args.Length == 1 && args[0] == "--gpu-renderer-capabilities") { RendererCapabilitiesTests.RunGpu(); return; }
+    if (args.Length == 1 && args[0] == "--missing-renderer-capabilities-api") { RendererCapabilitiesTests.RunMissingApi(); return; }
+    if (args.Length == 1 && args[0] == "--incompatible-renderer-capabilities-api") { RendererCapabilitiesTests.RunIncompatibleApi(); return; }
     if (args.Length == 1 && args[0] == "--gpu-text-input") { TextInputTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--gpu-glyph-residency") { GlyphResidencyTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--missing-glyph-residency-api") { GlyphResidencyTests.RunMissingApi(); return; }
@@ -12,7 +15,7 @@ if (args.Length != 0)
     if (args.Length == 1 && args[0] == "--gpu-renderer-recovery") { RendererRecoveryTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--gpu-offscreen-trim") { OffscreenTrimTests.RunGpu(); return; }
     if (args.Length == 1 && args[0] == "--missing-offscreen-trim-api") { OffscreenTrimTests.RunMissingApi(); return; }
-    throw new ArgumentException("Supported optional arguments: --gpu-resource-budget, --gpu-text-input, --gpu-glyph-residency, --missing-glyph-residency-api, --gpu-offscreen-trim, --missing-offscreen-trim-api, --gpu-renderer-recovery, --gpu-gallery-rendering");
+    throw new ArgumentException("Supported optional arguments: --gpu-resource-budget, --gpu-renderer-capabilities, --missing-renderer-capabilities-api, --incompatible-renderer-capabilities-api, --gpu-text-input, --gpu-glyph-residency, --missing-glyph-residency-api, --gpu-offscreen-trim, --missing-offscreen-trim-api, --gpu-renderer-recovery, --gpu-gallery-rendering");
 }
 
 int passed = 0;
@@ -23,6 +26,7 @@ void Click(UiDocument doc, float x, float y) { doc.Dispatch(new(EventKind.Pointe
 
 Test("ABI sizes and offsets", () => { Require(Marshal.SizeOf<DrawCommand>() == 80); Require(Marshal.OffsetOf<DrawCommand>(nameof(DrawCommand.Rect)).ToInt32() == 16); Require(Marshal.SizeOf<FrameStats>() == 48); });
 ResourceBudgetTests.RunLogic(Test, Require);
+RendererCapabilitiesTests.RunLogic(Test, Require);
 GlyphResidencyTests.RunLogic(Test, Require);
 OffscreenTrimTests.RunLogic(Test, Require);
 RendererRecoveryTests.RunLogic(Test, Require);

@@ -29,12 +29,17 @@
 | 图像、几何与文字 | RGBA 图像、平色 / 纹理三角形、纹理网格、九宫格；共源文字塑形 / 测量和绘制 | [A06](a06-textured-mesh.md)、[文字驻留](text-residency.md)、[A08](text-input.md)；UV、边缘过滤、九宫格缩小、文字边缘 / 裁剪和失效图像 |
 | 裁剪与合成 | 嵌套轴对齐矩形裁剪；有序隔离层和嵌套 group opacity | [架构](architecture.md)；子层在原绘制位置合成，整体透明度不等于给每个重叠图元单独乘 alpha |
 | 资源与回收 | 创建时 payload 预算、保留容量快照、图像空闲区复用、显式字形驻留 purge、显式离屏层 trim | [资源预算](resource-budgets.md)、[文字驻留](text-residency.md)；拒绝帧不部分提交，保留 live image，重复回收和重建 |
+| 渲染诊断 | 已创建 renderer 的实际后端、设备类型和不可变有效上限查询 | [能力查询](render-capabilities.md)；不代表创建前支持探测、剩余容量、资源准入保证或平台验收 |
 | 失败与重建 | 有界 surface 重试、设备丢失诊断锁存、显式宿主 stop / dispose / recreate / reupload / rebind | [重建合约](renderer-recovery.md)；旧命令 / 句柄拒绝、文本 provider 更新；不是透明设备恢复 |
 | 基础应用层交互 | 原有 Controls / Collection / Layout 页面、主题、页面往返、焦点 / 捕获、模态 Reset、紧凑视口滚动 | [组件图库](component-gallery.md)；由 `UiDocument` 分发的逻辑事件与 OS 输入证据分开记录 |
 
 具体边界继续以各合约为准。例如图集仍是固定单页，purge 不消除碎片或缩小纹理；
 trim 不缩小实例缓冲、不保证物理显存立即下降；payload 预算不等于总显存上限；
 重建测试不能证明真实硬件设备丢失后可恢复。
+
+能力查询只是对现有渲染器的有界诊断补充，不增加 Alpha 验收门槛。
+软件 / Cpu 适配器结果仍须与硬件 GPU、原生窗口和平台证据分开记录；
+查询可用不意味着 Alpha 已接受、建立 tag 或推进 Beta。
 
 ## 本次 Rendering 页的有界检查
 

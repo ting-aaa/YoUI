@@ -1,7 +1,9 @@
 //! Versioned C ABI. Never retain caller buffers; platform handles are borrowed.
 //! Renderer handles are checked registry IDs.
 //! Calls are serialized, and errors/panics are contained at this boundary.
-use crate::{Command, FrameStats, Renderer, ResourceBudget, ResourceUsage, TextCell};
+use crate::{
+    Command, FrameStats, Renderer, RendererCapabilities, ResourceBudget, ResourceUsage, TextCell,
+};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -71,6 +73,10 @@ pub extern "C" fn youi_resource_budget_size() -> u32 {
 #[no_mangle]
 pub extern "C" fn youi_resource_usage_size() -> u32 {
     std::mem::size_of::<ResourceUsage>() as u32
+}
+#[no_mangle]
+pub extern "C" fn youi_renderer_capabilities_size() -> u32 {
+    std::mem::size_of::<RendererCapabilities>() as u32
 }
 /// Additive v1 geometry ABI. Older v1 libraries may not export this symbol.
 #[no_mangle]
@@ -152,6 +158,22 @@ pub unsafe extern "C" fn youi_create_xlib_with_budget(
         let renderer = Renderer::new_xlib_with_budget(w, h, display, window, screen, *budget)?;
         *out = register(renderer)?;
         Ok(())
+    })
+}
+/// Immutable diagnostics; does not poll the device or allocate GPU resources.
+/// # Safety
+/// out must reference a writable, aligned RendererCapabilities. Unchanged on error.
+#[no_mangle]
+pub unsafe extern "C" fn youi_renderer_capabilities(
+    id: u64,
+    out: *mut RendererCapabilities,
+) -> i32 {
+    guard(|| {
+        checked_pointer(out, "renderer capabilities output")?;
+        with_engine(id, |e| {
+            *out = e.capabilities();
+            Ok(())
+        })
     })
 }
 /// # Safety
@@ -399,6 +421,46 @@ pub unsafe extern "C" fn youi_adapter_name(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn capabilities_layout_and_error_outputs_are_stable() {
+        assert_eq!(youi_renderer_capabilities_size(), 32);
+        assert_eq!(std::mem::offset_of!(RendererCapabilities, backend), 0);
+        assert_eq!(std::mem::offset_of!(RendererCapabilities, device_kind), 4);
+        assert_eq!(
+            std::mem::offset_of!(RendererCapabilities, max_target_dimension_2d),
+            8
+        );
+        assert_eq!(
+            std::mem::offset_of!(RendererCapabilities, max_image_dimension_2d),
+            12
+        );
+        assert_eq!(
+            std::mem::offset_of!(RendererCapabilities, atlas_dimension_2d),
+            16
+        );
+        assert_eq!(std::mem::offset_of!(RendererCapabilities, reserved), 20);
+        assert_eq!(
+            std::mem::offset_of!(RendererCapabilities, max_instance_buffer_bytes),
+            24
+        );
+        let mut output = RendererCapabilities {
+            max_instance_buffer_bytes: 123,
+            ..Default::default()
+        };
+        let original = output;
+        let mut storage = [0_u64; 5];
+        unsafe {
+            assert_eq!(youi_renderer_capabilities(u64::MAX, &mut output), -1);
+            assert_eq!(youi_renderer_capabilities(0, &mut output), -1);
+            assert_eq!(youi_renderer_capabilities(0, std::ptr::null_mut()), -1);
+            assert_eq!(
+                youi_renderer_capabilities(0, storage.as_mut_ptr().cast::<u8>().add(1).cast()),
+                -1
+            );
+        }
+        assert_eq!(output, original);
+        assert_eq!(storage, [0; 5]);
+    }
     #[test]
     fn resource_struct_layout_is_stable() {
         assert_eq!(youi_abi_version(), 0x0001_0000);
