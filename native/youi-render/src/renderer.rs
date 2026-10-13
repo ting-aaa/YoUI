@@ -2,7 +2,7 @@ use crate::failure::{acquire, wait_readback, DeviceFailure};
 use crate::{ir::validate, text::TextSystem, Command, FrameStats, Rect, TextCell};
 use crate::{
     resource::{INITIAL_CAPACITY, INSTANCE_BYTES},
-    ResourceBudget, ResourceUsage,
+    RendererCapabilities, ResourceBudget, ResourceUsage,
 };
 use bytemuck::{Pod, Zeroable};
 use std::{ops::Range, time::Instant};
@@ -172,6 +172,7 @@ pub struct Renderer {
     width: u32,
     height: u32,
     pub adapter_name: String,
+    capabilities: RendererCapabilities,
     pub stats: FrameStats,
 }
 impl Renderer {
@@ -363,6 +364,8 @@ impl Renderer {
             trace: wgpu::Trace::Off,
         }))
         .map_err(|e| e.to_string())?;
+        let capabilities =
+            RendererCapabilities::new(info.backend, info.device_type, &device.limits(), budget);
         let failure = DeviceFailure::default();
         let callback = failure.clone();
         device.set_device_lost_callback(move |reason, message| callback.observe(reason, message));
@@ -476,8 +479,14 @@ impl Renderer {
             width,
             height,
             adapter_name,
+            capabilities,
             stats: FrameStats::default(),
         })
+    }
+    /// Immutable selected-device diagnostics. Available even after a latched device failure;
+    /// these ceilings are not allocation, device-health or platform-support guarantees.
+    pub fn capabilities(&self) -> RendererCapabilities {
+        self.capabilities
     }
     fn check_device(&self) -> Result<(), String> {
         self.failure.check()?;
@@ -1411,10 +1420,12 @@ mod recovery_tests {
             &[255, 0, 0, 255]
         );
         let stats = format!("{:?}", renderer.stats);
+        let capabilities = renderer.capabilities();
         renderer.failure.observe(
             wgpu::DeviceLostReason::Unknown,
             "test injection (device remains healthy)".into(),
         );
+        assert_eq!(renderer.capabilities(), capabilities);
         for _ in 0..3 {
             assert!(renderer
                 .render(&[image(old)], b"")

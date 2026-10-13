@@ -51,6 +51,7 @@ try {
     }
     if ($Layer -eq 'Gpu' -or $Layer -eq 'All') {
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-resource-budget')
+        Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-renderer-capabilities')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-text-input')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-glyph-residency')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-offscreen-trim')

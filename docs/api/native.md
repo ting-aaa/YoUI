@@ -2,13 +2,13 @@
 
 [API 索引](README.md) · [C# 绘制绑定](rendering.md) · [架构约定](../architecture.md)
 
-`youi-render` 不依赖 C#、控件树或主循环。`youi-scene` 是可选的命令生产者。当前运行验收为 Windows x64 / DX12、Vulkan、原生 OpenGL；无窗口入口仍使用真实 GPU。创建前可通过 `YOUI_BACKEND` 严格选择 API，默认 DX12，详见[后端验证](../render-backends.md)。
+`youi-render` 不依赖 C#、控件树或主循环。`youi-scene` 是可选的命令生产者。历史运行验收为 Windows x64 / DX12、Vulkan、原生 OpenGL；无窗口入口仍需图形适配器，可为软件适配器，其结果不等于硬件 GPU 验收。创建前可通过 `YOUI_BACKEND` 严格选择 API，默认 DX12，详见[后端验证](../render-backends.md)。
 
 源码：[IR](../../native/youi-render/src/ir.rs)、[Renderer](../../native/youi-render/src/renderer.rs)、[C ABI](../../native/youi-render/src/ffi.rs)、[C 头文件](../../native/youi-render/include/youi.h)、[Scene](../../native/youi-scene/src/lib.rs)。
 
 ## Rust 模块
 
-`youi_render` 公开 `ir`、`renderer`、`ffi` 模块，并在 crate 根导出 `Rect`、`Command`、`FrameStats`、`validate` 、`Renderer`、`TextCell`、`ResourceBudget` 和 `ResourceUsage`。内部文字模块不作为独立公共 API。
+`youi_render` 公开 `ir`、`renderer`、`ffi` 模块，并在 crate 根导出 `Rect`、`Command`、`FrameStats`、`validate` 、`Renderer`、`TextCell`、`ResourceBudget`、`ResourceUsage`、`RendererCapabilities`、`RendererBackend` 和 `RendererDeviceKind`。内部文字模块不作为独立公共 API。
 
 `youi_scene` 公开 `NodeId`、`Transform2D`、`Mesh`、`Scene`。两个 crate 当前都通过 workspace 源码使用。
 
@@ -63,7 +63,7 @@ validate(commands: &[Command], text: &[u8]) -> Result<(), String>
 | --- | --- |
 | 命令数 | ≤1,000,000 |
 | UTF-8 帧缓冲 | ≤16 MiB，引用范围须完整且是有效 UTF-8 |
-| 输出宽高 | 每边 1..8192 |
+| 输出宽高 | 每边 1..8192，并受已启用设备限制；见[有效上限查询](../render-capabilities.md) |
 | 普通矩形 | 坐标与尺寸有限，宽高非负；圆角非负 |
 | 字号 | 1..512 物理像素 |
 | 裁剪深度 | ≤64 |
@@ -83,6 +83,7 @@ validate(commands: &[Command], text: &[u8]) -> Result<(), String>
 | 方法签名 | 返回值 / 语义 |
 | --- | --- |
 | `unsafe Renderer::new(width: u32, height: u32, hwnd: isize) -> Result<Self, String>` | hwnd=0 离屏；非零为本进程有效窗口 |
+| `capabilities(&self) -> RendererCapabilities` | 已创建 renderer 的实际后端、设备类型与固定有效上限；不是剩余容量或准入保证 |
 | `resize(&mut self, width: u32, height: u32) -> Result<(), String>` | 改变输出尺寸并清空离屏层池 |
 | `measure(&mut self, text: &str, size: f32, width: f32, bold: bool) -> Result<(f32,f32), String>` | 返回文字宽高；width 有限非负，内部至少按 1 排版 |
 | `upload_image(&mut self, width: u32, height: u32, rgba: &[u8]) -> Result<u32, String>` | 紧密排列的 straight-alpha RGBA8 sRGB，长度必须等于 width×height×4 |
@@ -333,6 +334,20 @@ Copy-Item -LiteralPath target/release/youi_render.dll -Destination artifacts/you
 
 原有 `youi_create` 使用默认 528 MiB texture / 256 MiB instance-buffer 上限。尺寸、层数/像素与设备限制仍然生效。仅检查 ABI v1 不能判断旧 DLL 是否含这些新增符号；新调用方需要匹配的 native library。
 完整范围、排除项、错误与高水位语义见 [资源预算](../resource-budgets.md)。这不是总 VRAM 或物理峰值上限。
+
+## Renderer capabilities (additive ABI v1)
+
+`uint32_t YOUI_CALL youi_renderer_capabilities_size(void)` 返回 32；
+`int32_t YOUI_CALL youi_renderer_capabilities(uint64_t renderer, youi_renderer_capabilities_t* output)`
+查询已创建 renderer 的不可变快照。结构依次为六个 `uint32_t`：`backend`、
+`device_kind`、`max_target_dimension_2d`、`max_image_dimension_2d`、`atlas_dimension_2d`、
+`reserved`，再加一个 `uint64_t max_instance_buffer_bytes`，自然对齐共 32 字节。
+`reserved` 返回 0；输出要求非 NULL、正确对齐且足量可写，失败不写输出。
+
+实际后端和设备类型来自所选适配器；上限采用 renderer 约束、已启用设备限制及
+创建预算，不是适配器理论最大值。有效存活句柄在设备失败锁存后仍可用于诊断，
+不因此恢复提交。旧 ABI v1 库可能缺少新增符号，须部署匹配库并核对结构大小。
+数值映射、线程 / 生命周期、图集碎片和准入边界见[完整合约](../render-capabilities.md)。
 
 ## Additive Linux Xlib surface API
 

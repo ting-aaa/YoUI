@@ -2,7 +2,7 @@
 
 [API 索引](README.md) · [原生 API 与帧限制](native.md) · [Windows 宿主](platform-windows.md)
 
-命名空间：`YoUI`。源码：[Rendering.cs](../../managed/YoUI/Rendering.cs)。这些类型不依赖控件或原生窗口；创建 NativeRenderer 始终需要 GPU。
+命名空间：`YoUI`。源码：[Rendering.cs](../../managed/YoUI/Rendering.cs)。这些类型不依赖控件或原生窗口；创建 NativeRenderer 始终需要图形设备，可使用软件适配器。
 
 ## ITextMeasurer
 
@@ -70,6 +70,7 @@ PushClip / PopClip 与 BeginLayer / EndLayer 必须保持平衡。保持范围�
 | 成员 | 返回值 / 行为 |
 | --- | --- |
 | `string Adapter { get; }` | 适配器和后端描述 |
+| `RendererCapabilities Capabilities { get; }` | 实际选中的后端、设备类型与固定有效上限；每次访问均检查创建线程和 disposed 状态 |
 | `FrameStats Render(DrawList list)` | 校验并提交完整帧；返回 CPU 和绘制统计 |
 | `void Resize(uint width, uint height)` | 重建输出与清空离屏层池；不修改 UiDocument 尺寸 |
 | `NativeImage UploadImage(uint width, uint height, ReadOnlySpan<byte> rgba)` | 上传 RGBA8，返回本 renderer 拥有的图像包装对象 |
@@ -156,6 +157,24 @@ Console.WriteLine(renderer.ResourceUsage.AtlasBytes); // 16777216
 
 快照按 GPU 对象保留容量计数，不是 live image 大小、FrameStats.UploadBytes 或驱动实际显存；释放图像不缩小 atlas，空帧不回收高水位层/缓冲。新属性/构造函数需要匹配的新 native binary；旧 ABI v1 缺少新增符号时明确报错。
 创建、resize、帧增长的拒绝行为与排除项见 [资源预算](../resource-budgets.md)。
+
+## RendererCapabilities
+
+`NativeRenderer.Capabilities` 返回 32 字节只读结构快照，字段为 `Backend`、`DeviceKind`、
+`MaxTargetDimension2D`、`MaxImageDimension2D`、`AtlasDimension2D`、`Reserved` 和
+`MaxInstanceBufferBytes`。同一 renderer 的值不随使用量变化；属性不能通过缓存
+绕过 owner-thread / disposed 检查。设备失败已锁存但 renderer 仍存活时可用于诊断，
+不表示设备健康或允许继续提交。新属性需要匹配的新原生库；缺少新增符号或布局
+不符时明确报错，ABI v1 版本号本身不保证包含该查询。
+
+`Backend` 类型为 `RendererBackend : uint`（Other、Vulkan、Metal、Dx12、Gl、
+BrowserWebGpu）；`DeviceKind` 类型为 `RendererDeviceKind : uint`（Other、
+IntegratedGpu、DiscreteGpu、VirtualGpu、Cpu）。三个尺寸字段与 `Reserved` 为 `uint`，
+`MaxInstanceBufferBytes` 为 `ulong`；完整数值与偏移见下列合约。
+
+这是创建后的有限上限查询，不是创建前支持探测、功能位清单、剩余容量或成功保证。
+尺寸满足上限的图片仍可能受共享 glyph/image 图集与碎片影响，输出和帧仍受资源
+预算约束。固定字段布局、数值映射和验证边界见[能力查询合约](../render-capabilities.md)。
 
 ## Linux Xlib surface factory
 

@@ -1,6 +1,8 @@
 //! Admission limits for owned GPU payloads, not a measurement of total VRAM.
 use crate::text::ATLAS_SIZE;
 
+pub(crate) const MAX_TARGET_DIMENSION: u32 = 8192;
+
 // Derive accounting from the actual GPU payload so added attributes cannot bypass budgets.
 pub(crate) const INSTANCE_BYTES: u64 = std::mem::size_of::<crate::renderer::Instance>() as u64;
 pub(crate) const INITIAL_CAPACITY: usize = 1024;
@@ -42,7 +44,11 @@ impl ResourceBudget {
         height: u32,
         layers: usize,
     ) -> Result<ResourceUsage, String> {
-        if width == 0 || height == 0 || width > 8192 || height > 8192 {
+        if width == 0
+            || height == 0
+            || width > MAX_TARGET_DIMENSION
+            || height > MAX_TARGET_DIMENSION
+        {
             return Err("target size outside 1..8192".into());
         }
         let atlas_bytes = u64::from(ATLAS_SIZE) * u64::from(ATLAS_SIZE) * 4;

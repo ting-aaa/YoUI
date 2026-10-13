@@ -16,6 +16,7 @@
 | 编写导出插件或无窗口批量导出 | [编辑器与导出 API](api/editor.md) |
 | 使用纹理网格和九宫格 | [A06：纹理网格与九宫格](a06-textured-mesh.md) |
 | 只用 Rust 或 C/C++ 渲染 | [原生 API](api/native.md) |
+| 查询已创建渲染器的实际后端、设备类型与有效上限 | [渲染能力查询](render-capabilities.md) |
 | 排查 DLL、布局、图集或导出错误 | [常见问题](troubleshooting.md) |
 | 理解分层、颜色、绘制顺序与性能边界 | [架构约定](architecture.md) |
 | 了解已经完成的验证和仍未验证的能力 | [验证记录](verification.md)、[设计对照](design-status.md) |
