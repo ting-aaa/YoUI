@@ -11,7 +11,9 @@
 
 每个任务先运行 `scripts/test-verification.ps1`；Linux 还运行 `scripts/test-verification.sh`。这些检查测试脚本编排、参数与失败处理，不提供真实 GPU 或窗口验收证据。随后调用相应平台的真实构建/逻辑入口。矩阵不因另一配置失败而提前停止；同一分支的新一次触发会取消旧运行。
 
-托管 runner **只负责编译、原生库复制与 CPU 逻辑**。不会调用 `-Layer Gpu`、`-Layer Window`、完整验收入口或后端验收脚本。普通 Cargo 测试中 ignored 的 GPU 用例保持未执行。CI 的绿色状态不能表示像素正确性、真实显卡、Win32 输入、可见窗口、IME 或无障碍支持已经通过。
+Ubuntu 两个配置还安装发行版的 `libsdl2-2.0-0`，在 Logic 构建之后运行独立的 `scripts/verify-linux-lifecycle.sh <配置>`。该入口在子进程中移除 `DISPLAY`、`WAYLAND_DISPLAY` 和 `SDL_QUIT_ON_LAST_WINDOW_CLOSE`，运行已有 `--native-init-failure` 回归，30 秒后超时终止（最多再等待 5 秒强制清理）。缺失 SDL、未构建对应配置、断言失败或超时都使任务失败，不记为跳过。它覆盖 SDL 初始化失败清理、关闭否决/提示恢复及无窗口宿主循环退出；不创建窗口或渲染器。独立的 `test-linux-lifecycle.sh` 先用 mock 检查环境隔离、命令、证据与失败传播。
+
+托管 runner **只负责编译、原生库复制、CPU 逻辑及上述无显示器 SDL 生命周期回归**。不会调用 `-Layer Gpu`、`-Layer Window`、完整验收入口或后端验收脚本。普通 Cargo 测试中 ignored 的 GPU 用例保持未执行。CI 的绿色状态不能表示像素正确性、真实显卡、Win32 输入、可见窗口、IME 或无障碍支持已经通过。
 
 ## 工具链与权限
 
@@ -34,14 +36,19 @@
 
 Linux 日志管道开启 `pipefail`；Windows 通过独立 `pwsh` 进程运行脚本，并把其退出码传回任务，日志复制不会把失败变为成功。更早的 checkout/安装错误可能发生在验证记录生成之前，此时查看 Actions 自身日志；空证据目录会提示警告，不会补造通过结果。上传失败也不能替代或消除原验证失败。
 
+`artifacts/ci/lifecycle.log` 与 `artifacts/verification/linux-lifecycle-*/result.txt` 单独记录无显示器回归，包含 SHA、dirty 状态、配置、退出码及明确的 GPU / native-window NOT RUN。SDL 包版本保存在 `sdl-version.log`。这些不是原生窗口验收，也不改变 Alpha 的范围、接受状态或 tag 要求。
+
 下载证据时先核对 `run.json` 的提交、配置、宿主以及对应任务状态。失败任务可能只生成部分证据；尚未执行的 GPU/窗口层不能按通过计数。直接在相同平台复现对应配置：
 
 ```bash
 # Linux
 bash scripts/test-verification.sh
+bash scripts/test-linux-lifecycle.sh
 pwsh -NoProfile -File scripts/test-verification.ps1
 bash scripts/verify-linux.sh Debug
+bash scripts/verify-linux-lifecycle.sh Debug
 bash scripts/verify-linux.sh Release
+bash scripts/verify-linux-lifecycle.sh Release
 ```
 
 ```powershell
