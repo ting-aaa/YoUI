@@ -59,6 +59,7 @@ try {
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-renderer-recovery')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-presentation-retry')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-gallery-rendering')
+        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::presentation_tests::') + $cargoOptions + @('--','--ignored','--nocapture'))
         Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::recovery_tests::') + $cargoOptions + @('--','--ignored','--nocapture'))
         Invoke-Checked 'cargo' (@('test','-p','youi-render','--test','gpu') + $cargoOptions + @('--','--ignored','--nocapture'))
         Invoke-Checked 'cargo' (@('test','-p','youi-scene','--test','image_alpha') + $cargoOptions + @('--','--ignored','--nocapture'))

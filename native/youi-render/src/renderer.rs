@@ -110,6 +110,30 @@ impl Pass {
     }
 }
 
+// Keep acquisition and presentation replaceable in GPU tests without creating an OS window.
+// Encoding and queue submission below are shared by real surfaces and injected frames.
+enum PresentFrame {
+    Surface(wgpu::SurfaceTexture),
+    #[cfg(test)]
+    Injected(presentation_tests::InjectedFrame),
+}
+impl PresentFrame {
+    fn texture(&self) -> &wgpu::Texture {
+        match self {
+            Self::Surface(frame) => &frame.texture,
+            #[cfg(test)]
+            Self::Injected(frame) => &frame.texture,
+        }
+    }
+    fn present(self) {
+        match self {
+            Self::Surface(frame) => frame.present(),
+            #[cfg(test)]
+            Self::Injected(frame) => frame.present(),
+        }
+    }
+}
+
 enum SurfaceTarget {
     Offscreen,
     Hwnd(isize),
@@ -179,6 +203,8 @@ pub struct Renderer {
     capabilities: RendererCapabilities,
     pub stats: FrameStats,
     pending_present: Option<u32>,
+    #[cfg(test)]
+    injected_surface: Option<presentation_tests::InjectedSurface>,
 }
 impl Renderer {
     /// # Safety
@@ -487,6 +513,8 @@ impl Renderer {
             capabilities,
             stats: FrameStats::default(),
             pending_present: None,
+            #[cfg(test)]
+            injected_surface: None,
         })
     }
     /// Immutable selected-device diagnostics. Available even after a latched device failure;
@@ -936,7 +964,7 @@ impl Renderer {
         self.failure.check()?;
         self.queue.submit(Some(encoder.finish()));
         let presented = frame.is_some();
-        self.pending_present = (self.surface.is_some() && !presented).then_some(present_index);
+        self.pending_present = (self.has_surface() && !presented).then_some(present_index);
         if let Some(f) = frame {
             f.present();
         }
@@ -955,43 +983,54 @@ impl Renderer {
         };
         Ok(self.stats)
     }
+    fn has_surface(&self) -> bool {
+        #[cfg(test)]
+        if self.injected_surface.is_some() {
+            return true;
+        }
+        self.surface.is_some()
+    }
+    fn acquire_frame(&self) -> Result<Option<PresentFrame>, String> {
+        #[cfg(test)]
+        if let Some(surface) = &self.injected_surface {
+            return acquire(|| surface.acquire(), || surface.configure());
+        }
+        match &self.surface {
+            Some(surface) => acquire(
+                || surface.get_current_texture().map(PresentFrame::Surface),
+                || surface.configure(&self.device, self.surface_config.as_ref().unwrap()),
+            ),
+            None => Ok(None),
+        }
+    }
     fn encode_present(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         present_index: u32,
-    ) -> Result<Option<wgpu::SurfaceTexture>, String> {
-        let mut frame = None;
-        if let Some(surface) = &self.surface {
-            let acquired = acquire(
-                || surface.get_current_texture(),
-                || surface.configure(&self.device, self.surface_config.as_ref().unwrap()),
-            )?;
-            if let Some(f) = acquired {
-                let view = f.texture.create_view(&Default::default());
-                let attachments = [Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })];
-                {
-                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("present"),
-                        color_attachments: &attachments,
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
-                    pass.set_pipeline(&self.surface_pipeline);
-                    pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
-                    pass.set_bind_group(0, &self.output.bind, &[]);
-                    pass.draw(0..6, present_index..present_index + 1);
-                }
-                frame = Some(f);
-            }
+    ) -> Result<Option<PresentFrame>, String> {
+        let frame = self.acquire_frame()?;
+        if let Some(f) = &frame {
+            let view = f.texture().create_view(&Default::default());
+            let attachments = [Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })];
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("present"),
+                color_attachments: &attachments,
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.surface_pipeline);
+            pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
+            pass.set_bind_group(0, &self.output.bind, &[]);
+            pass.draw(0..6, present_index..present_index + 1);
         }
         Ok(frame)
     }
@@ -1085,6 +1124,9 @@ impl Renderer {
             .map_err(|e| e.to_string())
     }
 }
+
+#[cfg(test)]
+mod presentation_tests;
 
 #[cfg(test)]
 mod text_filter_tests;
