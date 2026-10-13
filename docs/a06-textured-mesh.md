@@ -20,7 +20,14 @@ Command 仍为 **80 字节**，ABI 仍为 **0x00010000**。新增 kind 8 需要�
 
 位置必须有限。UV 必须有限且在闭区间 [0,1]，使用图像局部坐标，左上为 (0,0)，右下为 (1,1)，不是图集坐标。采样为线性过滤；在源图像边界将采样位置钳制到边缘 texel 中心，避免相邻图集内容渗入。UV 在三角形内仿射插值，不提供 repeat 或透视校正。
 
-图像上传仍为 straight-alpha RGBA8 sRGB。纹理 RGB 和 tint RGB 在线性空间相乘，纹理 alpha 与 tint alpha 相乘，再以最终 alpha 预乘一次参与混合。无逐顶点颜色或独立逐顶点 alpha。图像必须属于提交命令的 renderer，并保持存活；缓存命令不延长图像生命期。
+图像上传仍接收 straight-alpha RGBA8 sRGB。上传时先解码 RGB 到线性空间，乘每个 texel 的 alpha，再编码为 sRGB 写入内部图集；硬件在双线性过滤前解码这些已预乘值。过滤结果的 RGB 在线性空间乘 tint RGB 和 tint alpha；结果 alpha 为过滤后的纹理 alpha 乘 tint alpha，不再重复乘纹理 alpha。内部 RGBA8 存储会有量化误差。无逐顶点颜色或独立逐顶点 alpha。图像必须属于提交命令的 renderer，并保持存活；缓存命令不延长图像生命期。
+
+### 外沿采样与其它纹理
+
+- `Image`（kind 7）保留透明黑 gutter；放大时外沿可过滤到透明区域，形成抗锯齿边缘。
+- `TexturedMesh` / `NineSlice`（kind 8）将 UV 钳制到整个源图像的边缘 texel 中心，保留满覆盖的外沿，不会采到邻居图集项。九宫格内部切片边界仍连续过滤，不各自钳制。
+- 两种路径在图像内部使用相同的线性预乘过滤，完全透明 texel 的原始 RGB 不影响输出。
+- 字形 coverage mask 继续使用白 RGB 和独立 alpha，不走图片预乘上传；隔离层本来已是线性预乘输出，合成时只应用组透明度。
 
 ## Rust Scene
 

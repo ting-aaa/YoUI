@@ -46,6 +46,10 @@ mod backend_tests {
     }
 }
 
+// Internal shader discriminant (not the public Command kind/ABI). Keep glyph
+// coverage (1.0), premultiplied images (1.25) and layer composites (2.0) distinct.
+const IMAGE_QUAD_KIND: f32 = 1.25;
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub(crate) struct Instance {
@@ -845,7 +849,7 @@ impl Renderer {
                         c.color,
                         clip,
                         0.,
-                        1.,
+                        IMAGE_QUAD_KIND,
                         self.text.image_uv(c.flags)?,
                     ))?;
                 }

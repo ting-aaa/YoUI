@@ -60,6 +60,7 @@ try {
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-gallery-rendering')
         Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::recovery_tests::') + $cargoOptions + @('--','--ignored','--nocapture'))
         Invoke-Checked 'cargo' (@('test','-p','youi-render','--test','gpu') + $cargoOptions + @('--','--ignored','--nocapture'))
+        Invoke-Checked 'cargo' (@('test','-p','youi-scene','--test','image_alpha') + $cargoOptions + @('--','--ignored','--nocapture'))
         Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image') + $cargoOptions + @('--','--exact','--ignored','--nocapture'))
         Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_residency_tests::released_image_regions_recover_space_with_live_text_and_images') + $cargoOptions + @('--','--exact','--ignored','--nocapture'))
         Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_residency_tests::glyph_purge_recovers_text_pressure_with_live_images') + $cargoOptions + @('--','--exact','--ignored','--nocapture'))

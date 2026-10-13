@@ -360,9 +360,45 @@ fn padded_image_pixels(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
     let mut pixels = vec![0; stride * (h + 2) as usize];
     for (row, source) in rgba.chunks_exact(w as usize * 4).enumerate() {
         let offset = (row + 1) * stride + 4;
-        pixels[offset..offset + source.len()].copy_from_slice(source);
+        for (dst, src) in pixels[offset..offset + source.len()]
+            .chunks_exact_mut(4)
+            .zip(source.chunks_exact(4))
+        {
+            // The public bytes are straight-alpha sRGB, but hardware filtering
+            // must interpolate linear premultiplied RGB. Store its sRGB encoding
+            // so Rgba8UnormSrgb decodes BEFORE the sampler interpolates texels.
+            // Alpha remains linear. Do not use this path for glyph coverage.
+            let alpha = src[3] as f32 / 255.;
+            for channel in 0..3 {
+                dst[channel] = premultiplied_srgb_byte(src[channel], alpha);
+            }
+            dst[3] = src[3];
+        }
     }
     pixels
+}
+
+fn premultiplied_srgb_byte(channel: u8, alpha: f32) -> u8 {
+    // Preserve opaque bytes exactly and erase invisible color, including in
+    // atlas gutters. Low-alpha quantization is bounded by RGBA8 storage.
+    if alpha == 1. {
+        return channel;
+    }
+    if alpha == 0. {
+        return 0;
+    }
+    let srgb = channel as f32 / 255.;
+    let linear = if srgb <= 0.04045 {
+        srgb / 12.92
+    } else {
+        ((srgb + 0.055) / 1.055).powf(2.4)
+    } * alpha;
+    let encoded = if linear <= 0.0031308 {
+        linear * 12.92
+    } else {
+        1.055 * linear.powf(1. / 2.4) - 0.055
+    };
+    (encoded * 255.).round() as u8
 }
 
 fn padded_glyph_pixels(img: &cosmic_text::SwashImage) -> Vec<u8> {
@@ -974,9 +1010,9 @@ mod tests {
     }
 
     #[test]
-    fn image_upload_initializes_all_gutters_without_changing_rgba() {
+    fn image_upload_initializes_gutters_and_premultiplies_linear_rgb() {
         let rgba = [
-            11, 22, 33, 44, 55, 66, 77, 88, 99, 111, 123, 135, 147, 159, 171, 183,
+            255, 0, 0, 128, 255, 127, 23, 0, 99, 111, 123, 255, 0, 0, 0, 96,
         ];
         let pixels = padded_image_pixels(2, 2, &rgba);
         assert_eq!(pixels.len(), 4 * 4 * 4);
@@ -985,11 +1021,27 @@ mod tests {
                 let pixel = &pixels[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
                 if (1..3).contains(&x) && (1..3).contains(&y) {
                     let offset = ((y - 1) * 2 + x - 1) * 4;
-                    assert_eq!(pixel, &rgba[offset..offset + 4]);
+                    let expected = [
+                        [188, 0, 0, 128],
+                        [0, 0, 0, 0],
+                        [99, 111, 123, 255],
+                        [0, 0, 0, 96],
+                    ];
+                    assert_eq!(pixel, &expected[offset / 4]);
                 } else {
                     assert_eq!(pixel, &[0; 4]);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn image_premultiplication_decodes_srgb_and_preserves_opaque_bytes() {
+        let pixels = padded_image_pixels(1, 1, &[128, 64, 32, 128]);
+        assert_eq!(&pixels[16..20], &[93, 45, 21, 128]);
+        for channel in 0..=255 {
+            assert_eq!(premultiplied_srgb_byte(channel, 1.), channel);
+            assert_eq!(premultiplied_srgb_byte(channel, 0.), 0);
         }
     }
 
