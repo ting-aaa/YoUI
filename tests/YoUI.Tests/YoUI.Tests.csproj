@@ -8,6 +8,7 @@
     <Compile Include="../../samples/YoUI.Showcase/Showcase.cs" Link="Showcase/Showcase.cs" />
     <Compile Include="../../samples/YoUI.Showcase/ShowcaseState.cs" Link="Showcase/ShowcaseState.cs" />
     <Compile Include="../../samples/YoUI.Showcase/ComponentGallery.cs" Link="Showcase/ComponentGallery.cs" />
+    <Compile Include="../../samples/YoUI.Showcase/RenderingGallery.cs" Link="Showcase/RenderingGallery.cs" />
   </ItemGroup>
   <Import Project="../../scripts/NativeLibrary.targets" />
 </Project>

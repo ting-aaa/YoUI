@@ -19,7 +19,7 @@ internal static class ComponentGalleryTests
                 "the gallery consumes the real external component assembly");
             require(ReferenceEquals(gallery.State, state) && gallery.Rating.Value == 4, "the supplied application model seeds the attached control");
             require(ModelLabel(gallery).Text.StartsWith("Model: 4 / 5"), "the visible model caption reflects the supplied state");
-            require(gallery.Page == 0 && gallery.Navigation.Select(n => n.Selected).SequenceEqual(new[] { true, false, false }), "only Controls is initially selected");
+            require(gallery.Page == 0 && gallery.Navigation.Select(n => n.Selected).SequenceEqual(new[] { true, false, false, false }), "only Controls is initially selected");
             require(gallery.ShowPreview.Value && gallery.Preview.Visible && gallery.Opacity.Value == .8f && gallery.Preview.CompositedOpacity == .8f,
                 "preview defaults agree across the composed controls");
             require(!gallery.ModalOpen && !gallery.DisabledButton.Enabled, "the modal starts closed and the disabled example stays disabled");
@@ -307,6 +307,37 @@ internal static class ComponentGalleryTests
             require(gallery.Items.Children.OfType<Button>().First().Text == "001 / Aurora", "reset rebinding survives collection reattachment");
         });
 
+        test("gallery rendering controls preserve state cancel capture and reset across navigation", () =>
+        {
+            var gallery = new ComponentGallery(); var doc = Document(gallery);
+            Click(doc, gallery.Navigation[3]); Clean(doc);
+            require(gallery.Rendering.Document == doc && gallery.Rating.Document == null, "the rendering page is attached without GPU construction");
+            require(gallery.Rendering.Clipped && gallery.Rendering.GroupOpacity == .65f, "rendering defaults match their controls");
+            Click(doc, gallery.RenderingClip); Key(doc, 32); Key(doc, 32);
+            require(!gallery.Rendering.Clipped && !gallery.RenderingClip.Primary, "pointer and keyboard toggle the clip consistently");
+            doc.Focus(gallery.RenderingOpacity); Key(doc, 39);
+            require(Near(gallery.Rendering.GroupOpacity, .70f) && Near(gallery.RenderingOpacity.Value, .70f), "keyboard opacity updates the painter");
+            doc.UpdateLayout(); var bounds = gallery.RenderingOpacity.VisualBounds;
+            int cancellations = 0;
+            gallery.RenderingOpacity.Event += e => { if (e.Kind == EventKind.PointerCancel && e.Phase == EventPhase.Target) cancellations++; };
+            Pointer(doc, EventKind.PointerDown, new(bounds.X + 8 + (bounds.Width - 16) * .3f, bounds.Y + bounds.Height / 2));
+            float before = gallery.RenderingOpacity.Value;
+            gallery.SelectPage(0); Pointer(doc, EventKind.PointerMove, new(bounds.Right, bounds.Y + 8));
+            Pointer(doc, EventKind.PointerUp, new(bounds.Right, bounds.Y + 8));
+            require(cancellations == 1 && gallery.RenderingOpacity.Value == before, "navigation cancels the rendering slider capture before detachment");
+            gallery.SelectPage(3); Clean(doc);
+            require(!gallery.Rendering.Clipped && gallery.Rendering.GroupOpacity == before, "page reentry preserves both rendering settings");
+            Click(doc, gallery.ResetButton); Key(doc, 27);
+            require(!gallery.Rendering.Clipped && gallery.Rendering.GroupOpacity == before && doc.Focused == gallery.ResetButton,
+                "Cancel preserves rendering values and restores focus");
+            gallery.SelectPage(0); Click(doc, gallery.ResetButton); Click(doc, gallery.ConfirmButton);
+            gallery.SelectPage(3); Clean(doc);
+            require(gallery.Rendering.Clipped && gallery.RenderingClip.Value && gallery.RenderingClip.Primary && gallery.Rendering.GroupOpacity == .65f,
+                "Reset synchronizes the detached rendering controls and painter");
+            Click(doc, gallery.ThemeButton); Clean(doc);
+            require(doc.Theme == Theme.Light && gallery.Rendering.Document == doc, "theme change keeps the active renderer-free sample usable");
+        });
+
         test("gallery compact layout keeps navigation usable and pages scrollable", () =>
         {
             var gallery = new ComponentGallery(); var doc = Document(gallery, 640, 600);
@@ -315,9 +346,9 @@ internal static class ComponentGalleryTests
                 Click(doc, navigation); Clean(doc);
                 require(doc.PendingUpdates == DirtyFlags.None, "each compact page settles without perpetual layout or paint invalidation");
                 foreach (var button in gallery.Navigation.Append(gallery.ThemeButton).Append(gallery.ResetButton))
-                    require(button.Bounds.Width > 0 && button.Bounds.X >= 0 && button.Bounds.Right <= 640 && button.Bounds.Bottom < 166, "all top-level actions stay within the compact viewport");
+                    require(button.Bounds.Width > 0 && button.Bounds.X >= 0 && button.Bounds.Right <= 640 && button.Bounds.Bottom < 210, "all top-level actions stay within the compact viewport");
                 var viewport = PageViewport(gallery);
-                require(viewport.Bounds == new Rect(24, 166, 592, 384) && viewport.ClipToBounds, "the page uses the bounded scrolling surface");
+                require(viewport.Bounds == new Rect(24, 210, 592, 340) && viewport.ClipToBounds, "the page uses the bounded scrolling surface");
                 require(viewport.Content.Bounds.Height < 1000, "a viewport control inside a StackPanel must not consume its unconstrained measurement height");
                 if (gallery.Page == 2) require(gallery.Properties.Bounds.Height == 230, "the nested property grid respects its fixed viewport height");
                 foreach (var element in Descendants(viewport))
@@ -330,7 +361,7 @@ internal static class ComponentGalleryTests
         test("gallery compact keyboard focus reveals clipped controls on every page", () =>
         {
             var gallery = new ComponentGallery(); var doc = Document(gallery, 640, 600);
-            for (int page = 0; page < 3; page++)
+            for (int page = 0; page < gallery.Navigation.Length; page++)
             {
                 Click(doc, gallery.Navigation[page]); doc.UpdateLayout();
                 var viewport = PageViewport(gallery);
