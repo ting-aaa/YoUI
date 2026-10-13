@@ -48,6 +48,7 @@ try {
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Component.Tests','-c',$Configuration,'-p:BuildInParallel=false')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Profiling.Tests','-c',$Configuration,'-p:BuildInParallel=false')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Platform.Linux.Tests','-c',$Configuration,'-p:BuildInParallel=false')
+        Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Platform.Windows.Tests','-c',$Configuration,'-p:BuildInParallel=false')
     }
     if ($Layer -eq 'Gpu' -or $Layer -eq 'All') {
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-resource-budget')
@@ -75,6 +76,7 @@ try {
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Component.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu')
     }
     if ($Layer -eq 'Window' -or $Layer -eq 'All') {
+        Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Platform.Windows.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--native-mouse-leave')
         Invoke-Checked 'dotnet' @('run','--project','tools/YoUI.Editor','-c',$Configuration,'--no-build','--','--smoke')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--smoke')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--gallery','--smoke')

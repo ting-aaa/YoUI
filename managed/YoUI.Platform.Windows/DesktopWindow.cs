@@ -11,6 +11,7 @@ public sealed class DesktopWindow : IDisposable
     private nint handle;
     private readonly string className = "YoUI_" + Guid.NewGuid().ToString("N");
     private bool closed, disposed, releasingPointer;
+    private readonly MouseLeaveTracker mouseLeave = new();
     private Exception? callbackError;
     private char pendingHighSurrogate;
     private readonly int minimumWidth, minimumHeight;
@@ -129,7 +130,14 @@ public sealed class DesktopWindow : IDisposable
                 Document.Root.Invalidate(DirtyFlags.All);
                 var suggested = Marshal.PtrToStructure<NativeRect>(lParam);
                 SetWindowPos(hwnd, 0, suggested.Left, suggested.Top, suggested.Right - suggested.Left, suggested.Bottom - suggested.Top, 0x0014); return 0;
-            case 0x0200: Document.Dispatch(new(EventKind.PointerMove) { Position = point }); return 0;
+            case 0x0200:
+                GetClientRect(hwnd, out var mouseClient);
+                mouseLeave.Move(hwnd, point.X >= 0 && point.Y >= 0 && point.X * Scale < mouseClient.Right && point.Y * Scale < mouseClient.Bottom);
+                Document.Dispatch(new(EventKind.PointerMove) { Position = point }); return 0;
+            case 0x02A3: // WM_MOUSELEAVE has no coordinates; clear hover, but preserve captured drags.
+                if (mouseLeave.Leave(GetCapture() == hwnd))
+                    Document.Dispatch(new(EventKind.PointerMove) { Position = new(-1, -1) });
+                return 0;
             case 0x0201: SetCapture(hwnd); Document.Dispatch(new(EventKind.PointerDown) { Position = point, Shift = shift, Control = control }); UpdateIme(hwnd); return 0;
             case 0x0202:
                 // A Clicked handler can enter a modal file dialog. Release OS capture before that
@@ -218,6 +226,7 @@ public sealed class DesktopWindow : IDisposable
     [DllImport("user32")] private static extern bool ValidateRect(nint h, nint rect);
     [DllImport("user32")] private static extern short GetKeyState(int key);
     [DllImport("user32")] private static extern nint SetCapture(nint h);
+    [DllImport("user32")] private static extern nint GetCapture();
     [DllImport("user32")] private static extern bool ReleaseCapture();
     [DllImport("user32")] private static extern bool ScreenToClient(nint h, ref NativePoint p);
     [DllImport("user32")] private static extern bool SetProcessDpiAwarenessContext(nint context);
