@@ -89,6 +89,8 @@ if (args.Length != 0)
     {
         var host = (DesktopWindow)RuntimeHelpers.GetUninitializedObject(typeof(DesktopWindow));
         typeof(DesktopWindow).GetField("ownerThread", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(host, Environment.CurrentManagedThreadId);
+        // GetUninitializedObject skips field initializers, including the host's presentation scheduler.
+        typeof(DesktopWindow).GetField("presentation", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(host, new PresentationLoop());
         typeof(DesktopWindow).GetProperty(nameof(DesktopWindow.Document))!.SetValue(host, new UiDocument(root, new StubMeasurer(), 640, 400));
         return host;
     }
