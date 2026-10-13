@@ -18,6 +18,7 @@ public sealed class UiEvent(EventKind kind)
     public Element? Target { get; internal set; }
     public bool Handled { get; set; }
     public bool CapturePointer { get; set; }
+    internal bool PointerCancelled { get; set; }
 }
 
 /// <summary>Retained node. Behaviors route events; Paint emits independent render IR.</summary>
@@ -164,7 +165,8 @@ public class Element
         for (int i = children.Count - 1; i >= 0; i--) { var hit = children[i].HitTest(position, clipRect, offset); if (hit != null) return hit; }
         return HitTestVisible && bounds.Contains(position) ? this : null;
     }
-    internal void Route(UiEvent e) { Event?.Invoke(e); if (!e.Handled && e.Phase == EventPhase.Target) OnEvent(e); }
+    // Keep the frozen observer path, but never start or finish a cancelled target's gesture.
+    internal void Route(UiEvent e) { Event?.Invoke(e); if (!e.Handled && !e.PointerCancelled && e.Phase == EventPhase.Target) OnEvent(e); }
     protected virtual void OnEvent(UiEvent e) { }
     public virtual string SemanticValue => "";
 }

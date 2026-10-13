@@ -15,6 +15,7 @@ public sealed class UiDocument
     private readonly DrawList frame = new();
     private bool updating;
     private int dispatchDepth;
+    private readonly List<UiEvent> pointerDispatches = [];
     private readonly int ownerThread = Environment.CurrentManagedThreadId;
     private readonly List<Element.DirtyState> consumedDirty = [];
     public Element Root { get; }
@@ -134,7 +135,7 @@ public sealed class UiDocument
     internal void Detached(Element root)
     {
         if (Focused?.IsDescendantOf(root) == true) Focus(null);
-        if (captured?.IsDescendantOf(root) == true) CancelPointer();
+        CancelPointer(root);
         if (hovered?.IsDescendantOf(root) == true) { hovered.IsHovered = false; hovered.Invalidate(); hovered = null; }
         if (modal?.IsDescendantOf(root) == true) SetModal(null);
     }
@@ -157,15 +158,27 @@ public sealed class UiDocument
         else { modal = null; Focus(focusBeforeModal); focusBeforeModal = null; }
     }
     // Recycled controls invalidate only gestures tied to their old subtree identity.
-    internal void CancelPointer(Element subtree)
+    internal void CancelPointer(Element? subtree)
     {
-        if (captured?.IsDescendantOf(subtree) == true) CancelPointer();
+        HashSet<Element>? targets = null;
+        bool Matches(Element target) => subtree == null || target.IsDescendantOf(subtree);
+        if (captured != null && Matches(captured))
+        {
+            (targets ??= []).Add(captured);
+            captured = null;
+        }
+        // Capture is committed only after bubbling. Invalidate in-flight targets too,
+        // before callbacks, so nested dispatch and target handlers cannot revive them.
+        foreach (var pending in pointerDispatches)
+        {
+            if (pending.PointerCancelled || pending.Target is not { } target || !Matches(target)) continue;
+            pending.PointerCancelled = true;
+            (targets ??= []).Add(target);
+        }
+        if (targets != null)
+            foreach (var target in targets) target.Route(new(EventKind.PointerCancel) { Target = target, Phase = EventPhase.Target });
     }
-    public void CancelPointer()
-    {
-        var old = captured; captured = null;
-        if (old != null) old.Route(new(EventKind.PointerCancel) { Target = old, Phase = EventPhase.Target });
-    }
+    public void CancelPointer() => CancelPointer(null);
     public void Dispatch(UiEvent e)
     {
         dispatchDepth++;
@@ -195,16 +208,25 @@ public sealed class UiDocument
         }
         var target = pointer ? (e.Kind == EventKind.Scroll ? hit : captured ?? hit) : Focused;
         if (target == null) { if (e.Kind == EventKind.PointerDown) Focus(null); return; }
-        if (e.Kind == EventKind.PointerDown) Focus(target.Focusable ? target : null);
         e.Target = target;
-        var path = new List<Element>(); for (var n = target; n != null; n = n.Parent) { path.Add(n); if (n == modal) break; }
-        e.Phase = EventPhase.Capture;
-        for (int i = path.Count - 1; i > 0 && !e.Handled; i--) path[i].Route(e);
-        if (!e.Handled) { e.Phase = EventPhase.Target; target.Route(e); }
-        e.Phase = EventPhase.Bubble;
-        for (int i = 1; i < path.Count && !e.Handled; i++) path[i].Route(e);
-        if (e.CapturePointer && Active(target)) captured = target;
-        if (e.Kind is EventKind.PointerUp or EventKind.PointerCancel) captured = null;
+        bool pointerGesture = pointer && e.Kind != EventKind.Scroll;
+        if (pointerGesture) { e.PointerCancelled = false; pointerDispatches.Add(e); }
+        try
+        {
+            if (e.Kind == EventKind.PointerDown) Focus(target.Focusable ? target : null);
+            var path = new List<Element>(); for (var n = target; n != null; n = n.Parent) { path.Add(n); if (n == modal) break; }
+            e.Phase = EventPhase.Capture;
+            for (int i = path.Count - 1; i > 0 && !e.Handled; i--) path[i].Route(e);
+            if (!e.Handled) { e.Phase = EventPhase.Target; target.Route(e); }
+            e.Phase = EventPhase.Bubble;
+            for (int i = 1; i < path.Count && !e.Handled; i++) path[i].Route(e);
+            if (!e.PointerCancelled)
+            {
+                if (e.CapturePointer && Active(target)) captured = target;
+                if (e.Kind is EventKind.PointerUp or EventKind.PointerCancel) captured = null;
+            }
+        }
+        finally { if (pointerGesture) pointerDispatches.RemoveAt(pointerDispatches.Count - 1); }
     }
     private static Vector2 AncestorOffset(Element? node)
     {
