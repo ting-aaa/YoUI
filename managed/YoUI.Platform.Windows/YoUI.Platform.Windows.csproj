@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup><ProjectReference Include="../YoUI/YoUI.csproj" /></ItemGroup>
   <ItemGroup><InternalsVisibleTo Include="YoUI.Platform.Windows.Tests" /></ItemGroup>
+  <ItemGroup><Compile Include="../YoUI.Platform.Shared/PresentationLoop.cs" Link="PresentationLoop.cs" /></ItemGroup>
 </Project>
