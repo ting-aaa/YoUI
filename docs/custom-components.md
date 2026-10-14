@@ -59,7 +59,7 @@ root.Remove(rating); // 释放模型订阅；state 仍可复用。
 
 `HitTestVisible` 决定是否作为指针目标；Focusable 决定焦点候选；父不可见/禁用的子树不参与输入。命中按前后遮挡和裁剪处理。框架维护焦点、hover、单指针 capture、Capture/Target/Bubble 路由。
 
-公开 Event 先于 protected OnEvent；OnEvent 只在 Target 阶段且尚未 Handled 时执行。设 Handled 阻止后续路由。PointerDown 中设置 CapturePointer 后，后续移动可在边界之外送达；按控件自身规则处理 PointerUp、PointerCancel、Blur，并清除临时交互状态。需要消费的按键设置 Handled。Dispatch 使用冻结路径，事件期间移除节点不截断已经建立的路由路径；不要假设 OnEvent 时仍附属于原文档。
+常规事件的公开 Event 先于 protected OnEvent；OnEvent 只在 Target 阶段且尚未 Handled 时执行。PointerCancel / Blur 的目标清理先执行 OnEvent，再通知 Event，Handled 或观察回调异常不阻止旧状态清理；清理和观察回调都会尝试，保留首个异常。同一目标的本次清理不会在其 Event 之后清掉该 Event 新建的手势；多个目标或嵌套取消不承诺事务或新手势保留。设 Handled 阻止常规事件后续路由。PointerDown 中设置 CapturePointer 后，后续移动可在边界之外送达；按控件自身规则处理 PointerUp、PointerCancel、Blur，并清除临时交互状态。需要消费的按键设置 Handled。Dispatch 使用冻结路径，事件期间移除节点不截断已经建立的路由路径；不要假设 OnEvent 时仍附属于原文档。
 
 Hover 在移除时清除，重新加入不继承旧 hover。禁用/隐藏后输入活跃性由后续 Dispatch 校正，不是属性 setter 同步发 Blur 的保证。平台键盘/IME/触摸的支持范围不因自定义控件扩大。
 

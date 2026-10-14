@@ -122,9 +122,9 @@ origin = min + span * Pivot + Position - size * Pivot
 | `static float NonNegative(float value)` | 验证有限非负数；非法时抛出 ArgumentOutOfRangeException |
 | `virtual void ArrangeChildren(Rect content)` | 在已扣除 Padding 的内容区排列孩子 |
 | `virtual void Paint(DrawList list, Rect bounds, float opacity, Theme theme)` | 按顺序输出绘制命令；默认绘制有 alpha 的背景 |
-| `virtual void OnEvent(UiEvent e)` | 目标阶段且未 Handled 时执行默认交互 |
+| `virtual void OnEvent(UiEvent e)` | 常规事件在目标阶段且未 Handled 时执行默认交互；PointerCancel / Blur 的目标清理先于观察回调且不可拦截 |
 
-`event Action<UiEvent>? Event` 在该节点默认 OnEvent 之前触发。自定义绘制示例见[使用指南](../guide.md#自定义绘制)。
+`event Action<UiEvent>? Event` 在常规事件的默认 OnEvent 之前触发。PointerCancel / Blur 目标事件先执行 OnEvent 清理，再通知 Event；两者即使抛错仍分别尝试并保留首个异常，避免旧交互状态跨重挂保留。同一目标的本次清理不会在其观察回调之后覆盖该回调中新建的手势；多个目标或嵌套取消不承诺事务或新手势保留。自定义绘制示例见[使用指南](../guide.md#自定义绘制)。
 
 ## StackPanel
 
@@ -153,7 +153,7 @@ origin = min + span * Pivot + Position - size * Pivot
 | `Text` | `string init` | 提交文字或预编辑文字；默认空串 |
 | `Phase` | `EventPhase get` | 由路由器设置 |
 | `Target` | `Element? get` | 当前路由目标 |
-| `Handled` | `bool` | 停止后续传播或默认处理 |
+| `Handled` | `bool` | 停止常规事件的后续传播或默认处理；不阻止 PointerCancel / Blur 的目标清理 |
 | `CapturePointer` | `bool` | 请求目标接收后续指针事件 |
 
 `EventKind` 完整取值：`PointerMove`、`PointerDown`、`PointerUp`、`PointerCancel`、`Scroll`、`KeyDown`、`TextInput`、`Composition`、`Focus`、`Blur`。没有 KeyUp、双击或多指针 ID。`EventPhase` 为 `Capture`、`Target`、`Bubble`。

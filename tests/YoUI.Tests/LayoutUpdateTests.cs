@@ -198,7 +198,7 @@ static class LayoutUpdateTests
             var b = root.Add(new Button("B") { Transform = RectTransform.Fixed(100, 0, 80, 40) }); var doc = Doc(root);
             doc.Dispatch(new(EventKind.PointerDown) { Position = new(10, 10) }); Clean(doc);
             a.Event += e => { if (e.Kind == EventKind.PointerCancel) throw new InvalidOperationException("cancel callback"); };
-            Throws(() => doc.SetModal(b)); Check(doc.PendingUpdates == DirtyFlags.Semantics);
+            Throws(() => doc.SetModal(b)); Check(doc.PendingUpdates == (DirtyFlags.Paint | DirtyFlags.Semantics));
             var snapshot = doc.Semantics(); Check(snapshot.Any(n => n.Name == "B") && !snapshot.Any(n => n.Name == "A"));
             doc.SetModal(null); Check((doc.PendingUpdates & DirtyFlags.Semantics) != 0);
             Clean(doc); Check(doc.PendingUpdates == DirtyFlags.None && doc.Semantics().Any(n => n.Name == "A"));

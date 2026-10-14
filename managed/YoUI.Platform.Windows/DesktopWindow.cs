@@ -139,6 +139,9 @@ public sealed class DesktopWindow : IDisposable
     public void PumpEvents()
     {
         VerifyThread();
+        // Synchronous SendMessage callbacks can fail outside this pump. Surface
+        // the recorded error even though WndProc already made the host terminal.
+        if (callbackError != null) throw new InvalidOperationException("Window callback failed.", callbackError);
         if (closed || disposed) return;
         operationDepth++;
         try

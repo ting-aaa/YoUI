@@ -24,6 +24,21 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Output contract of the eight basic matrix cases, including screenshots that
+# every backend could otherwise omit together without a comparison noticing.
+CASE_PNGS = {
+    "renderer": ("render-scene.png",),
+    "gpu-reference": ("gpu-reference.png", "gpu-textured-mesh.png", "offscreen-trim.png"),
+    "scene": ("scene-graph.png",),
+    "editor-headless": ("editor.png", "editor-selected.png", "editor-anchor.png",
+                        "editor-properties.png", "editor-preview.png", "editor-compact.png"),
+    "editor-window": ("editor-window-smoke.png",),
+    "showcase-headless": ("showcase-dark.png", "showcase-light.png", "showcase-modal.png", "showcase-compact.png"),
+    "showcase-window": ("window-smoke.png",),
+    "benchmark": ("benchmark-frame.png",),
+}
+REQUIRED_PNGS = tuple(image for images in CASE_PNGS.values() for image in images)
+
 
 def run_case(name: str, command: list[str], directory: Path, env: dict, timeout: int) -> dict:
     start = time.perf_counter()
@@ -47,23 +62,40 @@ def run_case(name: str, command: list[str], directory: Path, env: dict, timeout:
     return result
 
 
-def compare(output: Path, baseline: str, names: list[str], baseline_directory: Path | None = None) -> list[dict]:
+def validate_case_images(result: dict, directory: Path) -> dict:
+    required = CASE_PNGS[result["name"]]
+    result["requiredImages"] = list(required)
+    result["missingImages"] = [name for name in required if not (directory / name).is_file()]
+    if result["status"] == "passed" and result["missingImages"]:
+        result["status"] = "missing-images"
+    return result
+
+
+def compare(output: Path, baseline: str, names: list[str], baseline_directory: Path | None = None,
+            expected_images: tuple[str, ...] | None = None) -> list[dict]:
     comparisons = []
+    required = set(REQUIRED_PNGS if expected_images is None else expected_images)
     baseline_sources = {path.name: path for path in (baseline_directory or output / baseline).glob("*.png")}
     if not baseline_sources:
         return [dict(backend=baseline, image="*.png", status="missing-baseline")]
+    for image_name in sorted(required - baseline_sources.keys()):
+        comparisons.append(dict(backend=baseline, image=image_name, status="missing-baseline-image"))
     for name in names:
         if name == baseline:
             continue
         candidates = {path.name: path for path in (output / name).glob("*.png")}
-        for image_name in sorted(baseline_sources.keys() | candidates.keys()):
+        # A saved baseline may also contain gallery evidence. Only the basic
+        # manifest is mandatory; additional candidate images still need matching
+        # baseline images and are compared when present on both sides.
+        for image_name in sorted(required | candidates.keys()):
+            candidate = output / name / image_name
+            if not candidate.is_file():
+                comparisons.append(dict(backend=name, image=image_name, status="missing-candidate-image"))
+                continue
             source = baseline_sources.get(image_name)
             if source is None:
-                comparisons.append(dict(backend=baseline, image=image_name, status="missing-baseline-image"))
-                continue
-            candidate = output / name / image_name
-            if not candidate.exists():
-                comparisons.append(dict(backend=name, image=image_name, status="missing-candidate-image"))
+                if image_name not in required:  # Missing required baselines were recorded above.
+                    comparisons.append(dict(backend=baseline, image=image_name, status="missing-baseline-image"))
                 continue
             with Image.open(source) as a, Image.open(candidate) as b:
                 aa, bb = np.asarray(a.convert("RGBA")), np.asarray(b.convert("RGBA"))
@@ -128,8 +160,9 @@ def main() -> int:
     gpu = build_gpu_executable()
     editor = ROOT / "tools/YoUI.Editor/bin/Release/net10.0/YoUI.Editor.exe"
     showcase = ROOT / "samples/YoUI.Showcase/bin/Release/net10.0/YoUI.Showcase.exe"
-    report = dict(os=platform.platform(), configuration="Release", timeoutSeconds=args.timeout,
+    report = dict(status="running", os=platform.platform(), configuration="Release", timeoutSeconds=args.timeout,
                   tolerance=dict(meanChannelError=0.25, fractionPixelsOver4=0.001), backends=[],
+                  requiredPngs={name: list(images) for name, images in CASE_PNGS.items()},
                   nativeLibraries=[sync_native("backend-matrix-after-cargo-build")])
     for backend in args.backends:
         directory = output / backend
@@ -167,6 +200,7 @@ def main() -> int:
             if not is_angle and name.startswith(("editor-", "showcase-", "benchmark")):
                 report["nativeLibraries"].append(sync_native(f"before-{backend}-{name}"))
             result = run_case(name, command, directory, env, args.timeout)
+            validate_case_images(result, directory)
             log_text = (directory / f"{name}.log").read_text(encoding="utf-8", errors="replace")
             adapters = re.findall(r"^YoUI init: (.+ \((?:Dx12|Vulkan|Gl);.+\))$", log_text, re.MULTILINE)
             if adapters:
@@ -180,15 +214,20 @@ def main() -> int:
                     result["status"] = "adapter-identity-mismatch"
             results.append(result)
             if name == "renderer" and result["status"] != "passed":
-                results.extend(dict(name=n, status="blocked-by-initialization") for n, _ in cases[1:])
+                results.extend(validate_case_images(dict(name=n, status="blocked-by-initialization"), directory)
+                               for n, _ in cases[1:])
                 break
-        report["backends"].append(dict(requested=backend, cases=results))
+        missing_pngs = [name for name in REQUIRED_PNGS if not (directory / name).is_file()]
+        passed = not missing_pngs and all(result["status"] == "passed" for result in results)
+        report["backends"].append(dict(requested=backend, status="passed" if passed else "failed",
+                                      missingImages=missing_pngs, cases=results))
         report["nativeLibraries"].append(sync_native(f"backend-{backend}-complete"))
         (output / "results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     report["comparisons"] = compare(output, "dx12", args.backends, args.baseline)
+    report["status"] = "passed" if all(b["status"] == "passed" for b in report["backends"]) and all(c["status"] == "passed" for c in report["comparisons"]) else "failed"
     (output / "results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Evidence: {output}", flush=True)
-    return 0 if all(c["status"] == "passed" for b in report["backends"] for c in b["cases"]) and all(c["status"] == "passed" for c in report["comparisons"]) else 1
+    return 0 if report["status"] == "passed" else 1
 
 
 if __name__ == "__main__":

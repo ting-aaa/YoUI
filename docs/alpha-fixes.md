@@ -18,6 +18,22 @@
 真实采样器 f32 probe 区分子纹素量化与最终目标格式转换，避免将量化差异误判为
 图集污染。
 
+## 独立 PR 审查补修
+
+[PR #34](https://github.com/ting-aaa/YoUI/pull/34) 由未参与实现的代理独立复核，
+初审发现并补修三条遗漏路径：
+
+- PointerCancel / Blur 的目标清理先于观察回调，不能被 Handled 或观察回调异常
+  跳过；重新挂接的按钮不会被旧 PointerUp 激活。同一目标的本次清理先于其观察回调，
+  多个目标或嵌套取消仍不承诺事务或新手势保留。
+- PumpEvents 先报告已有 callbackError，再处理正常终止早退；覆盖同步 SendMessage
+  在 pump 之外触发异常后保留原 InnerException，并允许创建线程清理。
+- 后端每个 case 按必需 PNG manifest 独立检查，比较清单包含完整的 18 张基础图，
+  避免多后端同时缺图或单后端部分缺图误判通过。
+
+补修后的验收另存 `artifacts/pr34-validation/RESULTS.md`，与初版修复头的
+`artifacts/fix-validation/` 记录分开；以对应测试 SHA 和 PR 最终审查结论为准。
+
 ## 验证入口
 
 ```powershell

@@ -80,7 +80,8 @@ Rendering 是现有 `--gallery` 中的第四页，复用公开绘制 API 和图�
 
 原 tag 的本机审查归档在 `artifacts/alpha-audit-20261014/`。修复说明见
 [Alpha 修复](alpha-fixes.md)，修复工作区的本机结果归档在
-`artifacts/fix-validation/RESULTS.md` 与对应 `result.json`，其中记录实际测试
+`artifacts/fix-validation/RESULTS.md`，独立 PR 审查补修后的记录在
+`artifacts/pr34-validation/RESULTS.md` 与对应 `result.json`，其中记录实际测试
 SHA、工作区状态、适配器、配置、退出码和截图。这些本机产物不随源码自动发布。
 若仅执行 Release，不把 Debug 也写成通过；若只执行 Logic 或 Gpu，不把
 结果称作 `All` 完整验收。

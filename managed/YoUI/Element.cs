@@ -192,8 +192,23 @@ public class Element
         for (int i = children.Count - 1; i >= 0; i--) { var hit = children[i].HitTest(position, clipRect, offset); if (hit != null) return hit; }
         return HitTestVisible && bounds.Contains(position) ? this : null;
     }
-    // Keep the frozen observer path, but never start or finish a cancelled target's gesture.
-    internal void Route(UiEvent e) { Event?.Invoke(e); if (!e.Handled && !e.PointerCancelled && e.Phase == EventPhase.Target) OnEvent(e); }
+    // This target's termination cleanup precedes its observers: interception or
+    // a failing observer must not retain its old gesture. Nested cancellations
+    // involving multiple targets do not provide a transaction.
+    internal void Route(UiEvent e)
+    {
+        if (e.Phase == EventPhase.Target && e.Kind is EventKind.PointerCancel or EventKind.Blur)
+        {
+            Exception? failure = null;
+            try { OnEvent(e); } catch (Exception error) { failure = error; }
+            try { Event?.Invoke(e); } catch (Exception error) { failure ??= error; }
+            if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
+            return;
+        }
+        // Keep the frozen observer path, but never start or finish a cancelled target's gesture.
+        Event?.Invoke(e);
+        if (!e.Handled && !e.PointerCancelled && e.Phase == EventPhase.Target) OnEvent(e);
+    }
     protected virtual void OnEvent(UiEvent e) { }
     public virtual string SemanticValue => "";
 }

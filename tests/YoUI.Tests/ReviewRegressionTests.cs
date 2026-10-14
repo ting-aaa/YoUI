@@ -89,6 +89,35 @@ internal static class ReviewRegressionTests
             first.Attached = null; root.Add(panel);
             require(first.Attachments == 2 && second.Attachments == 1 && first.Document == doc && second.Document == doc, "a later valid attachment notifies both descendants");
         });
+        test("throwing pointer cancellation cannot reactivate a reattached old press", () =>
+        {
+            var root = new Element(); var button = root.Add(new Button("Nonfocusable", false));
+            var doc = new UiDocument(root, new Measurer(), 200, 100); int clicks = 0; button.Clicked += () => clicks++;
+            doc.Dispatch(new(EventKind.PointerDown) { Position = new(20, 20) });
+            Action<UiEvent> throwing = e => { if (e.Kind == EventKind.PointerCancel) throw new InvalidOperationException("cancel fixture"); };
+            button.Event += throwing; bool failed = false;
+            try { root.Remove(button); } catch (InvalidOperationException e) { failed = e.Message == "cancel fixture"; }
+            require(failed && button.Parent == null && button.Document == null, "original observer error propagates after complete detach");
+            button.Event -= throwing; root.Add(button); doc.BuildFrame();
+            doc.Dispatch(new(EventKind.PointerUp) { Position = new(20, 20) });
+            require(clicks == 0, "old press cannot activate after reattachment without a new down");
+            Click(doc, new(20, 20)); require(clicks == 1, "fresh gesture still activates after failing cancellation");
+        });
+        test("handled cancellation cleans old state before a reentrant fresh gesture", () =>
+        {
+            var root = new Element(); var button = root.Add(new Button("Nonfocusable", false));
+            var doc = new UiDocument(root, new Measurer(), 200, 100); int clicks = 0; button.Clicked += () => clicks++;
+            Action<UiEvent> intercept = e => { if (e.Kind == EventKind.PointerCancel) e.Handled = true; };
+            button.Event += intercept;
+            doc.Dispatch(new(EventKind.PointerDown) { Position = new(20, 20) }); doc.CancelPointer();
+            doc.Dispatch(new(EventKind.PointerUp) { Position = new(20, 20) });
+            require(clicks == 0, "handled cancellation cannot suppress mandatory control cleanup");
+            button.Event -= intercept;
+            button.Event += e => { if (e.Kind == EventKind.PointerCancel) doc.Dispatch(new(EventKind.PointerDown) { Position = new(20, 20) }); };
+            doc.Dispatch(new(EventKind.PointerDown) { Position = new(20, 20) }); doc.CancelPointer();
+            doc.Dispatch(new(EventKind.PointerUp) { Position = new(20, 20) });
+            require(clicks == 1, "new gesture started by cancellation observer survives old cleanup");
+        });
     }
     private static void Click(UiDocument doc, Vector2 point)
     {

@@ -34,7 +34,7 @@ DesktopWindow(string title, Element root,
 | 方法 | 行为 |
 | --- | --- |
 | `void Run(bool visible = true, int? frameLimit = null, Action<int>? tick = null)` | 驱动消息、tick、按需重绘；默认显示窗口并阻塞直到关闭 |
-| `void PumpEvents()` | 非阻塞处理待处理消息；窗口回调异常会在此重新抛出 |
+| `void PumpEvents()` | 非阻塞处理待处理消息；窗口回调异常会在此重新抛出，包括同步 SendMessage 在 PumpEvents 之外记录且已使宿主关闭的异常 |
 | `void RenderNow()` | BuildFrame，将命令按 Scale 转换后提交 GPU |
 | `void SetAnimationActive(bool active)` | 开启/关闭约 16 ms 窗口计时器 |
 | `void Dispose()` | 在创建线程请求终止宿主；先释放 renderer，再销毁 HWND 和窗口类；重复调用无操作 |

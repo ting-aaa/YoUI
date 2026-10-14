@@ -171,6 +171,19 @@ internal static class NativeLifecycleTests
                 Check(!ClassExists(name), "successful disposal unregisters the window class");
             }
 
+            using (var window = Window(new Element()))
+            {
+                nint hwnd = window.Handle; var original = new InvalidOperationException("synchronous native callback fixture");
+                window.AnimationFrame += () => throw original;
+                SendMessage(hwnd, 0x0113, 1, 0);
+                bool reported = false;
+                try { window.PumpEvents(); }
+                catch (InvalidOperationException error) { reported = ReferenceEquals(error.InnerException, original); }
+                Check(reported, "terminal PumpEvents reports the original synchronous callback error");
+                window.Dispose();
+                Released(window, hwnd, "owner can dispose after the recorded callback error");
+            }
+
             for (int cycle = 0; cycle < 3; cycle++)
             {
                 using var window = Window(new Element()); nint hwnd = window.Handle; string name = Windows()[hwnd]; int ticks = 0;
