@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.ExceptionServices;
 
 namespace YoUI;
 
@@ -33,9 +34,19 @@ public sealed class UiDocument
     public int PaintPasses { get; private set; }
     public UiDocument(Element root, ITextMeasurer textMeasurer, float width, float height)
     {
+        ArgumentNullException.ThrowIfNull(root);
         ArgumentNullException.ThrowIfNull(textMeasurer);
         if (root.Parent != null || root.Document != null) throw new InvalidOperationException("Root already belongs to a tree.");
-        Root = root; TextMeasurer = textMeasurer; Root.Attach(this); Resize(width, height);
+        Root = root; TextMeasurer = textMeasurer; Resize(width, height);
+        try { Root.Attach(this); }
+        catch
+        {
+            // A failed constructor cannot return an owner for the associated tree.
+            // Attempt every cleanup notification and preserve the original error.
+            try { Detached(Root); } catch { }
+            try { Root.Attach(null); } catch { }
+            throw;
+        }
     }
     /// <summary>Replace the host-owned text provider between updates on the creating thread.
     /// Discards cached commands and requests full layout, paint and semantics. Neither provider
@@ -134,10 +145,13 @@ public sealed class UiDocument
     private bool Active(Element node) => node.Document == this && Traverse(modal ?? Root).Contains(node);
     internal void Detached(Element root)
     {
-        if (Focused?.IsDescendantOf(root) == true) Focus(null);
-        CancelPointer(root);
+        Exception? failure = null;
+        void Cleanup(Action action) { try { action(); } catch (Exception error) { failure ??= error; } }
+        if (Focused?.IsDescendantOf(root) == true) Cleanup(() => Focus(null));
+        Cleanup(() => CancelPointer(root));
         if (hovered?.IsDescendantOf(root) == true) { hovered.IsHovered = false; hovered.Invalidate(); hovered = null; }
-        if (modal?.IsDescendantOf(root) == true) SetModal(null);
+        if (modal?.IsDescendantOf(root) == true) Cleanup(() => SetModal(null));
+        if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
     }
     public void Focus(Element? element)
     {
@@ -155,7 +169,7 @@ public sealed class UiDocument
         if (element != null && element.Document != this) throw new InvalidOperationException("Modal must be attached to this document.");
         Invalidate(DirtyFlags.Semantics);
         if (element != null) { focusBeforeModal = Focused; modal = element; CancelPointer(); Focus(Traverse(element).FirstOrDefault(e => e.Focusable)); }
-        else { modal = null; Focus(focusBeforeModal); focusBeforeModal = null; }
+        else { var previous = focusBeforeModal; modal = null; focusBeforeModal = null; Focus(previous); }
     }
     // Recycled controls invalidate only gestures tied to their old subtree identity.
     internal void CancelPointer(Element? subtree)
@@ -175,8 +189,12 @@ public sealed class UiDocument
             pending.PointerCancelled = true;
             (targets ??= []).Add(target);
         }
+        Exception? failure = null;
         if (targets != null)
-            foreach (var target in targets) target.Route(new(EventKind.PointerCancel) { Target = target, Phase = EventPhase.Target });
+            foreach (var target in targets)
+                try { target.Route(new(EventKind.PointerCancel) { Target = target, Phase = EventPhase.Target }); }
+                catch (Exception error) { failure ??= error; }
+        if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
     }
     public void CancelPointer() => CancelPointer(null);
     public void Dispatch(UiEvent e)

@@ -44,7 +44,9 @@ $env:YOUI_BACKEND = 'vulkan' # dx12 / vulkan / gl
 ./scripts/verify-backends.ps1 -Output artifacts/backends-my-run
 ```
 
-脚本使用 uv 管理 Python 及图像比较依赖；每个直接运行的 GPU 子进程最多 45 秒，失败或超时会记录并返回非零。已有非空后端目录会被拒绝，避免旧图片被误当作本轮结果。常规构建正在运行的 DLL 会被 Windows 锁定，重新构建前应关闭对应应用。
+脚本使用 uv 管理 Python 及图像比较依赖；每个直接运行的 GPU 子进程最多 45 秒，失败或超时会记录并返回非零。GPU 参考测试使用 `--test-threads=1` 依次初始化设备，保留全部断言和初始化错误。已有非空后端目录会被拒绝，避免旧图片被误当作本轮结果；缺失基线、缺失对应图片及尺寸不一致均记为失败，不能减少比较数量后返回通过。常规构建正在运行的 DLL 会被 Windows 锁定，重新构建前应关闭对应应用。
+
+矩阵的 Cargo 构建显式绑定仓库 `target/`，不受外部 `CARGO_TARGET_DIR` 改写。测试可执行文件构建后与每次正式托管程序运行前，脚本同步对应 Release 原生库，记录 `sourceBinaryHash` 与各应用副本哈希到 `results.json/nativeLibraries`。这证明当前运行所消费的二进制一致性；上面的历史验收数量与后端结论仍以其原始证据为准，新的运行必须保存独立目录。
 
 ## 证据与性能边界
 

@@ -1,9 +1,10 @@
 param([string[]]$Backends = @('dx12','vulkan','gl'), [string]$Output = 'artifacts/backends', [int]$TimeoutSeconds = 45)
 $ErrorActionPreference = 'Stop'
-Push-Location (Split-Path $PSScriptRoot -Parent)
+$projectRoot = Split-Path $PSScriptRoot -Parent
+Push-Location $projectRoot
 try {
     & "$PSScriptRoot/build.ps1" -Configuration Release
-    cargo build --workspace --release --examples --locked
+    cargo build --workspace --release --examples --locked --target-dir "$projectRoot/target"
     if ($LASTEXITCODE -ne 0) { throw 'Native examples build failed' }
     uv run "$PSScriptRoot/verify_backends.py" --backends @Backends --output $Output --timeout $TimeoutSeconds
     if ($LASTEXITCODE -ne 0) { throw "Some backend checks failed or timed out; inspect $Output/results.json" }

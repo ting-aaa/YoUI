@@ -327,7 +327,8 @@ public sealed class VirtualList : Element
             if (e.Kind == EventKind.Scroll && e.Phase != EventPhase.Capture) { ScrollOffset -= e.Delta * RowHeight; e.Handled = true; }
         };
     }
-    public float RowHeight { get; init; } = 54;
+    private float rowHeight = 54;
+    public float RowHeight { get => rowHeight; init => rowHeight = float.IsFinite(value) && value >= 1 ? value : throw new ArgumentOutOfRangeException(nameof(RowHeight)); }
     public Func<int, string> ItemText { get; set; } = i => $"Item {i}";
     public int ItemCount { get => count; set { if (value < 0) throw new ArgumentOutOfRangeException(nameof(value)); count = value; selected = Math.Min(selected, count - 1); ScrollOffset = offset; Invalidate(DirtyFlags.Layout); } }
     public int RealizedCount => pool.Count;
@@ -343,9 +344,10 @@ public sealed class VirtualList : Element
         offset = Math.Clamp(offset, 0, Math.Max(0, count * RowHeight - content.Height));
         int first = Math.Max(0, (int)(offset / RowHeight) - 1);
         int needed = Math.Min(count - first, (int)Math.Ceiling(content.Height / RowHeight) + 3);
+        float contentHeight = Math.Max(1, RowHeight - 6);
         while (pool.Count < needed)
         {
-            var row = Add(new Button("", false) { Height = RowHeight - 6, Radius = 8 }); pool.Add(row);
+            var row = Add(new Button("", false) { Height = contentHeight, Radius = 8 }); pool.Add(row);
             row.Clicked += () => { SelectedIndex = indices[row]; Document?.Focus(this); };
         }
         while (pool.Count > needed) { var row = pool[^1]; pool.RemoveAt(pool.Count - 1); indices.Remove(row); Remove(row); }
@@ -357,7 +359,7 @@ public sealed class VirtualList : Element
             if (indices.TryGetValue(row, out int previous) && previous != index) Document?.CancelPointer(row);
             indices[row] = index;
             row.Text = ItemText(index); row.Selected = index == selected;
-            row.Arrange(new(content.X, content.Y + index * RowHeight - offset, Math.Max(0, content.Width - 10), RowHeight - 6));
+            row.Arrange(new(content.X, content.Y + index * RowHeight - offset, Math.Max(0, content.Width - 10), contentHeight));
         }
     }
     protected override void OnEvent(UiEvent e)

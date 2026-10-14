@@ -807,9 +807,18 @@ impl Renderer {
                         }
                         let uv = self.text.resolve_glyph(&self.queue, &g)?;
                         passes[current].add(self.instances.len() as u32, None);
-                        self.push_instance(Instance::new(
-                            rect, c.color, c.color, clip, 0., 1., uv,
-                        ))?;
+                        let mut item = Instance::new(rect, c.color, c.color, clip, 0., 1., uv);
+                        // The padded UV rectangle ends at texel edges. Sampling
+                        // beyond its outer gutter centers would read another
+                        // slot (or stale pixels outside a recycled footprint).
+                        let half = 0.5 / crate::text::ATLAS_SIZE as f32;
+                        item.uv_bounds = [
+                            uv[0] + half,
+                            uv[1] + half,
+                            uv[0] + uv[2] - half,
+                            uv[1] + uv[3] - half,
+                        ];
+                        self.push_instance(item)?;
                     }
                 }
                 2 => clips.push(clip.intersect(c.rect)),

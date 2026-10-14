@@ -36,6 +36,7 @@ TextInputTests.RunLogic(Test, Require);
 RenderingGalleryTests.RunLogic(Test, Require);
 LayoutUpdateTests.Run(Test, Require);
 VirtualListRegressionTests.Run(Test, Require);
+ReviewRegressionTests.Run(Test, Require);
 Test("stretched and centered RectTransform", () =>
 {
     Require(RectTransform.Stretch(10, 20, 30, 40).Resolve(new(0, 0, 200, 100)) == new Rect(10, 20, 160, 40));

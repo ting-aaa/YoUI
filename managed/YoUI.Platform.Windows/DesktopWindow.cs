@@ -8,9 +8,12 @@ namespace YoUI.Platform.Windows;
 public sealed class DesktopWindow : IDisposable
 {
     private readonly WindowProc callback;
+    private readonly int ownerThread = Environment.CurrentManagedThreadId;
     private nint handle;
     private readonly string className = "YoUI_" + Guid.NewGuid().ToString("N");
-    private bool closed, disposed, releasingPointer;
+    private bool closed, disposed, releasingPointer, classRegistered;
+    private int operationDepth;
+    private bool cleanupPending, cleaningUp;
     private readonly MouseLeaveTracker mouseLeave = new();
     private Exception? callbackError;
     private char pendingHighSurrogate;
@@ -22,26 +25,54 @@ public sealed class DesktopWindow : IDisposable
     public nint Handle => handle;
     public event Action? AnimationFrame;
     public Func<bool>? Closing { get; set; }
-    public void SetAnimationActive(bool active) { if (active) SetTimer(handle, 1, 16, 0); else KillTimer(handle, 1); }
+    public void SetAnimationActive(bool active)
+    {
+        VerifyThread();
+        if (closed || disposed) return;
+        if (active) SetTimer(handle, 1, 16, 0); else KillTimer(handle, 1);
+    }
     private const uint WsOverlappedWindow = 0x00CF0000;
 
     public DesktopWindow(string title, Element root, int width = 1280, int height = 820, int minimumWidth = 790, int minimumHeight = 740)
     {
         this.minimumWidth = minimumWidth; this.minimumHeight = minimumHeight;
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("This desktop host requires Windows.");
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(title);
+        if (root.Parent != null || root.Document != null) throw new InvalidOperationException("Root already belongs to a tree.");
+        if (width <= 0 || height <= 0 || minimumWidth <= 0 || minimumHeight <= 0) throw new ArgumentOutOfRangeException(nameof(width));
         SetProcessDpiAwarenessContext(-4);
         callback = WndProc;
-        var wc = new WindowClass { Size = (uint)Marshal.SizeOf<WindowClass>(), Proc = callback, Instance = GetModuleHandle(null), ClassName = className, Cursor = LoadCursor(0, 32512) };
-        if (RegisterClassEx(ref wc) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-        uint dpi = GetDpiForSystem(); Scale = dpi / 96f;
-        var rect = new NativeRect { Right = (int)(width * Scale), Bottom = (int)(height * Scale) }; AdjustWindowRectExForDpi(ref rect, WsOverlappedWindow, false, 0, dpi);
-        handle = CreateWindowEx(0, className, title, WsOverlappedWindow, unchecked((int)0x80000000), unchecked((int)0x80000000), rect.Right - rect.Left, rect.Bottom - rect.Top, 0, 0, wc.Instance, 0);
-        if (handle == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-        Scale = Math.Max(1, GetDpiForWindow(handle) / 96f);
-        GetClientRect(handle, out var client);
-        Renderer = new((uint)client.Right, (uint)client.Bottom, handle);
-        Document = new(root, new LogicalTextMeasurer(Renderer, () => Scale), client.Right / Scale, client.Bottom / Scale);
-        Document.Clipboard = new WindowsClipboard(() => handle);
+        NativeRenderer? createdRenderer = null;
+        try
+        {
+            var wc = new WindowClass { Size = (uint)Marshal.SizeOf<WindowClass>(), Proc = callback, Instance = GetModuleHandle(null), ClassName = className, Cursor = LoadCursor(0, 32512) };
+            if (RegisterClassEx(ref wc) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+            classRegistered = true;
+            uint dpi = GetDpiForSystem(); Scale = dpi / 96f;
+            var rect = new NativeRect { Right = (int)(width * Scale), Bottom = (int)(height * Scale) }; AdjustWindowRectExForDpi(ref rect, WsOverlappedWindow, false, 0, dpi);
+            handle = CreateWindowEx(0, className, title, WsOverlappedWindow, unchecked((int)0x80000000), unchecked((int)0x80000000), rect.Right - rect.Left, rect.Bottom - rect.Top, 0, 0, wc.Instance, 0);
+            if (handle == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+            Scale = Math.Max(1, GetDpiForWindow(handle) / 96f);
+            GetClientRect(handle, out var client);
+            createdRenderer = new((uint)client.Right, (uint)client.Bottom, handle);
+            Renderer = createdRenderer;
+            Document = new(root, new LogicalTextMeasurer(Renderer, () => Scale), client.Right / Scale, client.Bottom / Scale);
+            Document.Clipboard = new WindowsClipboard(() => handle);
+        }
+        catch
+        {
+            // Failed construction still owns its class/window. Suppress teardown callbacks,
+            // release the renderer while its HWND is alive, then release only this host's HWND.
+            closed = disposed = true;
+            try { createdRenderer?.Dispose(); ReleaseWindow(); }
+            finally { GC.KeepAlive(callback); }
+            throw;
+        }
+    }
+    private void VerifyThread()
+    {
+        if (ownerThread != Environment.CurrentManagedThreadId) throw new InvalidOperationException("Window calls must stay on the creating thread.");
     }
     private sealed class LogicalTextMeasurer(NativeRenderer renderer, Func<float> scale) : ITextLayoutProvider
     {
@@ -57,14 +88,21 @@ public sealed class DesktopWindow : IDisposable
     private bool suspended;
     public void RenderNow()
     {
+        VerifyThread();
         if (closed || disposed || suspended) return;
         presentation.CompleteAttempt(RenderFrame());
     }
     private bool RenderFrame()
     {
-        var list = Document.BuildFrame();
-        LastFrame = Renderer.Render(Scale == 1 ? list : ScaleFrame(list));
-        return Renderer.PresentationPending;
+        operationDepth++;
+        try
+        {
+            var list = Document.BuildFrame();
+            if (closed || disposed) return false; // Layout/paint callbacks can dispose the host.
+            LastFrame = Renderer.Render(Scale == 1 ? list : ScaleFrame(list));
+            return Renderer.PresentationPending;
+        }
+        finally { EndOperation(); }
     }
     private DrawList ScaleFrame(DrawList source)
     {
@@ -73,37 +111,63 @@ public sealed class DesktopWindow : IDisposable
     }
     public void Run(bool visible = true, int? frameLimit = null, Action<int>? tick = null)
     {
-        if (visible) ShowWindow(handle, 5);
-        int iterations = 0;
-        while (!closed)
+        VerifyThread();
+        if (closed || disposed) return;
+        operationDepth++;
+        try
         {
-            PumpEvents(); tick?.Invoke(iterations);
-            if (closed) break;
-            presentation.Step(Document.NeedsRender, suspended, RenderFrame, Renderer.RetryPresentation);
-            iterations++;
-            if (frameLimit.HasValue && iterations >= frameLimit) break;
-            int? retryWait = presentation.WaitMilliseconds(suspended);
-            if (tick != null || retryWait.HasValue)
-                MsgWaitForMultipleObjectsEx(0, 0, (uint)Math.Min(16, retryWait ?? 16), 0x04FF, 0x0004);
-            else if (suspended || !Document.NeedsRender) WaitMessage();
+            if (visible) ShowWindow(handle, 5);
+            int iterations = 0;
+            while (!closed && !disposed)
+            {
+                PumpEvents();
+                if (closed || disposed) break;
+                tick?.Invoke(iterations);
+                if (closed || disposed) break;
+                presentation.Step(Document.NeedsRender, suspended, RenderFrame, Renderer.RetryPresentation);
+                if (closed || disposed) break; // Never wait after disposal from painting.
+                iterations++;
+                if (frameLimit.HasValue && iterations >= frameLimit) break;
+                int? retryWait = presentation.WaitMilliseconds(suspended);
+                if (tick != null || retryWait.HasValue)
+                    MsgWaitForMultipleObjectsEx(0, 0, (uint)Math.Min(16, retryWait ?? 16), 0x04FF, 0x0004);
+                else if (suspended || !Document.NeedsRender) WaitMessage();
+            }
         }
+        finally { EndOperation(); }
     }
     public void PumpEvents()
     {
-        while (PeekMessage(out var message, 0, 0, 0, 1))
+        VerifyThread();
+        if (closed || disposed) return;
+        operationDepth++;
+        try
         {
-            if (message.MessageId == 0x0012) { closed = true; break; }
-            TranslateMessage(ref message); DispatchMessage(ref message);
+            while (!closed && !disposed && PeekMessage(out var message, 0, 0, 0, 1))
+            {
+                if (message.MessageId == 0x0012) { closed = true; break; }
+                TranslateMessage(ref message); DispatchMessage(ref message);
+            }
+            if (callbackError != null) throw new InvalidOperationException("Window callback failed.", callbackError);
         }
-        if (callbackError != null) throw new InvalidOperationException("Window callback failed.", callbackError);
+        finally { EndOperation(); }
     }
     private nint WndProc(nint hwnd, uint message, nuint wParam, nint lParam)
     {
+        operationDepth++;
         try { return ProcessMessage(hwnd, message, wParam, lParam); }
-        catch (Exception e) { callbackError = e; closed = true; return 0; }
+        catch (Exception e) { callbackError ??= e; closed = true; return 0; }
+        finally
+        {
+            // Physical teardown can synchronously enter WndProc again. Never let
+            // an error escape through the unmanaged callback boundary.
+            try { EndOperation(); }
+            catch (Exception e) { callbackError ??= e; closed = true; }
+        }
     }
     private nint ProcessMessage(nint hwnd, uint message, nuint wParam, nint lParam)
     {
+        if (closed || disposed) return DefWindowProc(hwnd, message, wParam, lParam);
         if (message == 0x0024)
         {
             uint dpi = GetDpiForWindow(hwnd); if (dpi == 0) dpi = GetDpiForSystem(); float s = dpi / 96f;
@@ -147,7 +211,10 @@ public sealed class DesktopWindow : IDisposable
                 Document.Dispatch(new(EventKind.PointerUp) { Position = point }); return 0;
             case 0x0215: if (!releasingPointer) Document.CancelPointer(); return 0;
             case 0x001F: Document.CancelPointer(); return 0;
-            case 0x0008: Document.CancelPointer(); Document.Dispatch(new(EventKind.Composition) { Text = "" }); return 0;
+            case 0x0008:
+                Document.CancelPointer();
+                if (!closed && !disposed) Document.Dispatch(new(EventKind.Composition) { Text = "" });
+                return 0;
             case 0x020A:
                 var p = new NativePoint { X = (short)((long)lParam & 0xffff), Y = (short)(((long)lParam >> 16) & 0xffff) }; ScreenToClient(hwnd, ref p);
                 Document.Dispatch(new(EventKind.Scroll) { Position = new(p.X / Scale, p.Y / Scale), Delta = (short)((ulong)wParam >> 16) / 120f }); return 0;
@@ -168,7 +235,7 @@ public sealed class DesktopWindow : IDisposable
                     try
                     {
                         if (((long)lParam & 0x800) != 0) Document.Dispatch(new(EventKind.TextInput) { Text = Composition(context, 0x800) });
-                        if (((long)lParam & 8) != 0) Document.Dispatch(new(EventKind.Composition) { Text = Composition(context, 8) });
+                        if (!closed && !disposed && ((long)lParam & 8) != 0) Document.Dispatch(new(EventKind.Composition) { Text = Composition(context, 8) });
                     }
                     finally { ImmReleaseContext(hwnd, context); }
                 }
@@ -184,6 +251,7 @@ public sealed class DesktopWindow : IDisposable
     }
     private void UpdateIme(nint hwnd)
     {
+        if (closed || disposed) return;
         if (Document.Focused is not TextBox input) return;
         var context = ImmGetContext(hwnd); if (context == 0) return;
         try
@@ -196,8 +264,41 @@ public sealed class DesktopWindow : IDisposable
     }
     public void Dispose()
     {
-        if (disposed) return; disposed = true;
-        Renderer.Dispose(); DestroyWindow(handle); handle = 0; UnregisterClass(className, GetModuleHandle(null)); GC.KeepAlive(callback);
+        // A rejected foreign-thread call must not consume the owner's cleanup opportunity.
+        VerifyThread();
+        if (disposed) return;
+        closed = disposed = true;
+        cleanupPending = true;
+        ReleaseResources();
+    }
+    private void EndOperation()
+    {
+        operationDepth--;
+        ReleaseResources();
+    }
+    private void ReleaseResources()
+    {
+        // A document update/dispatch may continue measuring text after a callback
+        // requests disposal. Mark the host terminal immediately, but keep its
+        // renderer and HWND alive until the outermost host operation unwinds.
+        if (!cleanupPending || operationDepth != 0 || cleaningUp) return;
+        cleaningUp = true;
+        try { Renderer.Dispose(); ReleaseWindow(); cleanupPending = false; }
+        catch { disposed = false; throw; }
+        finally { cleaningUp = false; GC.KeepAlive(callback); }
+    }
+    private void ReleaseWindow()
+    {
+        if (handle != 0)
+        {
+            if (!DestroyWindow(handle)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            handle = 0;
+        }
+        if (classRegistered)
+        {
+            if (!UnregisterClass(className, GetModuleHandle(null))) throw new Win32Exception(Marshal.GetLastWin32Error());
+            classRegistered = false;
+        }
     }
     [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate nint WindowProc(nint h, uint m, nuint w, nint l);
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct WindowClass { public uint Size, Style; public WindowProc Proc; public int ClassExtra, WindowExtra; public nint Instance, Icon, Cursor, Background; public string? MenuName; public string ClassName; public nint SmallIcon; }
@@ -207,13 +308,13 @@ public sealed class DesktopWindow : IDisposable
     [StructLayout(LayoutKind.Sequential)] private struct CompositionForm { public uint Style; public NativePoint Position; public NativeRect Area; }
     [StructLayout(LayoutKind.Sequential)] private struct MinMaxInfo { public NativePoint Reserved, MaxSize, MaxPosition, MinTrackSize, MaxTrackSize; }
     [DllImport("user32", CharSet = CharSet.Unicode, SetLastError = true)] private static extern ushort RegisterClassEx(ref WindowClass wc);
-    [DllImport("user32", CharSet = CharSet.Unicode)] private static extern bool UnregisterClass(string name, nint instance);
+    [DllImport("user32", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool UnregisterClass(string name, nint instance);
     [DllImport("user32", CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint CreateWindowEx(uint ex, string cls, string title, uint style, int x, int y, int w, int h, nint parent, nint menu, nint instance, nint data);
     [DllImport("user32", CharSet = CharSet.Unicode)] private static extern nint DefWindowProc(nint h, uint m, nuint w, nint l);
     [DllImport("kernel32", CharSet = CharSet.Unicode)] private static extern nint GetModuleHandle(string? name);
     [DllImport("user32")] private static extern nint LoadCursor(nint instance, int id);
     [DllImport("user32")] private static extern bool ShowWindow(nint h, int command);
-    [DllImport("user32")] private static extern bool DestroyWindow(nint h);
+    [DllImport("user32", SetLastError = true)] private static extern bool DestroyWindow(nint h);
     [DllImport("user32")] private static extern bool AdjustWindowRect(ref NativeRect r, uint style, bool menu);
     [DllImport("user32")] private static extern bool GetClientRect(nint h, out NativeRect r);
     [DllImport("user32")] private static extern bool PeekMessage(out Message m, nint h, uint min, uint max, uint remove);

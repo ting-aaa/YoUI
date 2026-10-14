@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.ExceptionServices;
 
 namespace YoUI;
 
@@ -32,6 +33,7 @@ public class Element
     private Color background;
     private Vector2 visualOffset;
     private string accessibleName = "";
+    private long documentRevision;
     public Element() => readOnlyChildren = children.AsReadOnly();
     public string Name { get; init; } = "";
     public Element? Parent { get; private set; }
@@ -104,20 +106,45 @@ public class Element
     {
         for (Element? p = this; p != null; p = p.Parent) if (p == child) throw new InvalidOperationException("A node cannot be its own ancestor.");
         if (child.Parent != null || child.Document != null) throw new InvalidOperationException("Detach a node before reparenting it.");
-        children.Add(child); child.Parent = this; child.Attach(Document); Invalidate(DirtyFlags.All); return child;
+        children.Add(child); child.Parent = this;
+        try { child.Attach(Document); }
+        finally { Invalidate(DirtyFlags.All); }
+        return child;
     }
     public bool Remove(Element child)
     {
         if (!children.Remove(child)) return false;
-        Document?.Detached(child); child.Parent = null; child.Attach(null); Invalidate(DirtyFlags.All); return true;
+        Exception? failure = null;
+        try { Document?.Detached(child); } catch (Exception error) { failure = error; }
+        child.Parent = null;
+        try { child.Attach(null); } catch (Exception error) { failure ??= error; }
+        Invalidate(DirtyFlags.All);
+        if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
+        return true;
     }
     public void Clear() { foreach (var child in children.ToArray()) Remove(child); }
     internal void Attach(UiDocument? document)
     {
-        if (Document == document) return;
-        var previous = Document; Document = document;
-        foreach (var child in children) child.Attach(document);
-        OnDocumentChanged(previous, document);
+        var notifications = new List<(Element Node, UiDocument? Previous, long Revision)>();
+        void Associate(Element node)
+        {
+            if (node.Document == document) return;
+            var previous = node.Document; node.Document = document; node.documentRevision++;
+            foreach (var child in node.children) Associate(child);
+            notifications.Add((node, previous, node.documentRevision));
+        }
+        // Commit the entire subtree association before invoking user notifications.
+        // A failing notification must not leave a sibling in the former document.
+        Associate(this);
+        Exception? failure = null;
+        foreach (var (node, previous, revision) in notifications)
+        {
+            // An earlier notification may detach or reattach this subtree. Its
+            // newer transition owns notifications; never replay the stale one.
+            if (node.documentRevision != revision || node.Document != document) continue;
+            try { node.OnDocumentChanged(previous, document); } catch (Exception error) { failure ??= error; }
+        }
+        if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
     }
     /// <summary>Pair external subscriptions with document attachment; detach releases them.</summary>
     protected virtual void OnDocumentChanged(UiDocument? previous, UiDocument? current) { }

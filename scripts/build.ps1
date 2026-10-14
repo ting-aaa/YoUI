@@ -6,6 +6,7 @@ Push-Location $projectRoot
 try {
     if ($Configuration -eq 'Release') { cargo build --workspace --release --locked --target-dir "$projectRoot/target" } else { cargo build --workspace --locked --target-dir "$projectRoot/target" }
     if ($LASTEXITCODE -ne 0) { throw 'Rust build failed' }
+    & "$PSScriptRoot/sync-native.ps1" -Configuration $Configuration -Stage 'native-build-complete' | Out-Null
     dotnet build samples/YoUI.Showcase/YoUI.Showcase.csproj -c $Configuration -m:1
     if ($LASTEXITCODE -ne 0) { throw 'C# build failed' }
     dotnet build tools/YoUI.Editor/YoUI.Editor.csproj -c $Configuration -m:1
@@ -16,4 +17,5 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'HelloYoUI build failed' }
     dotnet build samples/YoUI.Linux.Sample/YoUI.Linux.Sample.csproj -c $Configuration -m:1
     if ($LASTEXITCODE -ne 0) { throw 'Linux sample build failed' }
+    & "$PSScriptRoot/sync-native.ps1" -Configuration $Configuration -Stage 'build-complete' | Out-Null
 } finally { Pop-Location }

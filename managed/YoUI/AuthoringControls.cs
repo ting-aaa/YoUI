@@ -61,7 +61,7 @@ public sealed class TreeView : Element
         foreach (var item in items) Visit(item, 0); ClampScroll(); Invalidate();
     }
     private void ClampScroll() => scroll = Math.Clamp(scroll, 0, Math.Max(0, rows.Count * RowHeight - Bounds.Height));
-    private int RowAt(Vector2 point) => Bounds.Contains(point) ? (int)((point.Y - Bounds.Y + scroll) / RowHeight) : -1;
+    private int RowAt(Vector2 point) => VisualBounds.Contains(point) ? (int)((point.Y - VisualBounds.Y + scroll) / RowHeight) : -1;
     private void Select(int index) { if (index < 0 || index >= rows.Count) return; selected = rows[index].Item.Id; SelectionChanged?.Invoke(selected); Invalidate(); }
     protected override void OnEvent(UiEvent e)
     {
@@ -70,7 +70,7 @@ public sealed class TreeView : Element
         if (e.Kind == EventKind.PointerDown && row >= 0 && row < rows.Count)
         {
             var (item, depth) = rows[row];
-            if (e.Position.X < Bounds.X + 26 + depth * 16 && item.Children.Count > 0) { if (!collapsed.Add(item.Id)) collapsed.Remove(item.Id); Rebuild(); }
+            if (e.Position.X < VisualBounds.X + 26 + depth * 16 && item.Children.Count > 0) { if (!collapsed.Add(item.Id)) collapsed.Remove(item.Id); Rebuild(); }
             else { Select(row); down = e.Position; dragging = item.Id; e.CapturePointer = true; }
         }
         if (e.Kind == EventKind.PointerMove && dragging != null && AllowReparent && Vector2.Distance(down, e.Position) > 6)

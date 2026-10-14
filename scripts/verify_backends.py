@@ -49,12 +49,21 @@ def run_case(name: str, command: list[str], directory: Path, env: dict, timeout:
 
 def compare(output: Path, baseline: str, names: list[str], baseline_directory: Path | None = None) -> list[dict]:
     comparisons = []
+    baseline_sources = {path.name: path for path in (baseline_directory or output / baseline).glob("*.png")}
+    if not baseline_sources:
+        return [dict(backend=baseline, image="*.png", status="missing-baseline")]
     for name in names:
         if name == baseline:
             continue
-        for source in sorted((baseline_directory or output / baseline).glob("*.png")):
-            candidate = output / name / source.name
+        candidates = {path.name: path for path in (output / name).glob("*.png")}
+        for image_name in sorted(baseline_sources.keys() | candidates.keys()):
+            source = baseline_sources.get(image_name)
+            if source is None:
+                comparisons.append(dict(backend=baseline, image=image_name, status="missing-baseline-image"))
+                continue
+            candidate = output / name / image_name
             if not candidate.exists():
+                comparisons.append(dict(backend=name, image=image_name, status="missing-candidate-image"))
                 continue
             with Image.open(source) as a, Image.open(candidate) as b:
                 aa, bb = np.asarray(a.convert("RGBA")), np.asarray(b.convert("RGBA"))
@@ -84,6 +93,26 @@ def compare(output: Path, baseline: str, names: list[str], baseline_directory: P
     return comparisons
 
 
+def sync_native(stage: str) -> dict:
+    # Cargo test --no-run can relink the cdylib after build.ps1 copied it.
+    # Use the same explicit-profile helper as the main gate before running any
+    # managed executable and retain the binary hashes in this run's evidence.
+    synchronized = subprocess.run(["pwsh", "-NoProfile", "-File", str(ROOT / "scripts/sync-native.ps1"),
+                                   "-Configuration", "Release", "-Stage", stage, "-AsJson"],
+                                  cwd=ROOT, text=True, capture_output=True, check=True)
+    return json.loads(synchronized.stdout)
+
+
+def build_gpu_executable() -> str:
+    build = subprocess.run(["cargo", "test", "-p", "youi-render", "--release", "--test", "gpu",
+                            "--locked", "--target-dir", str(ROOT / "target"),
+                            "--no-run", "--message-format=json"], cwd=ROOT,
+                           text=True, capture_output=True, check=True)
+    return next(json.loads(line)["executable"] for line in build.stdout.splitlines()
+                if line.startswith("{") and json.loads(line).get("reason") == "compiler-artifact"
+                and json.loads(line).get("target", {}).get("name") == "gpu" and json.loads(line).get("executable"))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backends", nargs="+", default=["dx12", "vulkan", "gl"], choices=["dx12", "vulkan", "gl", "angle-d3d11", "angle-vulkan"])
@@ -96,16 +125,12 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     # Resolve the exact test executable from Cargo's build output, never a
     # potentially stale similarly named file left in target/.
-    build = subprocess.run(["cargo", "test", "-p", "youi-render", "--release", "--test", "gpu",
-                            "--locked", "--no-run", "--message-format=json"], cwd=ROOT,
-                           text=True, capture_output=True, check=True)
-    gpu = next(json.loads(line)["executable"] for line in build.stdout.splitlines()
-               if line.startswith("{") and json.loads(line).get("reason") == "compiler-artifact"
-               and json.loads(line).get("target", {}).get("name") == "gpu" and json.loads(line).get("executable"))
+    gpu = build_gpu_executable()
     editor = ROOT / "tools/YoUI.Editor/bin/Release/net10.0/YoUI.Editor.exe"
     showcase = ROOT / "samples/YoUI.Showcase/bin/Release/net10.0/YoUI.Showcase.exe"
     report = dict(os=platform.platform(), configuration="Release", timeoutSeconds=args.timeout,
-                  tolerance=dict(meanChannelError=0.25, fractionPixelsOver4=0.001), backends=[])
+                  tolerance=dict(meanChannelError=0.25, fractionPixelsOver4=0.001), backends=[],
+                  nativeLibraries=[sync_native("backend-matrix-after-cargo-build")])
     for backend in args.backends:
         directory = output / backend
         directory.mkdir(exist_ok=True)
@@ -129,7 +154,7 @@ def main() -> int:
             report["angleBuild"] = str(angle_build)
         cases = [
             ("renderer", [str(native / "examples/render_scene.exe"), str(directory / "render-scene.png")]),
-            ("gpu-reference", [case_gpu, "--ignored", "--nocapture"]),
+            ("gpu-reference", [case_gpu, "--ignored", "--nocapture", "--test-threads=1"]),
             ("scene", [str(native / "examples/scene_graph.exe"), str(directory / "scene-graph.png")]),
             ("editor-headless", [str(case_editor), "--headless"]),
             ("editor-window", [str(case_editor), "--smoke"]),
@@ -139,6 +164,8 @@ def main() -> int:
         ]
         results = []
         for name, command in cases:
+            if not is_angle and name.startswith(("editor-", "showcase-", "benchmark")):
+                report["nativeLibraries"].append(sync_native(f"before-{backend}-{name}"))
             result = run_case(name, command, directory, env, args.timeout)
             log_text = (directory / f"{name}.log").read_text(encoding="utf-8", errors="replace")
             adapters = re.findall(r"^YoUI init: (.+ \((?:Dx12|Vulkan|Gl);.+\))$", log_text, re.MULTILINE)
@@ -156,6 +183,7 @@ def main() -> int:
                 results.extend(dict(name=n, status="blocked-by-initialization") for n, _ in cases[1:])
                 break
         report["backends"].append(dict(requested=backend, cases=results))
+        report["nativeLibraries"].append(sync_native(f"backend-{backend}-complete"))
         (output / "results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     report["comparisons"] = compare(output, "dx12", args.backends, args.baseline)
     (output / "results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
