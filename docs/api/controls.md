@@ -88,7 +88,7 @@ setter、粘贴和输入一致过滤控制字符/换行，拒绝非法 UTF-16。
 
 | 成员 | 默认 / 行为 |
 | --- | --- |
-| `float RowHeight { get; init; }` | 54；需有限，使用大于 6 的值以容纳行间距和内容 |
+| `float RowHeight { get; init; }` | 54；需有限且至少 1，赋值时校验；常规行保留 6 DIP 间距，小行高保留至少 1 DIP 内容高度 |
 | `Func<int,string> ItemText` | 默认 `i => $"Item {i}"`，同步索引到文字映射 |
 | `int ItemCount` | 默认 0，非负；赋值使布局失效并钳制现有选择 |
 | `int SelectedIndex` | 默认 -1，表示未选择；钳制到 -1..ItemCount-1 |
@@ -99,7 +99,7 @@ setter、粘贴和输入一致过滤控制字符/换行，拒绝非法 UTF-16。
 | `void Refresh()` | 使布局失效以重读数据 |
 | `SemanticValue` | 选择位置与总数，如 `"1 of 100"` |
 
-布局分配约可见行数加 3 个缓冲行；第一个复用行可能在 FirstVisibleIndex 之前。RowHeight 的显式检查为至少 1，但当前内部行高度为 RowHeight−6，因此不要传小于 6 的值。
+布局分配约可见行数加 3 个缓冲行；第一个复用行可能在 FirstVisibleIndex 之前。内部行高度为 `max(1, RowHeight−6)`，因此所有允许的行高都有正的命中区域；小行高仍可能无法显示完整文字，应用应为可读内容选择合适的尺寸。
 
 上下键改变选择，Home/End 到首尾，并保持选中项可见；直接赋 SelectedIndex 不自动滚到该行。ItemCount 收缩可直接钳制内部选择而不触发 SelectionChanged，应用更新数据时同步自己的选择状态。
 
@@ -134,7 +134,7 @@ setter、粘贴和输入一致过滤控制字符/换行，拒绝非法 UTF-16。
 | `event Action<string>? SelectionChanged` | 用户选择节点时触发 |
 | `event Action<string,string>? ReparentRequested` | 参数为 sourceId、targetContainerId；仅发出请求 |
 
-上下键选择，左右键折叠/展开，点击箭头切换展开，滚轮纵向滚动。控件绘制视口附近的行，展平数据仍保留在内存中。宿主负责校验重挂操作、修改模型并重新 SetItems。当前指针定位按 Bounds 计算，带额外祖先 VisualOffset 的嵌套使用需自行验证。
+上下键选择，左右键折叠/展开，点击箭头切换展开，滚轮纵向滚动。控件绘制视口附近的行，展平数据仍保留在内存中。宿主负责校验重挂操作、修改模型并重新 SetItems。指针定位和展开按钮使用 VisualBounds，与自身及祖先 VisualOffset 的绘制位置保持一致。
 
 ## PropertyEntry 与 PropertyGrid
 

@@ -5,7 +5,8 @@ using YoUI;
 using YoUI.Platform.Windows;
 
 if (args.Length == 1 && args[0] == "--native-mouse-leave") { NativeMouseLeaveTests.Run(); return; }
-if (args.Length != 0) throw new ArgumentException("Usage: YoUI.Platform.Windows.Tests [--native-mouse-leave]");
+if (args.Length == 1 && args[0] == "--native-lifecycle") { NativeLifecycleTests.Run(); return; }
+if (args.Length != 0) throw new ArgumentException("Usage: YoUI.Platform.Windows.Tests [--native-mouse-leave|--native-lifecycle]");
 
 int checks = 0;
 void Check(bool value, string message) { if (!value) throw new Exception(message); checks++; }

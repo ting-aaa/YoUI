@@ -126,6 +126,24 @@ selected where available, but the oracle uses the actual fallback raster.
 `YOUI_ARTIFACT_DIR` additionally enables eight diagnostic screenshot phases.
 CPU tests cover mask/color gutters and atlas edges, row wrapping and image reuse.
 
+Glyph sampling is clamped to the padded slot's gutter texel centers. Geometry
+still includes the full filter halo, while image quads retain their existing
+sampling convention. The adversarial recycled-white-region test covers eight
+fractional phases and requires zero raw-mask coverage to stay exactly transparent.
+
+The white-mask RGB oracle accounts for independent RGBA8 alpha and sRGB8 RGB
+encoding: a stored alpha byte represents a half-byte interval of linear values,
+which is encoded to sRGB with one final conversion byte of allowance. Only where
+the independent raw oracle finds multiple contributing glyphs may the original
+float RGB tolerance of three bytes also apply, since each glyph blend rounds the
+two channels independently. The independent raw-mask alpha limit of two bytes
+remains in force; CPU counterexamples reject coverage being multiplied twice.
+The tiny-mask GPU fixture and f32 sampler probe distinguish hardware subtexel
+coordinate quantization from render-target encoding. Precision requirements are
+documented in the [D3D11.3 specification](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm),
+sections 3.2.3.6/8 and 7.18.16.1/2. This is not a claim of identical bytes across
+backends or permission to ignore extra coverage.
+
 The GPU gate additionally runs
 `renderer::text_residency_tests::released_image_regions_recover_space_with_live_text_and_images`.
 It fills the shelf with a real image, observes a large cached glyph fail to fit,

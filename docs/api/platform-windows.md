@@ -34,16 +34,22 @@ DesktopWindow(string title, Element root,
 | 方法 | 行为 |
 | --- | --- |
 | `void Run(bool visible = true, int? frameLimit = null, Action<int>? tick = null)` | 驱动消息、tick、按需重绘；默认显示窗口并阻塞直到关闭 |
-| `void PumpEvents()` | 非阻塞处理待处理消息；窗口回调异常会在此重新抛出 |
+| `void PumpEvents()` | 非阻塞处理待处理消息；窗口回调异常会在此重新抛出，包括同步 SendMessage 在 PumpEvents 之外记录且已使宿主关闭的异常 |
 | `void RenderNow()` | BuildFrame，将命令按 Scale 转换后提交 GPU |
 | `void SetAnimationActive(bool active)` | 开启/关闭约 16 ms 窗口计时器 |
-| `void Dispose()` | 先释放 renderer，再销毁 HWND 和窗口类；重复调用无操作 |
+| `void Dispose()` | 在创建线程请求终止宿主；先释放 renderer，再销毁 HWND 和窗口类；重复调用无操作 |
 
 Run 的 tick 参数接收从 0 开始的**循环迭代编号**，不是秒或已呈现帧数。frameLimit 也限制循环迭代次数。存在 tick 时每次循环暂停约 16 ms；没有 tick 且文档不脏时使用 WaitMessage。因此测试若需要确定次数地前进，可同时提供 tick；不要用 `Run(frameLimit: N)` 推断一定会连续绘制 N 帧。
 
 `Run(visible: false)` 仍创建 HWND、GPU 和消息循环；真正无窗口渲染使用 `NativeRenderer(window: 0)`。
 
 Closing 处理的是窗口关闭消息，直接 Dispose 不触发 Closing。通常使用 `using` + `Run`，在同一 UI 线程管理所有权。窗口宿主尚无公开 Close 方法或后台线程调度入口。
+
+Run、PumpEvents、RenderNow、SetAnimationActive 和 Dispose 均在改变状态前检查创建线程。
+在活动宿主回调中 Dispose 会立即阻止后续 tick、渲染提交和等待，原生资源延迟到
+最外层宿主操作退出后释放，使当前文档更新或输入分发中的文字 provider 工作可安全退出；
+此时回调内部的 Handle / Renderer.IsDisposed 尚未表示物理释放完成。回调之外 Dispose
+同步释放。构造失败会清理已取得的 renderer、HWND 和窗口类。
 
 ## 输入、DPI 和资源边界
 

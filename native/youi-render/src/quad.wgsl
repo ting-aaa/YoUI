@@ -45,7 +45,12 @@ fn linear(c:vec3<f32>)->vec3<f32> {return select(pow((c+vec3(0.055))/1.055,vec3(
  let t=clamp(i.local.y/max(i.rect.w,1.),0.,1.);
  var color=mix(vec4(linear(i.color.rgb),i.color.a),vec4(linear(i.color2.rgb),i.color2.a),t);
  if i.params.y>0.5 {
-   let tex=textureSample(atlas,texSampler,i.uv);
+    // Glyph quads include their transparent gutter. Fractional placement can
+    // sample its outer half-texel: clamp to the gutter texel centers so the
+    // filter never reads an adjacent or previously released atlas region.
+    // Image quads keep their original transparent-border sampling convention.
+    let sample_uv=select(clamp(i.uv,i.uv_bounds.xy,i.uv_bounds.zw),i.uv,i.params.y==1.25);
+    let tex=textureSample(atlas,texSampler,sample_uv);
    // Internal image-quad kind, matched by IMAGE_QUAD_KIND in renderer.rs.
    // Glyph kind 1.0 retains straight RGB plus independently filtered coverage.
    if i.params.y==1.25 {return vec4(color.rgb*tex.rgb*color.a,color.a*tex.a);}

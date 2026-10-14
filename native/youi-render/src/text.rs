@@ -984,6 +984,14 @@ impl TextSystem {
         self.layout.layouts.clear();
     }
 
+    // Seed deterministic raw masks while retaining the production layout,
+    // residency, upload and draw paths. Only GPU precision tests use this.
+    pub(crate) fn set_test_raster(&mut self, glyph: &Glyph, image: cosmic_text::SwashImage) {
+        assert!(!self.atlas.glyphs.contains_key(&glyph.key));
+        self.layout.swash.image_cache.insert(glyph.key, Some(image));
+        self.layout.layouts.clear();
+    }
+
     // Test-only mapping loss, NOT reclamation or an atlas-capacity reset. Keeping
     // old slots occupied preserves any UVs already prepared for a live frame.
     pub(crate) fn forget_glyph_residency(&mut self) {

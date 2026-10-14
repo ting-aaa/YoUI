@@ -11,8 +11,16 @@ if (($Layer -eq 'Window' -or $Layer -eq 'All') -and !$onWindows) {
     throw 'Full/window acceptance requires a Windows desktop. Use -Layer Logic or -Layer Gpu for narrower checks.'
 }
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
+    if ($Program -eq 'dotnet') { Sync-Native ("before-managed: " + ($Arguments -join ' ')) }
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit code ${LASTEXITCODE}: $Arguments" }
+    if (($Program -eq 'cargo' -and $Arguments[0] -ne 'fmt') -or $Program -eq 'dotnet') {
+        Sync-Native ("after-${Program}: " + ($Arguments -join ' '))
+    }
+}
+function Sync-Native([string]$Stage) {
+    $snapshot = & "$PSScriptRoot/sync-native.ps1" -Configuration $Configuration -Stage $Stage
+    $evidence.nativeLibraries += @($snapshot)
 }
 $profile = @()
 if ($Configuration -eq 'Release') { $profile = @('--release') }
@@ -28,6 +36,7 @@ $evidence = [ordered]@{
     completedUtc = $null
     status = 'running'
     error = $null
+    nativeLibraries = @()
 }
 $evidenceDirectory = Join-Path $projectRoot ('artifacts/verification/' + [Guid]::NewGuid().ToString('N'))
 try {
@@ -39,6 +48,7 @@ try {
     $evidence.dirty = @($dirtyPaths).Count -gt 0
     Write-Host ("BEGIN sha={0} dirty={1} configuration={2} platform={3} layer={4}" -f $evidence.sha,$evidence.dirty,$Configuration,$evidence.platform,$Layer)
     & "$PSScriptRoot/build.ps1" -Configuration $Configuration
+    Sync-Native 'build-complete'
     if ($Layer -eq 'Logic' -or $Layer -eq 'All') {
         Invoke-Checked 'cargo' @('fmt','--all','--','--check')
         Invoke-Checked 'cargo' (@('clippy','--workspace','--all-targets') + $cargoOptions + @('--','-D','warnings'))
@@ -49,6 +59,7 @@ try {
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Profiling.Tests','-c',$Configuration,'-p:BuildInParallel=false')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Platform.Linux.Tests','-c',$Configuration,'-p:BuildInParallel=false')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Platform.Windows.Tests','-c',$Configuration,'-p:BuildInParallel=false')
+        Sync-Native 'Logic-complete'
     }
     if ($Layer -eq 'Gpu' -or $Layer -eq 'All') {
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-resource-budget')
@@ -59,14 +70,14 @@ try {
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-renderer-recovery')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-presentation-retry')
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu-gallery-rendering')
-        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::presentation_tests::') + $cargoOptions + @('--','--ignored','--nocapture'))
-        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::recovery_tests::') + $cargoOptions + @('--','--ignored','--nocapture'))
-        Invoke-Checked 'cargo' (@('test','-p','youi-render','--test','gpu') + $cargoOptions + @('--','--ignored','--nocapture'))
-        Invoke-Checked 'cargo' (@('test','-p','youi-scene','--test','image_alpha') + $cargoOptions + @('--','--ignored','--nocapture'))
-        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image') + $cargoOptions + @('--','--exact','--ignored','--nocapture'))
-        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_residency_tests::released_image_regions_recover_space_with_live_text_and_images') + $cargoOptions + @('--','--exact','--ignored','--nocapture'))
-        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_residency_tests::glyph_purge_recovers_text_pressure_with_live_images') + $cargoOptions + @('--','--exact','--ignored','--nocapture'))
-        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_filter_tests::') + $cargoOptions + @('--','--ignored','--nocapture'))
+        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::presentation_tests::') + $cargoOptions + @('--','--ignored','--nocapture','--test-threads=1'))
+        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::recovery_tests::') + $cargoOptions + @('--','--ignored','--nocapture','--test-threads=1'))
+        Invoke-Checked 'cargo' (@('test','-p','youi-render','--test','gpu') + $cargoOptions + @('--','--ignored','--nocapture','--test-threads=1'))
+        Invoke-Checked 'cargo' (@('test','-p','youi-scene','--test','image_alpha') + $cargoOptions + @('--','--ignored','--nocapture','--test-threads=1'))
+        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_residency_tests::cached_text_pixels_survive_residency_mapping_loss_with_live_image') + $cargoOptions + @('--','--exact','--ignored','--nocapture','--test-threads=1'))
+        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_residency_tests::released_image_regions_recover_space_with_live_text_and_images') + $cargoOptions + @('--','--exact','--ignored','--nocapture','--test-threads=1'))
+        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_residency_tests::glyph_purge_recovers_text_pressure_with_live_images') + $cargoOptions + @('--','--exact','--ignored','--nocapture','--test-threads=1'))
+        Invoke-Checked 'cargo' (@('test','-p','youi-render','--lib','renderer::text_filter_tests::') + $cargoOptions + @('--','--ignored','--nocapture','--test-threads=1'))
         Invoke-Checked 'dotnet' @('run','--project','tools/YoUI.Editor','-c',$Configuration,'--no-build','--','--headless')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--headless')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--gallery','--headless')
@@ -75,12 +86,15 @@ try {
         Invoke-Checked 'cargo' (@('run','-p','youi-scene','--example','scene_graph') + $cargoOptions + @('--','artifacts/scene-graph.png'))
         Invoke-Checked 'cargo' (@('run','-p','youi-scene','--example','textured_mesh') + $cargoOptions + @('--','artifacts/textured-mesh.png'))
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Component.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--gpu')
+        Sync-Native 'Gpu-complete'
     }
     if ($Layer -eq 'Window' -or $Layer -eq 'All') {
         Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Platform.Windows.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--native-mouse-leave')
+        Invoke-Checked 'dotnet' @('run','--project','tests/YoUI.Platform.Windows.Tests','-c',$Configuration,'-p:BuildInParallel=false','--','--native-lifecycle')
         Invoke-Checked 'dotnet' @('run','--project','tools/YoUI.Editor','-c',$Configuration,'--no-build','--','--smoke')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--smoke')
         Invoke-Checked 'dotnet' @('run','--project','samples/YoUI.Showcase','-c',$Configuration,'--no-build','--','--gallery','--smoke')
+        Sync-Native 'Window-complete'
     }
     $evidence.status = 'passed'
 } catch {
@@ -90,7 +104,7 @@ try {
 } finally {
     $evidence.completedUtc = [DateTime]::UtcNow.ToString('o')
     try {
-        $evidence | ConvertTo-Json | Set-Content (Join-Path $evidenceDirectory 'result.json') -Encoding utf8
+        $evidence | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $evidenceDirectory 'result.json') -Encoding utf8
     } finally { Pop-Location }
 }
 Write-Host "PASS layer=$Layer configuration=$Configuration; unselected layers were not run. Evidence: $evidenceDirectory"

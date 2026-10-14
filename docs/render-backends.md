@@ -44,7 +44,24 @@ $env:YOUI_BACKEND = 'vulkan' # dx12 / vulkan / gl
 ./scripts/verify-backends.ps1 -Output artifacts/backends-my-run
 ```
 
-脚本使用 uv 管理 Python 及图像比较依赖；每个直接运行的 GPU 子进程最多 45 秒，失败或超时会记录并返回非零。已有非空后端目录会被拒绝，避免旧图片被误当作本轮结果。常规构建正在运行的 DLL 会被 Windows 锁定，重新构建前应关闭对应应用。
+脚本使用 uv 管理 Python 及图像比较依赖；每个直接运行的 GPU 子进程最多 45 秒，失败或超时会记录并返回非零。GPU 参考测试使用 `--test-threads=1` 依次初始化设备，保留全部断言和初始化错误。已有非空后端目录会被拒绝，避免旧图片被误当作本轮结果；缺失基线、缺失对应图片及尺寸不一致均记为失败，不能减少比较数量后返回通过。常规构建正在运行的 DLL 会被 Windows 锁定，重新构建前应关闭对应应用。
+
+每个基础后端的八个进程必须产出以下 **18 张 PNG**。脚本在每个进程退出后检查其文件清单：即使退出码为零，缺图也会将该 case 标记为 `missing-images`，并在 `results.json` 记录 `requiredImages` 和 `missingImages`；后端与总体结果返回失败。图像比较独立检查这 18 个必需文件，因此多个后端同时漏掉同一张图、或单后端只产出部分图片，都不能通过。
+
+| 进程 | 必需 PNG |
+|---|---|
+| renderer | `render-scene.png` |
+| gpu-reference | `gpu-reference.png`、`gpu-textured-mesh.png`、`offscreen-trim.png` |
+| scene | `scene-graph.png` |
+| editor-headless | `editor.png`、`editor-selected.png`、`editor-anchor.png`、`editor-properties.png`、`editor-preview.png`、`editor-compact.png` |
+| editor-window | `editor-window-smoke.png` |
+| showcase-headless | `showcase-dark.png`、`showcase-light.png`、`showcase-modal.png`、`showcase-compact.png` |
+| showcase-window | `window-smoke.png` |
+| benchmark | `benchmark-frame.png` |
+
+保存的 DX12 基线可额外包含图库 PNG，ANGLE 基础矩阵不必生成这些额外图库图片；必需的 18 张仍须齐全。候选后端新增的 PNG 必须有基线对应图，双方共有的额外图片仍按相同容差比较。脚本不按目录中 PNG 的总数严格拒绝合法额外证据。
+
+矩阵的 Cargo 构建显式绑定仓库 `target/`，不受外部 `CARGO_TARGET_DIR` 改写。测试可执行文件构建后与每次正式托管程序运行前，脚本同步对应 Release 原生库，记录 `sourceBinaryHash` 与各应用副本哈希到 `results.json/nativeLibraries`。这证明当前运行所消费的二进制一致性；上面的历史验收数量与后端结论仍以其原始证据为准，新的运行必须保存独立目录。
 
 ## 证据与性能边界
 

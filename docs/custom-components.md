@@ -59,7 +59,7 @@ root.Remove(rating); // 释放模型订阅；state 仍可复用。
 
 `HitTestVisible` 决定是否作为指针目标；Focusable 决定焦点候选；父不可见/禁用的子树不参与输入。命中按前后遮挡和裁剪处理。框架维护焦点、hover、单指针 capture、Capture/Target/Bubble 路由。
 
-公开 Event 先于 protected OnEvent；OnEvent 只在 Target 阶段且尚未 Handled 时执行。设 Handled 阻止后续路由。PointerDown 中设置 CapturePointer 后，后续移动可在边界之外送达；按控件自身规则处理 PointerUp、PointerCancel、Blur，并清除临时交互状态。需要消费的按键设置 Handled。Dispatch 使用冻结路径，事件期间移除节点不截断已经建立的路由路径；不要假设 OnEvent 时仍附属于原文档。
+常规事件的公开 Event 先于 protected OnEvent；OnEvent 只在 Target 阶段且尚未 Handled 时执行。PointerCancel / Blur 的目标清理先执行 OnEvent，再通知 Event，Handled 或观察回调异常不阻止旧状态清理；清理和观察回调都会尝试，保留首个异常。同一目标的本次清理不会在其 Event 之后清掉该 Event 新建的手势；多个目标或嵌套取消不承诺事务或新手势保留。设 Handled 阻止常规事件后续路由。PointerDown 中设置 CapturePointer 后，后续移动可在边界之外送达；按控件自身规则处理 PointerUp、PointerCancel、Blur，并清除临时交互状态。需要消费的按键设置 Handled。Dispatch 使用冻结路径，事件期间移除节点不截断已经建立的路由路径；不要假设 OnEvent 时仍附属于原文档。
 
 Hover 在移除时清除，重新加入不继承旧 hover。禁用/隐藏后输入活跃性由后续 Dispatch 校正，不是属性 setter 同步发 Blur 的保证。平台键盘/IME/触摸的支持范围不因自定义控件扩大。
 
@@ -69,7 +69,7 @@ Hover 在移除时清除，重新加入不继承旧 hover。禁用/隐藏后输�
 
 树和属性只在一个 UI 线程操作。Add 不接受已属于父节点或文档的节点，也拒绝祖先循环。跨文档移动必须先 Remove 再 Add。Remove/Clear 是**可复用的分离**，不会 Dispose 组件、外部模型、共享 renderer、纹理或任意 IDisposable 子对象。
 
-`OnDocumentChanged(previous,current)` 是订阅外部事件的扩展点：Document 已更新，正常路径先递归通知子节点再通知父节点。加入未附着的树不会触发文档变更；文档根附着时才触发。分离期间清除焦点/capture，然后节点所属文档转为 null。回调应短小、同步、无异常，不在其中再次改树；这是通知，不是带回滚的事务。用户回调抛出或重入树变化不承诺原子附着/分离、自动重试或精确一次通知。
+`OnDocumentChanged(previous,current)` 是订阅外部事件的扩展点：先更新整棵子树的 Document，再按子节点先于父节点的顺序通知。加入未附着的树不会触发文档变更；文档根附着时才触发。分离清除焦点/capture/hover/modal；即使 Blur、取消或文档通知抛出，结构解除、全部 Document 关联和失效仍完成，随后重新抛出首个异常。仍有效的文档通知都会尝试执行；若嵌套分离或重新附着使关联版本改变，过时通知会取消。文档构造失败会解除整棵树的关联。外部订阅或用户字段的部分变化不回滚。回调仍应短小、同步、无异常，不在其中再次改树；重入不承诺事务或精确一次通知，也不会自动重试。
 
 示例在附着时双向订阅，再以模型当前值初始化；同步回调读取最新有效值，不回放较早订阅者已修正的旧参数。分离时解绑两端并清除交互状态。分离后的控件编辑不会修改模型，重新附着时模型胜出。对象不是一次性视图，不能把 Remove 当作永久销毁。测试多次跨文档重挂和外部模型存活时的视图 GC。
 
