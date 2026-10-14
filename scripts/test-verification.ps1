@@ -57,6 +57,14 @@ function git {
     if (($args -join ' ') -eq 'rev-parse HEAD') { '0123456789abcdef0123456789abcdef01234567' }
 }
 function Require([bool]$Condition, [string]$Message) { if (!$Condition) { throw $Message } }
+function Invoke-StandaloneSync([string[]]$Parameters) {
+    # A fresh -File process has no parent script's automatic $args variable.
+    # Keep these as real child invocations: nested script calls hid that defect.
+    $PSNativeCommandUseErrorActionPreference = $false
+    $pwsh = (Get-Command pwsh -CommandType Application | Select-Object -First 1).Source
+    $output = & $pwsh -NoProfile -NonInteractive -File (Join-Path $repo 'scripts/sync-native.ps1') @Parameters 2>&1
+    [ordered]@{ exitCode = $LASTEXITCODE; output = ($output | Out-String) }
+}
 function Run-Verification([string]$Configuration, [string]$Layer) {
     $global:YoUIVerificationCalls.Clear()
     & (Join-Path $repo 'scripts/verify.ps1') -Configuration $Configuration -Layer $Layer
@@ -77,13 +85,38 @@ try {
     Require ((Get-Content $unrelatedNative) -eq 'unrelated binary') 'Native helper modified unrelated output'
     $second = & (Join-Path $repo 'scripts/sync-native.ps1') -Configuration Release
     Require (@($second.consumers | Where-Object updated).Count -eq 0) 'Identical native binaries were unnecessarily copied'
+    foreach ($consumer in $snapshot.consumers) { Set-Content -LiteralPath $consumer.path 'standalone stale synthetic native copy' }
+    $child = Invoke-StandaloneSync @('-Configuration','Release','-Stage','standalone-json','-AsJson')
+    Require ($child.exitCode -eq 0) ("Standalone JSON native synchronization failed: " + $child.output)
+    $childSnapshot = $child.output | ConvertFrom-Json
+    Require ($childSnapshot.profile -eq 'release' -and $childSnapshot.stage -eq 'standalone-json' -and $childSnapshot.consumers.Count -eq 7) 'Standalone JSON native snapshot is incomplete'
+    foreach ($consumer in $childSnapshot.consumers) {
+        Require ($consumer.updated -and $consumer.binaryHash -eq $childSnapshot.sourceBinaryHash) 'Standalone synchronization failed to replace stale copies'
+        Require ((Get-FileHash -LiteralPath $consumer.path).Hash -eq $childSnapshot.sourceBinaryHash) 'Standalone reported hash differs from actual copied file'
+    }
+    # Also run without -AsJson: neither supported output mode may depend on $args.
+    $child = Invoke-StandaloneSync @('-Configuration','Debug','-Stage','standalone-object')
+    Require ($child.exitCode -eq 0) ("Standalone object native synchronization failed: " + $child.output)
+    $expectedDebugHash = (Get-FileHash (Join-Path $repo "target/debug/$nativeName")).Hash
+    Require ((Get-FileHash $debugConsumer).Hash -eq $expectedDebugHash) 'Standalone object mode selected the wrong native profile'
+    $bindingProbe = $snapshot.consumers[0].path
+    Set-Content -LiteralPath $bindingProbe 'stale copy must survive rejected arguments'
+    $bindingHash = (Get-FileHash -LiteralPath $bindingProbe).Hash
+    foreach ($extra in @(@('-Unexpected','bad'), @('bad'))) {
+        $child = Invoke-StandaloneSync (@('-Configuration','Release','-AsJson') + $extra)
+        Require ($child.exitCode -ne 0) 'Standalone native helper accepted invalid extra arguments'
+        Require ((Get-FileHash -LiteralPath $bindingProbe).Hash -eq $bindingHash) 'Invalid arguments modified a native consumer before rejection'
+    }
     $nativeSource = Join-Path $repo "target/release/$nativeName"
     $sourceContents = [IO.File]::ReadAllBytes($nativeSource)
     Remove-Item -LiteralPath $nativeSource
     $failed = $false
     try { & (Join-Path $repo 'scripts/sync-native.ps1') -Configuration Release } catch { $failed = $_.Exception.Message.Contains('Missing native library:') }
     Require $failed 'Native helper silently accepted missing source'
+    $child = Invoke-StandaloneSync @('-Configuration','Release','-AsJson')
+    Require ($child.exitCode -ne 0 -and $child.output.Contains('Missing native library:')) 'Standalone native helper did not explicitly reject missing source'
     [IO.File]::WriteAllBytes($nativeSource, $sourceContents)
+    Write-Host 'PASS standalone native helper JSON/object modes, profile, stale-copy hashes, missing source and invalid extra arguments (fresh pwsh processes; synthetic files only)'
     Write-Host 'PASS native helper profile, stale-copy replacement, hash equality, output scope and missing-source failure (synthetic files only)'
     foreach ($configuration in 'Debug','Release') {
         foreach ($layer in 'Logic','Gpu') {

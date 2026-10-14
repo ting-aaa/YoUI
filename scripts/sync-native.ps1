@@ -1,3 +1,4 @@
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory)][ValidateSet('Debug','Release')][string]$Configuration,
     [string]$Stage = 'manual',
@@ -5,7 +6,6 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-if ($args.Count -ne 0) { throw "Unexpected arguments: $args" }
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $profile = $Configuration.ToLowerInvariant()
 $nativeName = if ([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Runtime.InteropServices.OSPlatform]::Windows)) { 'youi_render.dll' }
