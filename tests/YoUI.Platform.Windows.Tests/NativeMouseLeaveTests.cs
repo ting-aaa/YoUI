@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using YoUI;
 using YoUI.Platform.Windows;
@@ -13,6 +14,15 @@ internal static class NativeMouseLeaveTests
         var button = root.Add(new ProbeButton { Transform = RectTransform.Fixed(0, 0, 80, 60) });
         int clicks = 0; button.Clicked += () => clicks++;
         using var window = new DesktopWindow("YoUI native mouse-leave acceptance", root, 320, 200, 100, 100);
+        Vector2? observedMove = null;
+        int nativeLeaves = 0;
+        void Observe(UiEvent e)
+        {
+            if (e.Kind != EventKind.PointerMove) return;
+            observedMove = e.Position;
+            if (e.Position == new Vector2(-1, -1)) nativeLeaves++;
+        }
+        window.Document.PreviewInput += Observe;
         try
         {
             // Keep the complete test window on the primary desktop and above other windows.
@@ -32,10 +42,23 @@ internal static class NativeMouseLeaveTests
             {
                 var timeout = Stopwatch.StartNew();
                 do { window.PumpEvents(); if (predicate()) return; Thread.Sleep(10); } while (timeout.Elapsed < TimeSpan.FromSeconds(3));
-                throw new Exception(description);
+                GetCursorPos(out var actual);
+                throw new Exception($"{description}; cursor={actual.X},{actual.Y}; observedMove={observedMove}; hover={button.IsHovered}; leaves={nativeLeaves}");
             }
             nint Position(int x, int y) => (nint)((ushort)(short)(x * window.Scale) | ((int)(ushort)(short)(y * window.Scale) << 16));
+            // Two cursor changes without pumping do not establish OS exit/entry delivery.
+            // First observe a real client move that arms tracking, then its real leave.
+            int anchorX = 120, anchorY = 80;
+            var anchor = Client(anchorX, anchorY);
+            Check(GetCursorPos(out var current), "read startup cursor");
+            if (current.X == anchor.X && current.Y == anchor.Y) { anchorX = 160; anchorY = 100; }
+            var expectedAnchor = new Vector2((int)(anchorX * window.Scale) / window.Scale, (int)(anchorY * window.Scale) / window.Scale);
+            Check(root.VisualBounds.Contains(expectedAnchor) && !button.VisualBounds.Contains(expectedAnchor), "startup anchor is inside the client and outside the button");
+            Move(anchorX, anchorY);
+            Until(() => observedMove == expectedAnchor, "native startup client move not delivered");
+            int startupLeaves = nativeLeaves;
             Move(-20, 20);
+            Until(() => nativeLeaves > startupLeaves && !button.IsHovered, "native startup leave not delivered");
             for (int cycle = 0; cycle < 3; cycle++)
             {
                 Move(5, 20); Until(() => button.IsHovered, "native re-entry did not hover edge button");
@@ -64,7 +87,7 @@ internal static class NativeMouseLeaveTests
             Move(-20, 20); Until(() => !button.IsHovered, "leave tracking re-arms after capture");
             Console.WriteLine("PASS native Win32 mouse-leave: 3 edge exits/re-entries, captured outside movement/release, fresh click, post-capture leave. Press/release messages injected; leave/movement OS-generated.");
         }
-        finally { ReleaseCapture(); SetCursorPos(original.X, original.Y); }
+        finally { window.Document.PreviewInput -= Observe; ReleaseCapture(); SetCursorPos(original.X, original.Y); }
     }
 
     private static void Check(bool value, string message) { if (!value) throw new Exception(message); }
