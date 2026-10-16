@@ -1,13 +1,13 @@
 {
-  "active_task_id": "TASK-20261016-665876",
+  "active_task_id": "",
   "counts": {
     "archive": 0,
     "long": 7,
-    "short": 20,
+    "short": 22,
     "temp": 0
   },
-  "generated_at": "2026-10-16T18:27:50Z",
-  "generation": 52,
+  "generated_at": "2026-10-16T18:49:55Z",
+  "generation": 56,
   "project_name": "YoUI",
   "records": [
     {
@@ -124,13 +124,15 @@
       "schema_version": 1,
       "scope": [],
       "sensitivity": "internal",
-      "sha256": "e170d196b8f6b3621926b455eccc17b1a60b05e195e460e5ef24c3bb85dd0e7f",
+      "sha256": "86f7d8fe68f68ada3d89e22b5947aeec4268215b8237d3ad6ad64122c9ccbbe4",
       "sources": [
         "AGENTS.md",
         "docs/architecture.md at e336d6e",
         "docs/alpha-acceptance.md at e336d6e",
         "managed/YoUI/Assets/UiAsset.cs at e336d6e",
-        "git rev-parse HEAD: e336d6e6ec8881764d5b3a8053e152f791ddb581"
+        "git rev-parse HEAD: e336d6e6ec8881764d5b3a8053e152f791ddb581",
+        "docs/beta-review.md final B01-B10 proof at90e86ad",
+        "RPT-20261016-0EE9B5 final local Beta acceptance"
       ],
       "status": "active",
       "summary": "Independent renderer, retained C# runtime and same-library Editor; host-owned loops/platform code; ordered batching, matched builds and revision-specific evidence remain mandatory.",
@@ -147,7 +149,7 @@
       "tier": "long",
       "title": "Current Alpha baseline and Beta architecture boundaries",
       "type_version": 1,
-      "updated_at": "2026-10-16T17:35:10Z",
+      "updated_at": "2026-10-16T18:45:06Z",
       "valid_as_of": "2026-10-17"
     },
     {
@@ -342,6 +344,45 @@
     },
     {
       "blockers": [],
+      "confidence": "confirmed",
+      "created_at": "2026-10-16T18:49:55Z",
+      "derived_from": [
+        "RPT-20261016-0EE9B5"
+      ],
+      "effective_status": "completed",
+      "event_id": "beta-final-handoff-20261017-v1",
+      "expired": false,
+      "id": "HANDOFF-20261016-C07420",
+      "kind": "handoff",
+      "next_actions": [],
+      "path": "short/handoffs/handoff-20261016-c07420-completed-local-beta-scope-and-final-evidence-handoff.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [],
+      "sensitivity": "internal",
+      "sha256": "d3de12c578fd8d539ef9e1958ef963b0ec1c0bcbd7e0435b6cdd13cc47cf8dd6",
+      "sources": [
+        "RPT-20261016-0EE9B5 final local Beta acceptance",
+        "docs/beta-review.md independent46-clause audit",
+        "docs/beta-acceptance.md",
+        "artifacts/beta-review-20261017/completion-receipt.json",
+        "artifacts/beta-final/90e86add65c6ffd24f73dca7a30874176d887474/driver-result.json"
+      ],
+      "status": "completed",
+      "summary": "B01-B10 local WindowsDX12 Beta completed at90e86ad with final clean All/package/image/independent proof; no active task or required Beta action, no public release.",
+      "supersedes": [],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "short",
+      "title": "Completed local Beta scope and final evidence handoff",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:49:55Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
       "confidence": "high",
       "created_at": "2026-09-12T07:53:44Z",
       "derived_from": [],
@@ -448,16 +489,12 @@
       "confidence": "high",
       "created_at": "2026-10-16T17:34:13Z",
       "derived_from": [],
-      "effective_status": "active",
+      "effective_status": "completed",
       "event_id": "beta-components-plan-20261017-v1",
       "expired": false,
       "id": "PLAN-20261016-DB1C18",
       "kind": "plan",
-      "next_actions": [
-        "Create second clean freeze including implemented and independently confirmed RadioGroup Modal/Popup keyboard-scope repair.",
-        "Rerun B10 Debug/Release All gates and stable paired package consumers on the second freeze; inspect all regenerated images.",
-        "Record exact source/snapshot, failures, unrun scope and release boundary; complete task only after all B01-B10 acceptance is supported."
-      ],
+      "next_actions": [],
       "path": "short/plans/plan-20261016-db1c18-beta-component-acceptance-and-implementation-plan.md",
       "review_after": "2026-10-31",
       "schema_version": 1,
@@ -468,16 +505,17 @@
         "tests"
       ],
       "sensitivity": "internal",
-      "sha256": "e37f76e0d068a733f20861a3ed6108b2cec0d1aec4cc5312e5365b1b75111ea3",
+      "sha256": "1f7b132dc3947bb55ee2a454ba3355f353bfd2006a0346cbd40c4e882a0b6f1d",
       "sources": [
         "User roadmap clarification 2026-10-17: Alpha rendering and few controls, Beta expands controls and framework capability",
         "docs/alpha-acceptance.md milestone boundary",
         "docs/beta-development.md B01-B10 completion contract",
         "artifacts/beta-verification/bootstrap.log native dev build success, historical managed CS0103 ReorderChildren failure",
-        "RPT-20261016-919434 first clean Beta All gate passes and subsequent keyboard-scope defect"
+        "RPT-20261016-0EE9B5 final B01-B10 local Beta acceptance",
+        "docs/beta-review.md independent46-clause final proof"
       ],
-      "status": "active",
-      "summary": "Implement common components and composable framework capability with runtime-document-editor-export parity, gallery workflows and revision-specific regression/package evidence.",
+      "status": "completed",
+      "summary": "All B01-B10 plan requirements completed and accepted at clean90e86ad with final Debug/Release All, stable packages, image QA and independent clause proof.",
       "supersedes": [],
       "tags": [
         "beta"
@@ -486,7 +524,7 @@
       "tier": "short",
       "title": "Beta component acceptance and implementation plan",
       "type_version": 1,
-      "updated_at": "2026-10-16T18:27:01Z",
+      "updated_at": "2026-10-16T18:45:06Z",
       "valid_as_of": "2026-10-17"
     },
     {
@@ -753,12 +791,68 @@
     },
     {
       "blockers": [],
+      "confidence": "confirmed",
+      "created_at": "2026-10-16T18:46:00Z",
+      "derived_from": [
+        "RPT-20261016-919434",
+        "RPT-20261016-F4A454"
+      ],
+      "effective_status": "completed",
+      "event_id": "beta-final-local-acceptance-20261017-v1",
+      "expired": false,
+      "id": "RPT-20261016-0EE9B5",
+      "kind": "report",
+      "next_actions": [],
+      "path": "short/reports/rpt-20261016-0ee9b5-beta-b01-b10-local-implementation-and-acceptance-complete.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "samples",
+        "scripts",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "af3ee13679319a3e8ea086bb9f29e108c841568731cab8c8cd1e167f1ed5891b",
+      "sources": [
+        "docs/beta-review.md independent46-clause proof; original receipt SHA256297F24944D2BE6DCAFDB1F4A9E2F49555F8C9EE7E5789F8013317958521B32EF",
+        "docs/beta-development.md B01-B10",
+        "docs/beta-acceptance.md",
+        "artifacts/verification/1a5285693a6444aeae3a80cdaeb33036/result.json",
+        "artifacts/verification/b56c2ee269ec469e89f670c7cb59038f/result.json",
+        "artifacts/beta-final/90e86add65c6ffd24f73dca7a30874176d887474/driver-result.json",
+        "artifacts/beta-final/90e86add65c6ffd24f73dca7a30874176d887474/toolchain.json",
+        "artifacts/beta-final/90e86add65c6ffd24f73dca7a30874176d887474/image-qa.json",
+        "artifacts/beta-packages/0.2.0-beta.1-Debug-e078b5678b144b4a9f5421e64e0651d0/manifest.json",
+        "artifacts/beta-packages/0.2.0-beta.1-Release-01d827e977a54cf5a4a7642e7c9d6584/manifest.json",
+        "artifacts/beta-review-20261017/completion-receipt.md final independent B01-B10 proof",
+        "artifacts/beta-review-20261017/final-evidence-validation.json",
+        "Root explicit final reviewer success and task closure authorization 2026-10-17"
+      ],
+      "status": "completed",
+      "summary": "All B01-B10 accepted at clean90e86ad: final Debug/Release All, stable same-source package pair, actual GPU/HWND, image QA and independent requirement review; local WindowsDX12 scope only, no publication.",
+      "supersedes": [
+        "RPT-20261016-919434"
+      ],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "short",
+      "title": "Beta B01-B10 local implementation and acceptance complete",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:48:00Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
       "confidence": "high",
       "created_at": "2026-10-16T18:25:40Z",
       "derived_from": [
         "RPT-20261016-F4A454"
       ],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "beta-first-clean-freeze-and-scope-failure-20261017-v1",
       "expired": false,
       "id": "RPT-20261016-919434",
@@ -777,7 +871,7 @@
         "tests"
       ],
       "sensitivity": "internal",
-      "sha256": "e39ab1c4401b713bad9d66ce5c5326e5cabe1e748cf9308584c15b7fd6e88618",
+      "sha256": "59b480653467976573c8203910e5a03b2c8cfef55ecdc0b75bdb42b8c183222e",
       "sources": [
         "artifacts/verification/c8029b74b7114e9f9fede5f2705e6aa0/result.json",
         "artifacts/verification/8539b609ca90422298f9205733dad1fa/result.json",
@@ -789,7 +883,7 @@
         "artifacts/beta-verification/mouse-condition.txt",
         "Root second-freeze checkpoint and beta_controls followup memory_delta on 2026-10-17"
       ],
-      "status": "active",
+      "status": "superseded",
       "summary": "Clean0555ea5 Debug/Release All passed; later RadioGroup scope leak is repaired and independently reproduced, while second freeze All reruns and stable package pair remain pending.",
       "supersedes": [
         "RPT-20261016-F4A454"
@@ -801,7 +895,7 @@
       "tier": "short",
       "title": "Clean Beta All gates passed with new keyboard scope failure pending",
       "type_version": 1,
-      "updated_at": "2026-10-16T18:27:01Z",
+      "updated_at": "2026-10-16T18:45:06Z",
       "valid_as_of": "2026-10-17"
     },
     {
@@ -829,7 +923,7 @@
         "tests"
       ],
       "sensitivity": "internal",
-      "sha256": "e41d441fde768f3e0f4caa7db2de85b4a8a3cbf318c88b8d18bdd790ca53f686",
+      "sha256": "8a3b18bebe5229080ba8f0ad1282d4b2093c9449aa8bb56aaa18361dd7979e43",
       "sources": [
         "docs/beta-development.md B01-B10 contract",
         "artifacts/beta-verification/bootstrap.log",
@@ -843,7 +937,7 @@
         "artifacts/beta-packages/0.2.0-beta.1-Release-cd220fe2a6a3410cae753d24accf0b35/manifest.json",
         "Root prefreeze checkpoint and beta_controls/beta_packaging memory_delta on 2026-10-17"
       ],
-      "status": "active",
+      "status": "superseded",
       "summary": "B01-B09 implemented; intermediate Logic/Window/GPU/package evidence passes on earlier dirty snapshots, while final B10 freeze and integrated verification remain pending.",
       "supersedes": [],
       "tags": [
@@ -853,7 +947,7 @@
       "tier": "short",
       "title": "Beta implementation and intermediate verification checkpoint",
       "type_version": 1,
-      "updated_at": "2026-10-16T18:06:43Z",
+      "updated_at": "2026-10-16T18:45:06Z",
       "valid_as_of": "2026-10-17"
     },
     {
@@ -999,15 +1093,12 @@
       "confidence": "confirmed",
       "created_at": "2026-10-16T17:33:36Z",
       "derived_from": [],
-      "effective_status": "active",
+      "effective_status": "completed",
       "event_id": "beta-components-task-20261017-v1",
       "expired": false,
       "id": "TASK-20261016-665876",
       "kind": "task",
-      "next_actions": [
-        "Freeze implemented and independently confirmed RadioGroup Modal/Popup keyboard-scope repair with 213 managed Debug checks.",
-        "Create a second clean product freeze, rerun complete Debug/Release All and stable paired package consumers, inspect images, and reconcile every B01-B10 exit criterion."
-      ],
+      "next_actions": [],
       "path": "short/tasks/task-20261016-665876-implement-beta-component-milestone.md",
       "review_after": "2026-10-31",
       "schema_version": 1,
@@ -1018,7 +1109,7 @@
         "tests"
       ],
       "sensitivity": "internal",
-      "sha256": "74be1d065f9517abcc187a60d69f4d09e58b77d6536879a0d5b0fb7b7f0b788c",
+      "sha256": "45933997f413b822be008effcdc4d53c10531e00de66d2a0dfd6d1137e3ed03f",
       "sources": [
         "User goal 2026-10-17: 规划beta版本的开发计划和完整功能实现",
         "docs/alpha-acceptance.md: Beta more components, 1.0 complete UI capabilities",
@@ -1026,11 +1117,12 @@
         "docs/beta-development.md B01-B10 agreement",
         "artifacts/beta-verification/bootstrap.log native dev build success, historical managed CS0103 ReorderChildren failure",
         "git branch --show-current on resume: codex/beta-components",
-        "RPT-20261016-919434 clean0555ea5 All passes and later keyboard-scope failure checkpoint",
+        "RPT-20261016-0EE9B5 final clean90e86ad local Beta acceptance",
+        "docs/beta-review.md final independent46-clause B01-B10 proof",
         "artifacts/beta-verification/mouse-condition.txt explicit mouse-idle agreement"
       ],
-      "status": "active",
-      "summary": "Clean0555ea5 All passes are preserved; RadioGroup scope defect is repaired/review-confirmed, pending second clean freeze and final Debug/Release All plus stable package acceptance.",
+      "status": "completed",
+      "summary": "Full B01-B10 local WindowsDX12 Beta completed and independently accepted at clean90e86ad; final Debug/Release All, stable packages and image proof passed, no required Beta actions remain.",
       "supersedes": [
         "TASK-20260912-CC3A20"
       ],
@@ -1041,7 +1133,7 @@
       "tier": "short",
       "title": "Implement Beta component milestone",
       "type_version": 1,
-      "updated_at": "2026-10-16T18:27:01Z",
+      "updated_at": "2026-10-16T18:45:06Z",
       "valid_as_of": "2026-10-17"
     }
   ],

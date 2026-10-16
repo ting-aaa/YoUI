@@ -34,7 +34,7 @@
     "artifacts/beta-packages/0.2.0-beta.1-Release-cd220fe2a6a3410cae753d24accf0b35/manifest.json",
     "Root prefreeze checkpoint and beta_controls/beta_packaging memory_delta on 2026-10-17"
   ],
-  "status": "active",
+  "status": "superseded",
   "summary": "B01-B09 implemented; intermediate Logic/Window/GPU/package evidence passes on earlier dirty snapshots, while final B10 freeze and integrated verification remain pending.",
   "supersedes": [],
   "tags": [
@@ -44,7 +44,7 @@
   "tier": "short",
   "title": "Beta implementation and intermediate verification checkpoint",
   "type_version": 1,
-  "updated_at": "2026-10-16T18:06:43Z",
+  "updated_at": "2026-10-16T18:45:06Z",
   "valid_as_of": "2026-10-17"
 }
 -->

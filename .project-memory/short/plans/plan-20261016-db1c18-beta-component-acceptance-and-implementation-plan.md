@@ -7,11 +7,7 @@
   "event_id": "beta-components-plan-20261017-v1",
   "id": "PLAN-20261016-DB1C18",
   "kind": "plan",
-  "next_actions": [
-    "Create second clean freeze including implemented and independently confirmed RadioGroup Modal/Popup keyboard-scope repair.",
-    "Rerun B10 Debug/Release All gates and stable paired package consumers on the second freeze; inspect all regenerated images.",
-    "Record exact source/snapshot, failures, unrun scope and release boundary; complete task only after all B01-B10 acceptance is supported."
-  ],
+  "next_actions": [],
   "review_after": "2026-10-31",
   "schema_version": 1,
   "scope": [
@@ -26,10 +22,11 @@
     "docs/alpha-acceptance.md milestone boundary",
     "docs/beta-development.md B01-B10 completion contract",
     "artifacts/beta-verification/bootstrap.log native dev build success, historical managed CS0103 ReorderChildren failure",
-    "RPT-20261016-919434 first clean Beta All gate passes and subsequent keyboard-scope defect"
+    "RPT-20261016-0EE9B5 final B01-B10 local Beta acceptance",
+    "docs/beta-review.md independent46-clause final proof"
   ],
-  "status": "active",
-  "summary": "Implement common components and composable framework capability with runtime-document-editor-export parity, gallery workflows and revision-specific regression/package evidence.",
+  "status": "completed",
+  "summary": "All B01-B10 plan requirements completed and accepted at clean90e86ad with final Debug/Release All, stable packages, image QA and independent clause proof.",
   "supersedes": [],
   "tags": [
     "beta"
@@ -38,7 +35,7 @@
   "tier": "short",
   "title": "Beta component acceptance and implementation plan",
   "type_version": 1,
-  "updated_at": "2026-10-16T18:27:01Z",
+  "updated_at": "2026-10-16T18:45:06Z",
   "valid_as_of": "2026-10-17"
 }
 -->
@@ -59,4 +56,4 @@ Confirmed roadmap: Alpha rendering plus a few controls; Beta expands component c
 
 ## Current state
 
-First clean product freeze0555ea504eaf7a95aa9e44350b367ef16c704fce passed DebugAll c8029b74b7114e9f9fede5f2705e6aa0 and ReleaseAll8539b609ca90422298f9205733dad1fa. A later audit found P2 RadioGroup Modal/Popup scope escape; original repro-modal-0555ea5.log is preserved. Repair is implemented,213 managed Debug checks pass, and independent repro-modal-repaired.log confirms modal/top-popup isolation. Create second clean freeze and rerun both complete All gates, stable Debug/Release package pair and fresh image inspection before B10 acceptance. RPT-20261016-919434 is current progress/failure/repair evidence; no narrowed scope or complete status. Prior packages are outdated; final pair has not run. SDK10.0.401 and mouse-idle agreement remain as recorded. Network freshness, historical Alpha failures, original uncommitted1.0 workspace and unverified platform/IME/animation/accessibility boundaries remain unchanged.
+All B01-B10 is complete at accepted clean product90e86add65c6ffd24f73dca7a30874176d887474. Final DebugAll1a5285693a6444aeae3a80cdaeb33036 and ReleaseAllb56c2ee269ec469e89f670c7cb59038f passed, together with stable same-source Debug/Release packages and actual final-image inspection. docs/beta-review.md proves46 explicit clauses with0 unproven; no missing/incomplete deliverable or actionable P1/P2 remains. RPT-20261016-0EE9B5 records exact proof. Original0555ea5 passes, later scope failure, repaired reproduction and earlier failures stay preserved. No required Beta action remains. Future public release, extra platform acceptance and1.0 are separate optional work. Root docs/memory-only closure does not claim a product retest; remote freshness and original uncommitted1.0 workspace remain caveats.

@@ -2,9 +2,9 @@
 
 **Rust 原生 2D 渲染引擎 + C# 保留式 UI 框架。**
 
-当前为可运行、带验证的 **0.1 桌面基础版本**。它实现了从 C# 控件树到 GPU 输出的真实链路，包含独立 Rust 场景示例、交互窗口和使用同一 UI 库自举的基础 UI Editor。全平台发布、动画 SDK 和高级编辑功能仍需继续实现；具体边界见 [设计对照](docs/design-status.md)。
+当前分支已完成 **0.2 Beta 的组件与框架扩充及 Windows 本地验收**，建立在 0.1 Alpha 的渲染与基础组件之上。它实现了从 C# 控件树到 GPU 输出的真实链路，包含独立 Rust 场景示例、交互窗口和使用同一 UI 库自举的基础 UI Editor。全平台发布、动画 SDK 和高级编辑功能仍需继续实现；具体边界见 [设计对照](docs/design-status.md)。
 
-本分支推进 **Beta：扩充组件和框架能力**。开发合约见 [Beta 计划](docs/beta-development.md)，
+本分支的开发合约见 [Beta 计划](docs/beta-development.md)，完成情况与证据见 [Beta 验收](docs/beta-acceptance.md)，
 新增控件、组合、布局、弹层、绑定与 v2 文件使用见 [Beta 指南](docs/beta-components.md)。
 本地预发行包不等于已经建立新的正式发行；Alpha tag 的历史审查记录保持独立。
 

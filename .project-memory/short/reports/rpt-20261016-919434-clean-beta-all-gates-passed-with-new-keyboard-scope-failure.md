@@ -33,7 +33,7 @@
     "artifacts/beta-verification/mouse-condition.txt",
     "Root second-freeze checkpoint and beta_controls followup memory_delta on 2026-10-17"
   ],
-  "status": "active",
+  "status": "superseded",
   "summary": "Clean0555ea5 Debug/Release All passed; later RadioGroup scope leak is repaired and independently reproduced, while second freeze All reruns and stable package pair remain pending.",
   "supersedes": [
     "RPT-20261016-F4A454"
@@ -45,7 +45,7 @@
   "tier": "short",
   "title": "Clean Beta All gates passed with new keyboard scope failure pending",
   "type_version": 1,
-  "updated_at": "2026-10-16T18:27:01Z",
+  "updated_at": "2026-10-16T18:45:06Z",
   "valid_as_of": "2026-10-17"
 }
 -->
