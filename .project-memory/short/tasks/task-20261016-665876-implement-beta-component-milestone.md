@@ -8,8 +8,8 @@
   "id": "TASK-20261016-665876",
   "kind": "task",
   "next_actions": [
-    "Finish model-normalization binding correction and independent review, then freeze B01-B09 product source without narrowing B01-B10 scope.",
-    "Run final B10 Debug/Release Logic/Gpu/Window and isolated package consumers on frozen source; inspect regenerated screenshots and record exact source/snapshot boundaries."
+    "Freeze implemented and independently confirmed RadioGroup Modal/Popup keyboard-scope repair with 213 managed Debug checks.",
+    "Create a second clean product freeze, rerun complete Debug/Release All and stable paired package consumers, inspect images, and reconcile every B01-B10 exit criterion."
   ],
   "review_after": "2026-10-31",
   "schema_version": 1,
@@ -27,11 +27,11 @@
     "docs/beta-development.md B01-B10 agreement",
     "artifacts/beta-verification/bootstrap.log native dev build success, historical managed CS0103 ReorderChildren failure",
     "git branch --show-current on resume: codex/beta-components",
-    "RPT-20261016-F4A454 Beta intermediate verification checkpoint",
+    "RPT-20261016-919434 clean0555ea5 All passes and later keyboard-scope failure checkpoint",
     "artifacts/beta-verification/mouse-condition.txt explicit mouse-idle agreement"
   ],
   "status": "active",
-  "summary": "B01-B09 Beta component/framework implementation is present; final B10 frozen-source Debug/Release acceptance and review remain pending.",
+  "summary": "Clean0555ea5 All passes are preserved; RadioGroup scope defect is repaired/review-confirmed, pending second clean freeze and final Debug/Release All plus stable package acceptance.",
   "supersedes": [
     "TASK-20260912-CC3A20"
   ],
@@ -42,7 +42,7 @@
   "tier": "short",
   "title": "Implement Beta component milestone",
   "type_version": 1,
-  "updated_at": "2026-10-16T18:05:35Z",
+  "updated_at": "2026-10-16T18:27:01Z",
   "valid_as_of": "2026-10-17"
 }
 -->
@@ -53,8 +53,8 @@ User objective on 2026-10-17: plan Beta development and implement the complete a
 
 ## Source baseline and isolation
 
-Work only in C:/Users/HT/.codex/worktrees/beta-components/YoUI on branch codex/beta-components. It began at detached HEAD and now remains at locally cached origin/main e336d6e6ec8881764d5b3a8053e152f791ddb581 with partial Beta changes. Network fetch failed; freshness beyond the local ref is unverified. Original C:/Users/HT/DEV/YoUI remains at 6deeb2c with numerous uncommitted 1.0 additions; preserve them and adapt selectively, not wholesale. The published Alpha tag 7a42be9 failed full local acceptance; repaired main has historical segmented evidence but does not make the original tag pass or establish a Beta pass.
+Work only in C:/Users/HT/.codex/worktrees/beta-components/YoUI on branch codex/beta-components. It began at locally cached repaired Alpha e336d6e6ec8881764d5b3a8053e152f791ddb581 and reached first clean Beta freeze0555ea504eaf7a95aa9e44350b367ef16c704fce. A known keyboard-scope defect now requires a second freeze. Network fetch failed; freshness beyond the local ref is unverified. Original C:/Users/HT/DEV/YoUI remains at 6deeb2c with numerous uncommitted 1.0 additions; preserve them and adapt selectively, not wholesale. The published Alpha tag7a42be9 failed full local acceptance; repaired main and Beta evidence do not make the original tag pass.
 
 ## Ownership and current status
 
-Main agent owns product implementation, workers own assigned code paths, sole memory_curator owns semantic .project-memory changes. B01-B09 are implemented pending final integrated acceptance under the unchanged docs/beta-development.md contract. B10 remains open: intermediate Debug Logic/Window, actual DX12 routed output and Debug/Release packages passed on earlier dirty snapshots; latest binding normalization/review fixes require source freeze and full rerun. RPT-20261016-F4A454 preserves exact paths, counts, failures and limitations. The bootstrap ReorderChildren failure was resolved by layout integration and remains archived at artifacts/beta-verification/bootstrap.log. The isolated SDK 10.0.401 is available under C:/Users/HT/DEV/YoUI/artifacts/alpha-audit-20261014/dotnet. User explicitly agreed not to operate the mouse during testing; artifacts/beta-verification/mouse-condition.txt records the condition. No final complete Beta acceptance yet; September and repaired Alpha evidence never substitute for current Beta results.
+Main agent owns product implementation, workers own assigned code paths, sole memory_curator owns semantic .project-memory changes. Complete B01-B10 remains unchanged. First clean freeze0555ea5 passed both Debug/Release All:211 managed,25 editor,12 Beta routed,13 Beta native-message/mixed and48 HWND lifecycle checks on NVIDIA5060DX12 at125%DPI. A later audit reproduced RadioGroup arrow selection escaping Modal/Popup keyboard scope. That repair is now implemented, independently confirmed by repro-modal-repaired.log, and covered by213 passing managed Debug checks. Second clean freeze, both full All reruns and a stable matching package pair are still required. RPT-20261016-919434 preserves old passing gate IDs, original failure and repaired reproduction. Earlier failures/packages remain historical. Isolated SDK10.0.401 is C:/Users/HT/DEV/YoUI/artifacts/alpha-audit-20261014/dotnet; mouse-idle agreement is artifacts/beta-verification/mouse-condition.txt. Task remains active; no final Beta completion or publication claim.

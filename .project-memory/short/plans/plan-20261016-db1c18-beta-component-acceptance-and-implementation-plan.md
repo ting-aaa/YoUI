@@ -8,8 +8,8 @@
   "id": "PLAN-20261016-DB1C18",
   "kind": "plan",
   "next_actions": [
-    "Finish binding model normalization and independent review; freeze implemented B01-B09 product source.",
-    "Rerun B10 Debug/Release Logic/Gpu/Window gates and package consumers on frozen source; inspect all regenerated images.",
+    "Create second clean freeze including implemented and independently confirmed RadioGroup Modal/Popup keyboard-scope repair.",
+    "Rerun B10 Debug/Release All gates and stable paired package consumers on the second freeze; inspect all regenerated images.",
     "Record exact source/snapshot, failures, unrun scope and release boundary; complete task only after all B01-B10 acceptance is supported."
   ],
   "review_after": "2026-10-31",
@@ -26,7 +26,7 @@
     "docs/alpha-acceptance.md milestone boundary",
     "docs/beta-development.md B01-B10 completion contract",
     "artifacts/beta-verification/bootstrap.log native dev build success, historical managed CS0103 ReorderChildren failure",
-    "RPT-20261016-F4A454 Beta implementation and intermediate verification checkpoint"
+    "RPT-20261016-919434 first clean Beta All gate passes and subsequent keyboard-scope defect"
   ],
   "status": "active",
   "summary": "Implement common components and composable framework capability with runtime-document-editor-export parity, gallery workflows and revision-specific regression/package evidence.",
@@ -38,7 +38,7 @@
   "tier": "short",
   "title": "Beta component acceptance and implementation plan",
   "type_version": 1,
-  "updated_at": "2026-10-16T18:05:35Z",
+  "updated_at": "2026-10-16T18:27:01Z",
   "valid_as_of": "2026-10-17"
 }
 -->
@@ -59,4 +59,4 @@ Confirmed roadmap: Alpha rendering plus a few controls; Beta expands component c
 
 ## Current state
 
-Branch codex/beta-components remains at repaired Alpha e336d6e with dirty B01-B09 implementation. The complete B01-B10 contract in docs/beta-development.md remains unchanged. Intermediate evidence and repaired failures are recorded in RPT-20261016-F4A454; all prefreeze passes are tied to earlier snapshots. Model-normalization binding correction and independent review finish before final source freeze. Final B10 requires Debug/Release Logic/Gpu/Window, package reruns and screenshot inspection, so task and plan stay active. The resolved bootstrap failure is preserved at artifacts/beta-verification/bootstrap.log, and earlier editor24 evidence is artifacts/beta-verification/editor-debug-content.log. Use isolated SDK10.0.401 at C:/Users/HT/DEV/YoUI/artifacts/alpha-audit-20261014/dotnet. User mouse-idle agreement is recorded in artifacts/beta-verification/mouse-condition.txt. Network fetch failed and freshest remote state is unverified. Historical Alpha/September evidence stays revision-scoped; local packaging does not publish or tag.
+First clean product freeze0555ea504eaf7a95aa9e44350b367ef16c704fce passed DebugAll c8029b74b7114e9f9fede5f2705e6aa0 and ReleaseAll8539b609ca90422298f9205733dad1fa. A later audit found P2 RadioGroup Modal/Popup scope escape; original repro-modal-0555ea5.log is preserved. Repair is implemented,213 managed Debug checks pass, and independent repro-modal-repaired.log confirms modal/top-popup isolation. Create second clean freeze and rerun both complete All gates, stable Debug/Release package pair and fresh image inspection before B10 acceptance. RPT-20261016-919434 is current progress/failure/repair evidence; no narrowed scope or complete status. Prior packages are outdated; final pair has not run. SDK10.0.401 and mouse-idle agreement remain as recorded. Network freshness, historical Alpha failures, original uncommitted1.0 workspace and unverified platform/IME/animation/accessibility boundaries remain unchanged.

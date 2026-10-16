@@ -156,6 +156,10 @@ public sealed partial class UiDocument
         yield return root; foreach (var child in root.Children) foreach (var n in Traverse(child)) yield return n;
     }
     private bool Active(Element node) => node.Document == this && (Traverse(modal ?? Root).Contains(node) || popups.Any(p => p.IsOpen && PopupOwnerActive(p.Owner) && Traverse(p.Content).Contains(node)));
+    private Element KeyboardNavigationRoot => popups.Count > 0 ? popups[^1].Content : modal ?? Root;
+    /// <summary>Keyboard navigation stays within the top popup, then modal, then root.
+    /// This is narrower than attachment/focus eligibility while overlays are open.</summary>
+    internal bool IsInKeyboardNavigationScope(Element node) => node.Document == this && Traverse(KeyboardNavigationRoot).Contains(node);
     internal void Detached(Element root)
     {
         Exception? failure = null;
@@ -238,7 +242,7 @@ public sealed partial class UiDocument
         if (captured != null && !Active(captured)) CancelPointer();
         if (e.Kind == EventKind.KeyDown && e.Key == 9)
         {
-            var all = Traverse(popups.Count > 0 ? popups[^1].Content : modal ?? Root).Where(n => n.Focusable).ToArray();
+            var all = Traverse(KeyboardNavigationRoot).Where(n => n.Focusable).ToArray();
             if (all.Length > 0) { int index = Array.IndexOf(all, Focused); Focus(all[index < 0 ? (e.Shift ? all.Length - 1 : 0) : (index + (e.Shift ? all.Length - 1 : 1)) % all.Length]); }
             return;
         }

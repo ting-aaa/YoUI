@@ -43,13 +43,16 @@ public sealed class RadioGroup
     }
     internal void Move(RadioButton current, int direction)
     {
-        var available = members.Where(m => m.Document == current.Document && m.Visible && m.Enabled && AncestorsActive(m)).ToArray();
+        var document = current.Document;
+        if (document == null || !document.IsInKeyboardNavigationScope(current)) return;
+        var available = members.Where(document.IsInKeyboardNavigationScope).ToArray();
         if (available.Length == 0) return;
         int index = Array.IndexOf(available, current);
         var next = available[(Math.Max(0, index) + direction + available.Length) % available.Length];
-        Select(next); current.Document?.Focus(next);
+        Select(next);
+        // Selection callbacks can open another overlay or change modal scope.
+        if (Selected == next && document.IsInKeyboardNavigationScope(next)) document.Focus(next);
     }
-    private static bool AncestorsActive(Element element) { for (var p = element.Parent; p != null; p = p.Parent) if (!p.Visible || !p.Enabled) return false; return true; }
 }
 
 public sealed class RadioButton : Button

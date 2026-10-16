@@ -3,11 +3,11 @@
   "counts": {
     "archive": 0,
     "long": 7,
-    "short": 19,
+    "short": 20,
     "temp": 0
   },
-  "generated_at": "2026-10-16T18:07:28Z",
-  "generation": 48,
+  "generated_at": "2026-10-16T18:27:50Z",
+  "generation": 52,
   "project_name": "YoUI",
   "records": [
     {
@@ -454,8 +454,8 @@
       "id": "PLAN-20261016-DB1C18",
       "kind": "plan",
       "next_actions": [
-        "Finish binding model normalization and independent review; freeze implemented B01-B09 product source.",
-        "Rerun B10 Debug/Release Logic/Gpu/Window gates and package consumers on frozen source; inspect all regenerated images.",
+        "Create second clean freeze including implemented and independently confirmed RadioGroup Modal/Popup keyboard-scope repair.",
+        "Rerun B10 Debug/Release All gates and stable paired package consumers on the second freeze; inspect all regenerated images.",
         "Record exact source/snapshot, failures, unrun scope and release boundary; complete task only after all B01-B10 acceptance is supported."
       ],
       "path": "short/plans/plan-20261016-db1c18-beta-component-acceptance-and-implementation-plan.md",
@@ -468,13 +468,13 @@
         "tests"
       ],
       "sensitivity": "internal",
-      "sha256": "60b5fa10109719479f4d45dd29a4f13b175cd49a31d5265eea334562b561a05c",
+      "sha256": "e37f76e0d068a733f20861a3ed6108b2cec0d1aec4cc5312e5365b1b75111ea3",
       "sources": [
         "User roadmap clarification 2026-10-17: Alpha rendering and few controls, Beta expands controls and framework capability",
         "docs/alpha-acceptance.md milestone boundary",
         "docs/beta-development.md B01-B10 completion contract",
         "artifacts/beta-verification/bootstrap.log native dev build success, historical managed CS0103 ReorderChildren failure",
-        "RPT-20261016-F4A454 Beta implementation and intermediate verification checkpoint"
+        "RPT-20261016-919434 first clean Beta All gate passes and subsequent keyboard-scope defect"
       ],
       "status": "active",
       "summary": "Implement common components and composable framework capability with runtime-document-editor-export parity, gallery workflows and revision-specific regression/package evidence.",
@@ -486,7 +486,7 @@
       "tier": "short",
       "title": "Beta component acceptance and implementation plan",
       "type_version": 1,
-      "updated_at": "2026-10-16T18:05:35Z",
+      "updated_at": "2026-10-16T18:27:01Z",
       "valid_as_of": "2026-10-17"
     },
     {
@@ -754,9 +754,62 @@
     {
       "blockers": [],
       "confidence": "high",
+      "created_at": "2026-10-16T18:25:40Z",
+      "derived_from": [
+        "RPT-20261016-F4A454"
+      ],
+      "effective_status": "active",
+      "event_id": "beta-first-clean-freeze-and-scope-failure-20261017-v1",
+      "expired": false,
+      "id": "RPT-20261016-919434",
+      "kind": "report",
+      "next_actions": [
+        "Preserve original RadioGroup scope reproduction and independently confirmed repaired result.",
+        "Create second clean freeze and rerun Debug/Release All plus stable local package pair and inspect fresh images."
+      ],
+      "path": "short/reports/rpt-20261016-919434-clean-beta-all-gates-passed-with-new-keyboard-scope-failure.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "scripts",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "e39ab1c4401b713bad9d66ce5c5326e5cabe1e748cf9308584c15b7fd6e88618",
+      "sources": [
+        "artifacts/verification/c8029b74b7114e9f9fede5f2705e6aa0/result.json",
+        "artifacts/verification/8539b609ca90422298f9205733dad1fa/result.json",
+        "artifacts/beta-final/0555ea504eaf7a95aa9e44350b367ef16c704fce/Debug-All.log",
+        "artifacts/beta-final/0555ea504eaf7a95aa9e44350b367ef16c704fce/Release-All.log",
+        "artifacts/beta-review-20261017/repro-modal-0555ea5.log",
+        "artifacts/beta-review-20261017/repro-modal-repaired.log",
+        "artifacts/beta-verification/orchestration-final.log",
+        "artifacts/beta-verification/mouse-condition.txt",
+        "Root second-freeze checkpoint and beta_controls followup memory_delta on 2026-10-17"
+      ],
+      "status": "active",
+      "summary": "Clean0555ea5 Debug/Release All passed; later RadioGroup scope leak is repaired and independently reproduced, while second freeze All reruns and stable package pair remain pending.",
+      "supersedes": [
+        "RPT-20261016-F4A454"
+      ],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "short",
+      "title": "Clean Beta All gates passed with new keyboard scope failure pending",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:27:01Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
+      "confidence": "high",
       "created_at": "2026-10-16T18:06:43Z",
       "derived_from": [],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "beta-pre-freeze-checkpoint-20261017-v1",
       "expired": false,
       "id": "RPT-20261016-F4A454",
@@ -952,8 +1005,8 @@
       "id": "TASK-20261016-665876",
       "kind": "task",
       "next_actions": [
-        "Finish model-normalization binding correction and independent review, then freeze B01-B09 product source without narrowing B01-B10 scope.",
-        "Run final B10 Debug/Release Logic/Gpu/Window and isolated package consumers on frozen source; inspect regenerated screenshots and record exact source/snapshot boundaries."
+        "Freeze implemented and independently confirmed RadioGroup Modal/Popup keyboard-scope repair with 213 managed Debug checks.",
+        "Create a second clean product freeze, rerun complete Debug/Release All and stable paired package consumers, inspect images, and reconcile every B01-B10 exit criterion."
       ],
       "path": "short/tasks/task-20261016-665876-implement-beta-component-milestone.md",
       "review_after": "2026-10-31",
@@ -965,7 +1018,7 @@
         "tests"
       ],
       "sensitivity": "internal",
-      "sha256": "1e8178c4a56314e37cf523d4e996ceff45c3e23bcc350eafa5fc8815b9ca6d91",
+      "sha256": "74be1d065f9517abcc187a60d69f4d09e58b77d6536879a0d5b0fb7b7f0b788c",
       "sources": [
         "User goal 2026-10-17: 规划beta版本的开发计划和完整功能实现",
         "docs/alpha-acceptance.md: Beta more components, 1.0 complete UI capabilities",
@@ -973,11 +1026,11 @@
         "docs/beta-development.md B01-B10 agreement",
         "artifacts/beta-verification/bootstrap.log native dev build success, historical managed CS0103 ReorderChildren failure",
         "git branch --show-current on resume: codex/beta-components",
-        "RPT-20261016-F4A454 Beta intermediate verification checkpoint",
+        "RPT-20261016-919434 clean0555ea5 All passes and later keyboard-scope failure checkpoint",
         "artifacts/beta-verification/mouse-condition.txt explicit mouse-idle agreement"
       ],
       "status": "active",
-      "summary": "B01-B09 Beta component/framework implementation is present; final B10 frozen-source Debug/Release acceptance and review remain pending.",
+      "summary": "Clean0555ea5 All passes are preserved; RadioGroup scope defect is repaired/review-confirmed, pending second clean freeze and final Debug/Release All plus stable package acceptance.",
       "supersedes": [
         "TASK-20260912-CC3A20"
       ],
@@ -988,7 +1041,7 @@
       "tier": "short",
       "title": "Implement Beta component milestone",
       "type_version": 1,
-      "updated_at": "2026-10-16T18:05:35Z",
+      "updated_at": "2026-10-16T18:27:01Z",
       "valid_as_of": "2026-10-17"
     }
   ],

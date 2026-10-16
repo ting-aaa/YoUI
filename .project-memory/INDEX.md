@@ -5,17 +5,17 @@
 ## Project Snapshot
 
 - **Project:** YoUI
-- **Generation:** 48
-- **Generated:** 2026-10-16T18:07:28Z
+- **Generation:** 52
+- **Generated:** 2026-10-16T18:27:50Z
 - **Active task:** [TASK-20261016-665876](short/tasks/task-20261016-665876-implement-beta-component-milestone.md)
 - **Overview:** Independent native rendering engine with a C# retained UI framework; user allows C++ or Rust and requests efficient modern UI.
 
 ### Next Actions
 
-1. Finish model-normalization binding correction and independent review, then freeze B01-B09 product source without narrowing B01-B10 scope.
-2. Run final B10 Debug/Release Logic/Gpu/Window and isolated package consumers on frozen source; inspect regenerated screenshots and record exact source/snapshot boundaries.
-3. Finish binding model normalization and independent review; freeze implemented B01-B09 product source.
-4. Rerun B10 Debug/Release Logic/Gpu/Window gates and package consumers on frozen source; inspect all regenerated images.
+1. Freeze implemented and independently confirmed RadioGroup Modal/Popup keyboard-scope repair with 213 managed Debug checks.
+2. Create a second clean product freeze, rerun complete Debug/Release All and stable paired package consumers, inspect images, and reconcile every B01-B10 exit criterion.
+3. Create second clean freeze including implemented and independently confirmed RadioGroup Modal/Popup keyboard-scope repair.
+4. Rerun B10 Debug/Release All gates and stable paired package consumers on the second freeze; inspect all regenerated images.
 5. Record exact source/snapshot, failures, unrun scope and release boundary; complete task only after all B01-B10 acceptance is supported.
 
 ### Blockers
@@ -26,13 +26,13 @@ _None recorded._
 
 | ID | Kind | Status | Summary | Updated |
 |---|---|---|---|---|
-| [TASK-20261016-665876](short/tasks/task-20261016-665876-implement-beta-component-milestone.md) | task | active | B01-B09 Beta component/framework implementation is present; final B10 frozen-source Debug/Release acceptance and review remain pending. | 2026-10-16T18:05:35Z |
+| [TASK-20261016-665876](short/tasks/task-20261016-665876-implement-beta-component-milestone.md) | task | active | Clean0555ea5 All passes are preserved; RadioGroup scope defect is repaired/review-confirmed, pending second clean freeze and final Debug/Release All plus stable package acceptance. | 2026-10-16T18:27:01Z |
 
 ## Active Plans
 
 | ID | Kind | Status | Summary | Updated |
 |---|---|---|---|---|
-| [PLAN-20261016-DB1C18](short/plans/plan-20261016-db1c18-beta-component-acceptance-and-implementation-plan.md) | plan | active | Implement common components and composable framework capability with runtime-document-editor-export parity, gallery workflows and revision-specific regression/package evidence. | 2026-10-16T18:05:35Z |
+| [PLAN-20261016-DB1C18](short/plans/plan-20261016-db1c18-beta-component-acceptance-and-implementation-plan.md) | plan | active | Implement common components and composable framework capability with runtime-document-editor-export parity, gallery workflows and revision-specific regression/package evidence. | 2026-10-16T18:27:01Z |
 
 ## Current Analyses
 
@@ -66,7 +66,8 @@ _None._
 
 | ID | Kind | Status | Summary | Updated |
 |---|---|---|---|---|
-| [RPT-20261016-F4A454](short/reports/rpt-20261016-f4a454-beta-implementation-and-intermediate-verification-checkpoint.md) | report | active | B01-B09 implemented; intermediate Logic/Window/GPU/package evidence passes on earlier dirty snapshots, while final B10 freeze and integrated verification remain pending. | 2026-10-16T18:06:43Z |
+| [RPT-20261016-919434](short/reports/rpt-20261016-919434-clean-beta-all-gates-passed-with-new-keyboard-scope-failure.md) | report | active | Clean0555ea5 Debug/Release All passed; later RadioGroup scope leak is repaired and independently reproduced, while second freeze All reruns and stable package pair remain pending. | 2026-10-16T18:27:01Z |
+| [RPT-20261016-F4A454](short/reports/rpt-20261016-f4a454-beta-implementation-and-intermediate-verification-checkpoint.md) | report | superseded | B01-B09 implemented; intermediate Logic/Window/GPU/package evidence passes on earlier dirty snapshots, while final B10 freeze and integrated verification remain pending. | 2026-10-16T18:06:43Z |
 | [HANDOFF-20260912-1DDDD0](short/handoffs/handoff-20260912-1dddd0-backend-verification-complete-and-framework-continuation.md) | handoff | superseded | Required Windows backend verification complete; original framework roadmap active, ANGLE optional and not rendering-verified. | 2026-10-16T17:34:13Z |
 | [HANDOFF-20260912-9E2CED](short/handoffs/handoff-20260912-9e2ced-final-basic-editor-delivery-and-continuation.md) | handoff | superseded | Editor task and plan complete; resume original broad design from current docs with advanced Editor work explicitly remaining. | 2026-10-16T17:34:13Z |
 | [HANDOFF-20260912-AD2A1A](short/handoffs/handoff-20260912-ad2a1a-desktop-foundation-handoff-and-remaining-scope.md) | handoff | superseded | Milestone 0.1 is runnable and verified on Windows DX12; broad design remains active with P0 SDK risk validation next. | 2026-10-16T17:34:13Z |
@@ -77,12 +78,13 @@ _None._
 | [HANDOFF-20260912-7F60A0](short/handoffs/handoff-20260912-7f60a0-editor-milestone-complete-and-broad-design-continuation.md) | handoff | superseded | Basic self-hosted Editor and all requested export modes complete; broad rendering/UI roadmap remains incomplete. | 2026-09-12T07:09:29Z |
 | [RPT-20260912-50A1E8](short/reports/rpt-20260912-50a1e8-basic-self-hosted-editor-acceptance.md) | report | superseded | UI-first Editor with configuration, compilable C# and plugin export verified through full Release gate and real-window save/open/plugin workflows. | 2026-09-12T07:08:58Z |
 | [DEC-20260912-340228](long/decisions/dec-20260912-340228-windows-dx12-and-downward-logical-coordinates.md) | decision | superseded | Verified backend is Windows DX12; top-left Y-down coordinates explicitly differ from shared design. | 2026-09-12T06:16:12Z |
-| [RPT-20260912-2D669F](short/reports/rpt-20260912-2d669f-first-desktop-milestone-verification.md) | report | completed | Runnable desktop foundation passed native/GPU/managed/window validation; broad design remains incomplete. | 2026-09-12T06:15:48Z |
+
+_1 more record(s) are in `index.json`._
 
 ## Memory Map
 
 - Long-term records: 7
-- Short-term records: 19
+- Short-term records: 20
 - Temporary records: 0
 - Archived records: 0
 - Complete machine-readable inventory: [`index.json`](index.json)

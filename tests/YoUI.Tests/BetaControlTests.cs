@@ -53,6 +53,34 @@ static class BetaControlTests
             b.SelectionChanged -= redirect; radio.Group = c; Check(radio.Group == c && c.Selected == radio && b.Selected == null);
             var competitor = new RadioButton("Other", b) { Value = true }; Check(radio.Value && competitor.Value && c.Selected == radio);
         });
+        test("Beta radio keyboard navigation honors modal scope and inactive membership", () =>
+        {
+            var group = new RadioGroup(); var root = new Element(); var background = root.Add(new RadioButton("Background", group)); var modal = root.Add(new StackPanel());
+            var first = modal.Add(new RadioButton("First", group)); var disabled = modal.Add(new RadioButton("Disabled", group) { Enabled = false });
+            var hiddenParent = modal.Add(new Element { Visible = false }); hiddenParent.Add(new RadioButton("Hidden descendant", group));
+            var last = modal.Add(new RadioButton("Last", group)); var detached = new RadioButton("Detached", group); var foreign = new RadioButton("Foreign document", group); _ = Doc(foreign);
+            var doc = Doc(root); first.Value = true; doc.SetModal(modal);
+            Key(doc, 39); Check(last.Value && group.Selected == last && doc.Focused == last && !background.Value);
+            Key(doc, 39); Check(first.Value && doc.Focused == first); Key(doc, 37); Check(last.Value && doc.Focused == last);
+            doc.Focus(disabled); doc.Focus(detached); doc.Focus(foreign); Check(doc.Focused == last);
+            // Explicit application selection retains the global group contract.
+            background.Value = true; Check(group.Selected == background && !last.Value && doc.Focused == last);
+            Key(doc, 39); Check(first.Value && doc.Focused == first && !background.Value);
+        });
+        test("Beta radio arrows and Tab share the top nested popup navigation scope", () =>
+        {
+            var group = new RadioGroup(); var root = new Element(); var background = root.Add(new RadioButton("Background", group)); var modal = root.Add(new Element()); var owner = modal.Add(new Button("Owner")); var modalRadio = modal.Add(new RadioButton("Modal", group)); var doc = Doc(root); doc.SetModal(modal);
+            var firstContent = new StackPanel(); var firstA = firstContent.Add(new RadioButton("First A", group)); var firstB = firstContent.Add(new RadioButton("First B", group));
+            var firstPopup = doc.ShowPopup(owner, firstContent, new(180, 100));
+            var secondContent = new StackPanel(); var secondA = secondContent.Add(new RadioButton("Second A", group)); secondContent.Add(new RadioButton("Second disabled", group) { Enabled = false }); var secondB = secondContent.Add(new RadioButton("Second B", group));
+            var secondPopup = doc.ShowPopup(firstA, secondContent, new(180, 140)); secondA.Value = true;
+            Key(doc, 39); Check(secondB.Value && doc.Focused == secondB && !firstA.Value && !firstB.Value && !modalRadio.Value && !background.Value);
+            Key(doc, 39); Check(secondA.Value && doc.Focused == secondA);
+            doc.Focus(firstA); Key(doc, 39); Check(secondA.Value && doc.Focused == firstA && !firstB.Value);
+            Key(doc, 9); Check(doc.Focused == secondA); Key(doc, 9); Check(doc.Focused == secondB); Key(doc, 27);
+            Check(!secondPopup.IsOpen && doc.Focused == firstA); firstA.Value = true; Key(doc, 39); Check(firstB.Value && doc.Focused == firstB && !modalRadio.Value);
+            firstPopup.Dispose(); Check(doc.PopupCount == 0);
+        });
         test("Beta content slots validate ownership and detach focused descendants", () =>
         {
             var root = new Element(); var slot = root.Add(new ContentPresenter()); var old = new Element(); var input = old.Add(new TextBox()); slot.Content = old; var doc = Doc(root); doc.Focus(input);
