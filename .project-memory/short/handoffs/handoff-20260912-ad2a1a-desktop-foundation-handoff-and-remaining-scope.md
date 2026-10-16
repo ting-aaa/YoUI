@@ -23,7 +23,7 @@
     "docs/design-status.md",
     "docs/verification.md"
   ],
-  "status": "active",
+  "status": "superseded",
   "summary": "Milestone 0.1 is runnable and verified on Windows DX12; broad design remains active with P0 SDK risk validation next.",
   "supersedes": [],
   "tags": [],
@@ -31,7 +31,7 @@
   "tier": "short",
   "title": "Desktop foundation handoff and remaining scope",
   "type_version": 1,
-  "updated_at": "2026-09-12T06:16:28Z",
+  "updated_at": "2026-10-16T17:34:13Z",
   "valid_as_of": "2026-09-12"
 }
 -->
@@ -39,3 +39,7 @@
 # Desktop foundation handoff and remaining scope
 
 User requested native engine with C# UI based on shared design. First desktop milestone completed: independent renderer/scene, C ABI, C# controls/Win32 host and sample. Active broad task TASK-20260912-CC3A20 remains incomplete; initial plan PLAN-20260912-68611D is completed for foundation scope only. Architecture ARCH-20260912-A547ED and decision DEC-20260912-340228 document structure and deviations. Report RPT-20260912-2D669F records 9 Rust logic +1 real GPU +14 C# +7 Win32 checks; full Release gate passed before managed clipboard change and affected checks reran afterward. Last light snapshot label update rebuilt and headless passed. Main agent reports current Release app left open; do not rely on transient window IDs. Workspace has no Git commit. No secret data or registry changes; no temporary evidence needs promotion. GPU time/FPS, other platforms, actual CJK IME, accessibility platform bridge, model SDKs, full render graph and editor remain unverified/unimplemented. Current sources are docs/design-status.md and docs/verification.md; use scripts/verify.ps1 -Configuration Release for repeatable validation. Memory checkpoint generation is determined by final reindex receipt; registry remains generation 1.
+
+## Continuity review on 2026-10-17
+
+Preserved as historical evidence. Current work is TASK-20261016-665876 in the isolated Beta worktree on e336d6e; this record does not establish current Beta acceptance. The prior broad roadmap is not marked complete by this supersession.

@@ -1,5 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Version>0.2.0-beta.1</Version>
+    <IsPackable>true</IsPackable>
+    <PackageId>YoUI.Platform.Windows</PackageId>
+    <Description>Thin Windows desktop window/input host for YoUI. Native payload is supplied by the YoUI win-x64 runtime package.</Description>
+    <Authors>YoUI contributors</Authors>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/ting-aaa/YoUI</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
   <ItemGroup><ProjectReference Include="../YoUI/YoUI.csproj" /></ItemGroup>
   <ItemGroup><InternalsVisibleTo Include="YoUI.Platform.Windows.Tests" /></ItemGroup>
   <ItemGroup><Compile Include="../YoUI.Platform.Shared/PresentationLoop.cs" Link="PresentationLoop.cs" /></ItemGroup>
+  <ItemGroup><None Include="../../docs/beta-packaging.md" Pack="true" PackagePath="README.md" /></ItemGroup>
 </Project>

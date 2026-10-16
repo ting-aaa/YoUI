@@ -1,3 +1,25 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><Description>YoUI retained UI and host-driven Rust renderer bindings</Description><Version>0.1.0</Version></PropertyGroup>
+  <PropertyGroup>
+    <Description>YoUI retained UI, Beta components, layout and bindings with the host-driven Rust renderer. Native payload: win-x64 only.</Description>
+    <Version>0.2.0-beta.1</Version>
+    <IsPackable>true</IsPackable>
+    <PackageId>YoUI</PackageId>
+    <Authors>YoUI contributors</Authors>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/ting-aaa/YoUI</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <NativeProfile Condition="'$(NativeProfile)' == '' and '$(Configuration)' == 'Debug'">debug</NativeProfile>
+    <NativeProfile Condition="'$(NativeProfile)' == '' and '$(Configuration)' == 'Release'">release</NativeProfile>
+    <YoUIPackNativeLibraryPath Condition="'$(YoUIPackNativeLibraryPath)' == ''">$(MSBuildThisFileDirectory)../../target/$(NativeProfile)/youi_render.dll</YoUIPackNativeLibraryPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../../docs/beta-packaging.md" Pack="true" PackagePath="README.md" />
+    <None Include="$(YoUIPackNativeLibraryPath)" Pack="true" PackagePath="runtimes/win-x64/native/youi_render.dll" Visible="false" />
+  </ItemGroup>
+  <Target Name="ValidateYoUIBetaNativePackage" BeforeTargets="GenerateNuspec;_GetPackageFiles">
+    <Error Condition="!$([MSBuild]::IsOSPlatform('Windows'))" Text="YoUI Beta packaging requires a Windows x64 native build; this package carries win-x64 only." />
+    <Error Condition="'$(Configuration)' != 'Debug' and '$(Configuration)' != 'Release'" Text="YoUI Beta packaging requires Configuration=Debug or Release." />
+    <Error Condition="('$(Configuration)' == 'Debug' and '$(NativeProfile)' != 'debug') or ('$(Configuration)' == 'Release' and '$(NativeProfile)' != 'release')" Text="YoUI Beta NativeProfile must match Configuration: Debug=debug, Release=release." />
+    <Error Condition="!Exists('$(YoUIPackNativeLibraryPath)')" Text="Missing matching YoUI native library: $(YoUIPackNativeLibraryPath). Build native code for $(Configuration) before packing." />
+  </Target>
 </Project>

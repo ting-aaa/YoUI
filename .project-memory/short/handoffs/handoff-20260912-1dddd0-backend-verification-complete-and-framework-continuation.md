@@ -21,7 +21,7 @@
     "docs/render-backends.md",
     "docs/design-status.md"
   ],
-  "status": "active",
+  "status": "superseded",
   "summary": "Required Windows backend verification complete; original framework roadmap active, ANGLE optional and not rendering-verified.",
   "supersedes": [
     "HANDOFF-20260912-9E2CED"
@@ -31,7 +31,7 @@
   "tier": "short",
   "title": "Backend verification complete and framework continuation",
   "type_version": 1,
-  "updated_at": "2026-09-12T08:07:20Z",
+  "updated_at": "2026-10-16T17:34:13Z",
   "valid_as_of": "2026-09-12"
 }
 -->
@@ -39,3 +39,7 @@
 # Backend verification complete and framework continuation
 
 TASK-20260912-1DA605 and PLAN-20260912-43C1C2 completed; config active pointer restored to TASK-20260912-CC3A20,still incomplete. Current architecture ARCH-20260912-8E49FD and report RPT-20260912-8CEEDD supersede initial DX12-only verification scope. Matrix24 runs/28 comparisons passes on NVIDIA DX12/Vulkan and AMD nativeGL; Vulkan exact,GL within documented tolerance. Final Release10Rust+1GPU+14managed+12Editor+13EditorWindow+7Showcase. Real Vulkan/GL Editor viewing and interactions reported; readback comparisons are not desktop screenshot comparisons. Vulkan window may remain open; no transient identity retained. Optional ANGLE isolated experiments failed as documented and user explicitly made them nonrequired. CPU samples not comparable backend speed ranking. Existing basic Editor/export features remain verified. No platform-wide/GPUtime/FPS/longstress/device recovery claim. No secrets,Git commit,registry change or temporary backlog. See docs/render-backends.md for full reproduction and constraints.
+
+## Continuity review on 2026-10-17
+
+Preserved as historical evidence. Current work is TASK-20261016-665876 in the isolated Beta worktree on e336d6e; this record does not establish current Beta acceptance. The prior broad roadmap is not marked complete by this supersession.

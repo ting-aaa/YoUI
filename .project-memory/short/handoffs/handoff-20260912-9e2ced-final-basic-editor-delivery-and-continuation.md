@@ -21,7 +21,7 @@
     "docs/design-status.md",
     "docs/verification.md"
   ],
-  "status": "active",
+  "status": "superseded",
   "summary": "Editor task and plan complete; resume original broad design from current docs with advanced Editor work explicitly remaining.",
   "supersedes": [
     "HANDOFF-20260912-7F60A0"
@@ -31,7 +31,7 @@
   "tier": "short",
   "title": "Final basic Editor delivery and continuation",
   "type_version": 1,
-  "updated_at": "2026-09-12T07:11:57Z",
+  "updated_at": "2026-10-16T17:34:13Z",
   "valid_as_of": "2026-09-12"
 }
 -->
@@ -39,3 +39,7 @@
 # Final basic Editor delivery and continuation
 
 Completed basic TASK-20260912-03FD4D and PLAN-20260912-EF6FD6; active pointer restored to original incomplete TASK-20260912-CC3A20. ARCH-20260912-064C54 documents reusable UI first, same-library Editor and runtime/export layering. Final capture-release fix verified by full Release gate:9Rust+1GPU+14C#+12Editor+13EditorWin32+7Showcase; visible Open/Cancel retained selection. Existing GUI JSON save/open,Chinese paste,plugin inventory and standalone compiled C# export evidence remain valid. Final Editor left open without recording ephemeral identity. Historical initial handoffs/reports do not describe current Editor support or latest benchmarks. docs/editor.md gives API/use/plugin constraints; docs/design-status.md lists broad remaining SDK,platform,layout,recovery and advanced-editor gaps. No secrets,no Git commit,no registry mutation,no temporary evidence backlog. Final index generation and validation are in receipt; registry generation remains1.
+
+## Continuity review on 2026-10-17
+
+Preserved as historical evidence. Current work is TASK-20261016-665876 in the isolated Beta worktree on e336d6e; this record does not establish current Beta acceptance. The prior broad roadmap is not marked complete by this supersession.

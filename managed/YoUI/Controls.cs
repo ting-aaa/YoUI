@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.ExceptionServices;
 
 namespace YoUI;
 
@@ -9,7 +10,7 @@ public sealed class Label : Element
     private float fontSize = 14;
     private Color? color;
     private bool bold;
-    public Label(string value = "") { text = value; Role = "text"; }
+    public Label(string value = "") { text = value ?? ""; Role = "text"; }
     public string Text { get => text; set { if (Set(ref text, value ?? "", DirtyFlags.Layout | DirtyFlags.Semantics)) AccessibleName = text; } }
     public float FontSize { get => fontSize; set => Set(ref fontSize, NonNegative(value), DirtyFlags.Layout); }
     public Color? Color { get => color; set => Set(ref color, value, DirtyFlags.Paint); }
@@ -30,26 +31,63 @@ public class Button : Element
     private Color? textColor;
     public Color? TextColor { get => textColor; set => Set(ref textColor, value, DirtyFlags.Paint); }
     public Label Caption { get; }
+    private Element? content;
+    private bool replacingContent;
+    /// <summary>Replaceable visual content. The caption remains available through Text.</summary>
+    public Element? Content
+    {
+        get => content;
+        set
+        {
+            if (ReferenceEquals(content, value)) return;
+            if (replacingContent) throw new InvalidOperationException("Content changes cannot be nested inside content lifecycle callbacks.");
+            if (value != null && (value.Parent != null || value.Document != null || ReferenceEquals(value, this))) throw new InvalidOperationException("Detach button content before assigning it.");
+            var previous = content;
+            replacingContent = true; content = null;
+            try
+            {
+                if (previous != null) Remove(previous);
+                if (value != null)
+                {
+                    try { Add(value); }
+                    finally { if (value.Parent == this) content = value; }
+                }
+            }
+            finally { replacingContent = false; }
+        }
+    }
     public event Action? Clicked;
     public Button(string text, bool focusable = true)
     {
+        text ??= "";
         Height = 42; Radius = 9; HitTestVisible = true; Focusable = focusable; Role = "button"; AccessibleName = text;
-        Caption = Add(new Label(text) { FontSize = 14 });
+        Caption = Add(new Label(text) { FontSize = 14 }); content = Caption;
     }
     public string Text { get => Caption.Text; set { Caption.Text = value; AccessibleName = value; } }
     public bool Selected { get => selected; set => Set(ref selected, value, DirtyFlags.Paint | DirtyFlags.Semantics); }
     public bool Primary { get => primary; set => Set(ref primary, value, DirtyFlags.Paint); }
-    public override Vector2 Measure(Vector2 available) { var s = Caption.Measure(available); DesiredSize = new(float.IsNaN(Width) ? s.X + 32 : Width, float.IsNaN(Height) ? s.Y + 20 : Height); return DesiredSize; }
+    public override Vector2 Measure(Vector2 available) { content?.MeasureForLayout(Vector2.Max(Vector2.Zero, available - new Vector2(28, 0))); var s = content?.DesiredSizeWithMargin ?? Vector2.Zero; DesiredSize = new(float.IsNaN(Width) ? s.X + 32 : Width, float.IsNaN(Height) ? s.Y + 20 : Height); return DesiredSize; }
     protected override void ArrangeChildren(Rect content)
     {
-        var s = Caption.Measure(new(Math.Max(1, content.Width - 28), content.Height));
-        Caption.Arrange(new(content.X + 14, content.Y + Math.Max(0, (content.Height - s.Y) / 2), Math.Max(0, content.Width - 28), s.Y));
+        if (this.content is not { } child) return;
+        var slot = new Rect(content.X + Math.Min(14, content.Width / 2), content.Y, Math.Max(0, content.Width - 28), content.Height);
+        var s = child.MeasureForLayout(new(slot.Width, slot.Height));
+        child.Arrange(child.Layout?.Resolve(slot, s) ?? new(slot.X, slot.Y + Math.Max(0, (slot.Height - s.Y) / 2), slot.Width, Math.Min(slot.Height, s.Y)));
     }
     protected override void Paint(DrawList list, Rect bounds, float opacity, Theme theme)
     {
         Color fill = Background.A > 0 ? Background : Primary ? theme.Accent : Selected ? theme.Accent.Opacity(0.16f) : theme.SurfaceRaised;
         if (pressed) fill = theme.Accent.Opacity(0.5f); else if (IsHovered) fill = Primary ? theme.Accent.Opacity(0.85f) : theme.Border;
-        if (IsFocused) list.Rectangle(new(bounds.X - 2, bounds.Y - 2, bounds.Width + 4, bounds.Height + 4), theme.Accent.Opacity(opacity), Radius + 2);
+        if (IsFocused)
+        {
+            // Paint only outside the button. An opaque backing rectangle would bleed
+            // through a translucent selected fill and erase the accent-colored caption.
+            var ring = theme.Accent.Opacity(opacity);
+            list.Rectangle(new(bounds.X - 2, bounds.Y - 2, bounds.Width + 4, 2), ring, 1);
+            list.Rectangle(new(bounds.X - 2, bounds.Bottom, bounds.Width + 4, 2), ring, 1);
+            list.Rectangle(new(bounds.X - 2, bounds.Y, 2, bounds.Height), ring, 1);
+            list.Rectangle(new(bounds.Right, bounds.Y, 2, bounds.Height), ring, 1);
+        }
         list.Rectangle(bounds, fill.Opacity(opacity), Radius);
         Caption.Color = TextColor ?? (Primary ? theme.OnAccent : Selected ? theme.Accent : theme.Text);
     }
@@ -154,7 +192,7 @@ public sealed class TextBox : Element
         affinity = length < 0 ? TextAffinity.Downstream : TextAffinity.Upstream;
         composition = ""; dragging = false; Invalidate();
     }
-    private int[] Stops(string value) => Layout(value, VisualBounds)?.CaretStops.ToArray() ?? TextBoundary.Stops(value);
+    private int[] Stops(string value) => ShapeText(value, VisualBounds)?.CaretStops.ToArray() ?? TextBoundary.Stops(value);
     private int Previous() => Stops(text).LastOrDefault(i => i < cursor);
     private int Next() => Stops(text).FirstOrDefault(i => i > cursor, text.Length);
     private void NormalizeSelection()
@@ -192,7 +230,7 @@ public sealed class TextBox : Element
     }
     private static float ContentWidth(Rect b) => Math.Max(1, b.Width - 28);
     private static float TextY(Rect b) => b.Y + Math.Max(2, (b.Height - 20) / 2);
-    private TextLayout? Layout(string value, Rect bounds)
+    private TextLayout? ShapeText(string value, Rect bounds)
     {
         if (Document?.TextMeasurer is not ITextLayoutProvider provider) return null;
         // Providers may change scale/font configuration between paints (for example DPI changes).
@@ -211,7 +249,7 @@ public sealed class TextBox : Element
     private void MovePointer(System.Numerics.Vector2 point, bool extend)
     {
         if (!float.IsFinite(point.X) || !float.IsFinite(point.Y)) return;
-        var bounds = VisualBounds; var layout = Layout(text, bounds);
+        var bounds = VisualBounds; var layout = ShapeText(text, bounds);
         if (layout == null) return; // ITextMeasurer alone does not promise pointer/caret geometry.
         EnsureCaretVisible(layout, cursor, bounds);
         var position = layout.HitTest(new(point.X - bounds.X - 14 + scroll, point.Y - TextY(bounds)));
@@ -294,7 +332,7 @@ public sealed class TextBox : Element
         list.Rectangle(b.Inset(1), theme.Surface.Opacity(opacity), 8);
         string value = composition.Length == 0 ? text : text.Remove(SelectionStart, SelectionLength).Insert(SelectionStart, composition);
         int displayCursor = composition.Length == 0 ? cursor : SelectionStart + composition.Length;
-        var layout = Layout(value, b);
+        var layout = ShapeText(value, b);
         if (layout != null) EnsureCaretVisible(layout, displayCursor, b);
         float textY = TextY(b), textX = b.X + 14 - scroll;
         list.PushClip(new(b.X + 12, b.Y + 2, Math.Max(0, b.Width - 24), Math.Max(0, b.Height - 4)));
@@ -330,13 +368,39 @@ public sealed class VirtualList : Element
     private float rowHeight = 54;
     public float RowHeight { get => rowHeight; init => rowHeight = float.IsFinite(value) && value >= 1 ? value : throw new ArgumentOutOfRangeException(nameof(RowHeight)); }
     public Func<int, string> ItemText { get; set; } = i => $"Item {i}";
-    public int ItemCount { get => count; set { if (value < 0) throw new ArgumentOutOfRangeException(nameof(value)); count = value; selected = Math.Min(selected, count - 1); ScrollOffset = offset; Invalidate(DirtyFlags.Layout); } }
+    public int ItemCount
+    {
+        get => count;
+        set
+        {
+            if (value < 0) throw new ArgumentOutOfRangeException(nameof(value));
+            count = value;
+            int previous = selected; selected = Math.Min(selected, count - 1);
+            offset = Math.Clamp(offset, 0, Math.Max(0, count * RowHeight - ViewportHeight));
+            InvalidateAndNotifySelection(previous != selected);
+        }
+    }
     public int RealizedCount => pool.Count;
     public int FirstVisibleIndex => (int)(offset / RowHeight);
     private float ViewportHeight => Bounds.Inset(Padding).Height;
     public float ScrollOffset { get => offset; set { if (!float.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value)); Set(ref offset, Math.Clamp(value, 0, Math.Max(0, count * RowHeight - ViewportHeight)), DirtyFlags.Layout); } }
-    public int SelectedIndex { get => selected; set { int next = Math.Clamp(value, -1, count - 1); if (Set(ref selected, next, DirtyFlags.Layout | DirtyFlags.Semantics)) SelectionChanged?.Invoke(next); } }
+    public int SelectedIndex
+    {
+        get => selected;
+        set { int next = Math.Clamp(value, -1, count - 1); if (next == selected) return; selected = next; InvalidateAndNotifySelection(true); }
+    }
     public event Action<int>? SelectionChanged;
+    private void InvalidateAndNotifySelection(bool changed)
+    {
+        Exception? failure = null;
+        try { Invalidate(DirtyFlags.Layout | DirtyFlags.Semantics); } catch (Exception error) { failure = error; }
+        if (changed && SelectionChanged is { } observers)
+            foreach (Action<int> observer in observers.GetInvocationList())
+                // A preceding observer can correct the selection. Later observers
+                // receive that effective value, even when another observer failed.
+                try { observer(selected); } catch (Exception error) { failure ??= error; }
+        if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
+    }
     public void Refresh() => Invalidate(DirtyFlags.Layout);
     protected override void ArrangeChildren(Rect content)
     {

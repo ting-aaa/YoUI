@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <UseAppHost>false</UseAppHost>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NuGetAudit>false</NuGetAudit>
+    <YoUIPackageVersion Condition="'$(YoUIPackageVersion)' == ''">0.2.0-beta.1</YoUIPackageVersion>
+    <DefineConstants Condition="'$(RuntimeOnly)' != 'true'">$(DefineConstants);FULL_PACKAGES</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="YoUI" Version="[$(YoUIPackageVersion)]" />
+    <PackageReference Include="YoUI.Platform.Windows" Version="[$(YoUIPackageVersion)]" Condition="'$(RuntimeOnly)' != 'true'" />
+    <PackageReference Include="YoUI.Editor.Core" Version="[$(YoUIPackageVersion)]" Condition="'$(RuntimeOnly)' != 'true'" />
+  </ItemGroup>
+</Project>

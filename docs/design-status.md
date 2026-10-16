@@ -11,8 +11,8 @@
 | 图像、文字、网格 | 部分符合 | RGBA 上传、图集、塑形、平色/纹理三角形与九宫格（[A06 合约](a06-textured-mesh.md)）；未实现路径/完整 SVG、透视纹理或逐顶点颜色；A06 不继承历史硬件验收结论 |
 | 裁剪与合成 | 部分符合 | 嵌套矩形裁剪、隔离层/整体透明度；无 stencil、软遮罩、滤镜和背景模糊 |
 | Render Graph / 扩展片段 | 部分符合 | 有序层依赖树；无通用资源依赖与 custom pass 注册 |
-| RectTransform 与布局控制权 | 部分符合 | 锚点、轴心、拉伸、StackPanel 冲突检查；坐标改为 Y 向下，无完整布局组件库 |
-| 现代控件与主题 | 部分符合 | Label/Button/Toggle/Slider/TextBox/VirtualList/Modal，以及可复用 TreeView/ScrollView/PropertyGrid；无 Tab 容器和声明式绑定系统 |
+| RectTransform 与布局控制权 | 部分符合 | 锚点、轴心、拉伸及布局控制冲突；Beta 增加 BoxLayout 的 Auto/Fixed/Percent/MinMax/Margin、跨格 Grid、Wrap；无通用布局依赖图 |
+| 现代控件与主题 | 部分符合 | Alpha 基础控件保留；Beta 增加 CheckBox/Radio/Combo/Numeric/Progress/Tabs/Separator/只读 DataGrid、内容/Items 组合、显式绑定/命令/校验；无完整状态模板或高级可编辑表格 |
 | 输入、焦点、命中 | 符合当前桌面子集 | 逻辑测试与原生窗口消息检查；尚无触摸/笔/多指针 |
 | 文字编辑 / IME | 部分符合 | Unicode grapheme、shaped 几何、点击/拖选、键盘选择、剪贴板、撤销、预编辑/提交桥接；多行编辑和真实输入法候选行为仍需后续 |
 | 虚拟列表 | 部分符合 | 十万数据只实例化视口行；定高、同步数据，无动态高度/异步取消 |
@@ -21,7 +21,7 @@
 | 渲染能力查询 | 有限实现 | [已创建 renderer 的只读快照](render-capabilities.md)：实际后端、设备类型与有效尺寸 / 实例缓冲上限；无创建前支持探测或完整 feature-bit 清单，不保证资源准入或平台支持 |
 | Spine / Live2D | 未实现 | 没有包含 SDK 或可运行模型适配，不以空接口作为支持证据 |
 | 跨平台宿主与发布 | 部分验证 / 未实现 | Windows x64 历史 DX12/Vulkan/OpenGL 验收；Linux 支持构建/逻辑与显式离屏验收流程，SDL2/X11 实验宿主已有特定历史提交的 Release 虚拟 X11 原始 23 项检查通过，当前基线与新增 WM 最小化/恢复检查未运行（见下文）；不代表 Linux 硬件或物理输入验收；macOS、移动、Web 未验收，ANGLE 仅可选实验 |
-| 编辑器与 UI 文件 | 部分符合 | 同库自举 Editor，层级/画布/属性/历史/保存打开/运行时预览，版本 1 JSON 和可编译 C# 导出；没有多选、模板、时间轴和资产面板 |
+| 编辑器与 UI 文件 | 部分符合 | 同库自举 Editor、版本 1 兼容和 Beta v2 组件/布局/按钮内容、可搜索滚动组件面板、属性/历史/保存打开/真实预览及可编译 C# 导出；没有多选、Prefab、时间轴和完整资产导入 |
 | 编辑器导出插件 | 符合当前基础范围 | 独立 IUiExporter 契约、GUI/CLI 加载本地 DLL、真实示例插件导出；不提供插件控件、沙箱、热卸载或私有依赖解析 |
 | 性能稳定性 | 部分符合 | 可配置 warm CPU 逐帧指标、计数器与保留资源快照，复用和像素检查；有注入失败/重建测试；无 GPU 时间戳、长时 soak 或真实设备丢失验收 |
 

@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "name": "Beta components",
+  "darkTheme": true,
+  "root": {
+    "id": "00000000000000000000000000000001",
+    "kind": "Canvas",
+    "name": "Beta screen",
+    "width": 800,
+    "height": 600,
+    "fill": "#111827",
+    "clip": true,
+    "children": [
+      { "id": "00000000000000000000000000000002", "kind": "Text", "name": "Heading", "text": "Beta components", "x": 24, "y": 24, "width": 720, "height": 50, "fontSize": 28 },
+      { "id": "00000000000000000000000000000003", "kind": "CheckBox", "name": "Notifications", "text": "Enable notifications", "x": 24, "y": 100, "width": 260, "height": 42, "checked": true },
+      { "id": "00000000000000000000000000000004", "kind": "ComboBox", "name": "Workspace", "x": 320, "y": 100, "width": 280, "height": 42, "beta": { "items": ["Design", "Development", "Review"], "selectedIndex": 1 } },
+      { "id": "00000000000000000000000000000005", "kind": "NumericUpDown", "name": "Capacity", "x": 24, "y": 170, "width": 260, "height": 42, "beta": { "number": 35, "minimum": 0, "maximum": 100, "step": 5 } },
+      { "id": "00000000000000000000000000000006", "kind": "ProgressBar", "name": "Progress", "x": 320, "y": 185, "width": 280, "height": 14, "value": 0.35 },
+      { "id": "00000000000000000000000000000007", "kind": "DataGrid", "name": "Projects", "x": 24, "y": 260, "width": 720, "height": 280, "beta": { "tableColumns": ["Project", "Status"], "tableRows": [["Aurora", "Ready"], ["Boreal", "Running"], ["Cinder", "Ready"]] } }
+    ]
+  }
+}

@@ -1,13 +1,13 @@
 {
-  "active_task_id": "TASK-20260912-CC3A20",
+  "active_task_id": "TASK-20261016-665876",
   "counts": {
     "archive": 0,
-    "long": 6,
-    "short": 16,
+    "long": 7,
+    "short": 19,
     "temp": 0
   },
-  "generated_at": "2026-09-21T15:04:47Z",
-  "generation": 37,
+  "generated_at": "2026-10-16T18:07:28Z",
+  "generation": 48,
   "project_name": "YoUI",
   "records": [
     {
@@ -15,7 +15,7 @@
       "confidence": "high",
       "created_at": "2026-09-12T07:08:57Z",
       "derived_from": [],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "youi-editor-architecture-v1",
       "expired": false,
       "id": "ARCH-20260912-064C54",
@@ -49,7 +49,7 @@
       "confidence": "high",
       "created_at": "2026-09-12T08:06:49Z",
       "derived_from": [],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "youi-backend-architecture-v1",
       "expired": false,
       "id": "ARCH-20260912-8E49FD",
@@ -81,7 +81,7 @@
       "confidence": "high",
       "created_at": "2026-09-12T06:16:11Z",
       "derived_from": [],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "youi-architecture-desktop-v1",
       "expired": false,
       "id": "ARCH-20260912-A547ED",
@@ -111,9 +111,51 @@
     {
       "blockers": [],
       "confidence": "high",
-      "created_at": "2026-09-12T06:16:12Z",
+      "created_at": "2026-10-16T17:35:10Z",
       "derived_from": [],
       "effective_status": "active",
+      "event_id": "beta-current-architecture-20261017-v1",
+      "expired": false,
+      "id": "ARCH-20261016-18BA51",
+      "kind": "architecture",
+      "next_actions": [],
+      "path": "long/architecture/arch-20261016-18ba51-current-alpha-baseline-and-beta-architecture-boundaries.md",
+      "review_after": "",
+      "schema_version": 1,
+      "scope": [],
+      "sensitivity": "internal",
+      "sha256": "e170d196b8f6b3621926b455eccc17b1a60b05e195e460e5ef24c3bb85dd0e7f",
+      "sources": [
+        "AGENTS.md",
+        "docs/architecture.md at e336d6e",
+        "docs/alpha-acceptance.md at e336d6e",
+        "managed/YoUI/Assets/UiAsset.cs at e336d6e",
+        "git rev-parse HEAD: e336d6e6ec8881764d5b3a8053e152f791ddb581"
+      ],
+      "status": "active",
+      "summary": "Independent renderer, retained C# runtime and same-library Editor; host-owned loops/platform code; ordered batching, matched builds and revision-specific evidence remain mandatory.",
+      "supersedes": [
+        "ARCH-20260912-A547ED",
+        "ARCH-20260912-064C54",
+        "ARCH-20260912-8E49FD",
+        "DEC-20260912-340228"
+      ],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "long",
+      "title": "Current Alpha baseline and Beta architecture boundaries",
+      "type_version": 1,
+      "updated_at": "2026-10-16T17:35:10Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
+      "confidence": "high",
+      "created_at": "2026-09-12T06:16:12Z",
+      "derived_from": [],
+      "effective_status": "superseded",
       "event_id": "youi-decisions-desktop-v1",
       "expired": false,
       "id": "DEC-20260912-340228",
@@ -147,7 +189,7 @@
       "derived_from": [
         "RPT-20260912-8CEEDD"
       ],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "youi-backend-handoff-v1",
       "expired": false,
       "id": "HANDOFF-20260912-1DDDD0",
@@ -161,12 +203,12 @@
       "schema_version": 1,
       "scope": [],
       "sensitivity": "internal",
-      "sha256": "c791501b06e7da6d4c4816ba7f38fb9fb600ad68d021a1eb443aaa9c49b4421e",
+      "sha256": "3fda5b5e3a6c88a482692bd7bad9c978dfeb4b4943f4e867a2e1114365df0413",
       "sources": [
         "docs/render-backends.md",
         "docs/design-status.md"
       ],
-      "status": "active",
+      "status": "superseded",
       "summary": "Required Windows backend verification complete; original framework roadmap active, ANGLE optional and not rendering-verified.",
       "supersedes": [
         "HANDOFF-20260912-9E2CED"
@@ -176,7 +218,7 @@
       "tier": "short",
       "title": "Backend verification complete and framework continuation",
       "type_version": 1,
-      "updated_at": "2026-09-12T08:07:20Z",
+      "updated_at": "2026-10-16T17:34:13Z",
       "valid_as_of": "2026-09-12"
     },
     {
@@ -240,13 +282,13 @@
       "schema_version": 1,
       "scope": [],
       "sensitivity": "internal",
-      "sha256": "9e4024daf2f9ec0ef3ef37c8d6b742d63be5e8432bd2feadc761fc642ec7d13b",
+      "sha256": "b2f0ed0144c96447a7b08524dd734e6876aeace08b6d606acc04ae044a8bbe8d",
       "sources": [
         "docs/editor.md",
         "docs/design-status.md",
         "docs/verification.md"
       ],
-      "status": "active",
+      "status": "superseded",
       "summary": "Editor task and plan complete; resume original broad design from current docs with advanced Editor work explicitly remaining.",
       "supersedes": [
         "HANDOFF-20260912-7F60A0"
@@ -256,7 +298,7 @@
       "tier": "short",
       "title": "Final basic Editor delivery and continuation",
       "type_version": 1,
-      "updated_at": "2026-09-12T07:11:57Z",
+      "updated_at": "2026-10-16T17:34:13Z",
       "valid_as_of": "2026-09-12"
     },
     {
@@ -281,13 +323,13 @@
       "schema_version": 1,
       "scope": [],
       "sensitivity": "internal",
-      "sha256": "f606e9b047ab107ca40c7b88693f5b6be41b885e40f022f3981697af793feaeb",
+      "sha256": "4f7ad7a203a09714c7b66ae343b44ff5f56daa7998d4e00cdcb8813bb0794cce",
       "sources": [
         "README.md",
         "docs/design-status.md",
         "docs/verification.md"
       ],
-      "status": "active",
+      "status": "superseded",
       "summary": "Milestone 0.1 is runnable and verified on Windows DX12; broad design remains active with P0 SDK risk validation next.",
       "supersedes": [],
       "tags": [],
@@ -295,7 +337,7 @@
       "tier": "short",
       "title": "Desktop foundation handoff and remaining scope",
       "type_version": 1,
-      "updated_at": "2026-09-12T06:16:28Z",
+      "updated_at": "2026-10-16T17:34:13Z",
       "valid_as_of": "2026-09-12"
     },
     {
@@ -400,6 +442,52 @@
       "type_version": 1,
       "updated_at": "2026-09-12T07:11:27Z",
       "valid_as_of": "2026-09-12"
+    },
+    {
+      "blockers": [],
+      "confidence": "high",
+      "created_at": "2026-10-16T17:34:13Z",
+      "derived_from": [],
+      "effective_status": "active",
+      "event_id": "beta-components-plan-20261017-v1",
+      "expired": false,
+      "id": "PLAN-20261016-DB1C18",
+      "kind": "plan",
+      "next_actions": [
+        "Finish binding model normalization and independent review; freeze implemented B01-B09 product source.",
+        "Rerun B10 Debug/Release Logic/Gpu/Window gates and package consumers on frozen source; inspect all regenerated images.",
+        "Record exact source/snapshot, failures, unrun scope and release boundary; complete task only after all B01-B10 acceptance is supported."
+      ],
+      "path": "short/plans/plan-20261016-db1c18-beta-component-acceptance-and-implementation-plan.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "samples",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "60b5fa10109719479f4d45dd29a4f13b175cd49a31d5265eea334562b561a05c",
+      "sources": [
+        "User roadmap clarification 2026-10-17: Alpha rendering and few controls, Beta expands controls and framework capability",
+        "docs/alpha-acceptance.md milestone boundary",
+        "docs/beta-development.md B01-B10 completion contract",
+        "artifacts/beta-verification/bootstrap.log native dev build success, historical managed CS0103 ReorderChildren failure",
+        "RPT-20261016-F4A454 Beta implementation and intermediate verification checkpoint"
+      ],
+      "status": "active",
+      "summary": "Implement common components and composable framework capability with runtime-document-editor-export parity, gallery workflows and revision-specific regression/package evidence.",
+      "supersedes": [],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "short",
+      "title": "Beta component acceptance and implementation plan",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:05:35Z",
+      "valid_as_of": "2026-10-17"
     },
     {
       "blockers": [],
@@ -665,6 +753,58 @@
     },
     {
       "blockers": [],
+      "confidence": "high",
+      "created_at": "2026-10-16T18:06:43Z",
+      "derived_from": [],
+      "effective_status": "active",
+      "event_id": "beta-pre-freeze-checkpoint-20261017-v1",
+      "expired": false,
+      "id": "RPT-20261016-F4A454",
+      "kind": "report",
+      "next_actions": [
+        "Finish binding normalization and independent review, then freeze product source.",
+        "Rerun complete Debug/Release Logic/Gpu/Window plus package consumers and inspect regenerated screenshots against frozen source."
+      ],
+      "path": "short/reports/rpt-20261016-f4a454-beta-implementation-and-intermediate-verification-checkpoint.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "samples",
+        "scripts",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "e41d441fde768f3e0f4caa7db2de85b4a8a3cbf318c88b8d18bdd790ca53f686",
+      "sources": [
+        "docs/beta-development.md B01-B10 contract",
+        "artifacts/beta-verification/bootstrap.log",
+        "artifacts/beta-verification/editor-debug-content.log",
+        "artifacts/verification/dfa133f9ad3b4605883ef11ddcdd5151/result.json",
+        "artifacts/verification/20e4f8cafa144d3abc5c293906ed1626/result.json",
+        "artifacts/beta-verification/beta-expanded.log",
+        "artifacts/beta-headless.json",
+        "artifacts/beta-verification/mouse-condition.txt",
+        "artifacts/beta-packages/0.2.0-beta.1-Debug-191bf84f6df9413686f3ec2352d87122/manifest.json",
+        "artifacts/beta-packages/0.2.0-beta.1-Release-cd220fe2a6a3410cae753d24accf0b35/manifest.json",
+        "Root prefreeze checkpoint and beta_controls/beta_packaging memory_delta on 2026-10-17"
+      ],
+      "status": "active",
+      "summary": "B01-B09 implemented; intermediate Logic/Window/GPU/package evidence passes on earlier dirty snapshots, while final B10 freeze and integrated verification remain pending.",
+      "supersedes": [],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "short",
+      "title": "Beta implementation and intermediate verification checkpoint",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:06:43Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
       "confidence": "confirmed",
       "created_at": "2026-09-12T05:45:27Z",
       "derived_from": [],
@@ -772,7 +912,7 @@
       "confidence": "confirmed",
       "created_at": "2026-09-12T05:45:27Z",
       "derived_from": [],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "youi-task-implementation-20260912",
       "expired": false,
       "id": "TASK-20260912-CC3A20",
@@ -786,11 +926,11 @@
       "schema_version": 1,
       "scope": [],
       "sensitivity": "internal",
-      "sha256": "c87f8f944142ffcaa1555c23ecd55ae2c72d630725da4ae0d6285fb61d86ce47",
+      "sha256": "cfeacc819b3d2e4d21debca456424852667a7e0c871dc9d19df9bbaef919316d",
       "sources": [
         "User request 2026-09-12"
       ],
-      "status": "active",
+      "status": "superseded",
       "summary": "First Windows desktop foundation delivered and verified; broad shared-design implementation remains active and incomplete.",
       "supersedes": [],
       "tags": [],
@@ -798,8 +938,58 @@
       "tier": "short",
       "title": "Build native rendering engine and C# UI",
       "type_version": 1,
-      "updated_at": "2026-09-12T09:00:00Z",
+      "updated_at": "2026-10-16T17:34:13Z",
       "valid_as_of": "2026-09-12"
+    },
+    {
+      "blockers": [],
+      "confidence": "confirmed",
+      "created_at": "2026-10-16T17:33:36Z",
+      "derived_from": [],
+      "effective_status": "active",
+      "event_id": "beta-components-task-20261017-v1",
+      "expired": false,
+      "id": "TASK-20261016-665876",
+      "kind": "task",
+      "next_actions": [
+        "Finish model-normalization binding correction and independent review, then freeze B01-B09 product source without narrowing B01-B10 scope.",
+        "Run final B10 Debug/Release Logic/Gpu/Window and isolated package consumers on frozen source; inspect regenerated screenshots and record exact source/snapshot boundaries."
+      ],
+      "path": "short/tasks/task-20261016-665876-implement-beta-component-milestone.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "samples",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "1e8178c4a56314e37cf523d4e996ceff45c3e23bcc350eafa5fc8815b9ca6d91",
+      "sources": [
+        "User goal 2026-10-17: 规划beta版本的开发计划和完整功能实现",
+        "docs/alpha-acceptance.md: Beta more components, 1.0 complete UI capabilities",
+        "git rev-parse HEAD: e336d6e6ec8881764d5b3a8053e152f791ddb581",
+        "docs/beta-development.md B01-B10 agreement",
+        "artifacts/beta-verification/bootstrap.log native dev build success, historical managed CS0103 ReorderChildren failure",
+        "git branch --show-current on resume: codex/beta-components",
+        "RPT-20261016-F4A454 Beta intermediate verification checkpoint",
+        "artifacts/beta-verification/mouse-condition.txt explicit mouse-idle agreement"
+      ],
+      "status": "active",
+      "summary": "B01-B09 Beta component/framework implementation is present; final B10 frozen-source Debug/Release acceptance and review remain pending.",
+      "supersedes": [
+        "TASK-20260912-CC3A20"
+      ],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "",
+      "tier": "short",
+      "title": "Implement Beta component milestone",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:05:35Z",
+      "valid_as_of": "2026-10-17"
     }
   ],
   "schema_version": 1,

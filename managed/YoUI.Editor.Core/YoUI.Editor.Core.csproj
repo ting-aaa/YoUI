@@ -1,3 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Version>0.2.0-beta.1</Version>
+    <IsPackable>true</IsPackable>
+    <PackageId>YoUI.Editor.Core</PackageId>
+    <Description>Window-independent YoUI authoring model and C# exporters. Runtime applications can reference YoUI without this package.</Description>
+    <Authors>YoUI contributors</Authors>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/ting-aaa/YoUI</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
   <ItemGroup><ProjectReference Include="../YoUI/YoUI.csproj" /></ItemGroup>
+  <ItemGroup><None Include="../../docs/beta-packaging.md" Pack="true" PackagePath="README.md" /></ItemGroup>
 </Project>

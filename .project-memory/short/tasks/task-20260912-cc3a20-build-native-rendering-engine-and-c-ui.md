@@ -18,7 +18,7 @@
   "sources": [
     "User request 2026-09-12"
   ],
-  "status": "active",
+  "status": "superseded",
   "summary": "First Windows desktop foundation delivered and verified; broad shared-design implementation remains active and incomplete.",
   "supersedes": [],
   "tags": [],
@@ -26,7 +26,7 @@
   "tier": "short",
   "title": "Build native rendering engine and C# UI",
   "type_version": 1,
-  "updated_at": "2026-09-12T09:00:00Z",
+  "updated_at": "2026-10-16T17:34:13Z",
   "valid_as_of": "2026-09-12"
 }
 -->
@@ -34,3 +34,7 @@
 # Build native rendering engine and C# UI
 
 Main agent owns product implementation; curator owns project memory. Starting from an empty workspace, the first Rust wgpu plus C# Win32 foundation is now implemented and verified. RPT-20260912-2D669F records results. This task stays active because the broad shared design is not complete: model SDK validation, remaining rendering/UI features, platforms, accessibility, editor and stability work remain. See docs/design-status.md for exact scope.
+
+## Continuity review on 2026-10-17
+
+Preserved as historical evidence. Current work is TASK-20261016-665876 in the isolated Beta worktree on e336d6e; this record does not establish current Beta acceptance. The prior broad roadmap is not marked complete by this supersession.

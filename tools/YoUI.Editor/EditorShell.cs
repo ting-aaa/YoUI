@@ -25,6 +25,8 @@ public sealed class EditorShell : Element
     private string resourceKind = "Colors";
     private string? projectFile;
     private readonly List<(Button Button, NodeKind Kind)> palette = [];
+    private readonly StackPanel paletteContent;
+    private readonly ScrollView paletteScroll;
     private readonly Button newButton, openButton, exportButton, pluginButton, exporterButton, fitButton, minusButton, plusButton, snapButton, upButton, downButton, duplicateButton, deleteButton, themeButton;
     private string inspected = "";
     private int exporterIndex;
@@ -46,6 +48,8 @@ public sealed class EditorShell : Element
         Inspector = Add(new PropertyGrid()); Inspector.ValidationFailed += SetStatus;
         PropertySearch = Add(new TextBox { Placeholder = "Filter properties…" }); PropertySearch.Changed += value => Inspector.Filter = value;
         ComponentSearch = Add(new TextBox { Placeholder = "Find component…" }); ComponentSearch.Changed += _ => Invalidate(DirtyFlags.Layout);
+        paletteContent = new StackPanel { Gap = 5 };
+        paletteScroll = Add(new ScrollView(paletteContent));
         Project = Add(new ProjectBrowser(Environment.CurrentDirectory)); Project.OpenRequested += path => OpenFileRequested?.Invoke(path); Project.Failed += SetStatus;
         Resources = Add(new TreeView { RowHeight = 28 }); Resources.SelectionChanged += id => { if (id.StartsWith("node:")) Session.Select(id[5..]); };
         Button Make(string text, Action action, bool primary = false) { var b = Add(new Button(text) { Height = 30, Radius = 6, Primary = primary }); b.Caption.FontSize = 12; b.Clicked += () => Try(action); return b; }
@@ -59,7 +63,11 @@ public sealed class EditorShell : Element
         colorsTab = Make("Colors", () => SetResources("Colors")); fontsTab = Make("Fonts", () => SetResources("Fonts")); commandsTab = Make("Commands", () => SetResources("Commands"));
         themeButton = Make("Theme", () => Session.Edit(a => a.DarkTheme = !a.DarkTheme));
         upButton = Make("↑", () => Session.Move(-1)); downButton = Make("↓", () => Session.Move(1)); duplicateButton = Make("Dup", Session.Duplicate); deleteButton = Make("Del", Session.Delete);
-        foreach (var kind in Enum.GetValues<NodeKind>().Where(k => k != NodeKind.Canvas)) palette.Add((Make(kind switch { NodeKind.VerticalStack => "V Stack", NodeKind.HorizontalStack => "H Stack", NodeKind.TextBox => "Input", _ => kind.ToString() }, () => Session.Add(kind)), kind));
+        foreach (var kind in Enum.GetValues<NodeKind>().Where(k => k != NodeKind.Canvas))
+        {
+            var button = Make(kind switch { NodeKind.VerticalStack => "V Stack", NodeKind.HorizontalStack => "H Stack", NodeKind.TextBox => "Input", _ => kind.ToString() }, () => Session.Add(kind));
+            Remove(button); paletteContent.Add(button); palette.Add((button, kind));
+        }
         Session.Changed += Refresh; Refresh(true); SetStatus("Ready · add components, edit properties, then preview or export");
     }
     public void Try(Action action)
@@ -88,7 +96,7 @@ public sealed class EditorShell : Element
         TreeItem Tree(UiNode n) => new(n.Id, n.Name, n.Kind.ToString(), n.IsContainer, n.Children.Select(Tree).ToArray());
         if (model) Hierarchy.SetItems([Tree(Session.Asset.Root)]); Hierarchy.SelectedId = Session.SelectedId;
         // A different node/kind requires a new form. Property updates preserve active input and focus.
-        string key = Session.SelectedId + ":" + Session.Selected.Kind + ":" + (Session.Selected.Anchor == AnchorMode.Stretch) + ":" + Session.ParentOf(Session.SelectedId)?.IsStack;
+        string key = Session.SelectedId + ":" + Session.Selected.Kind + ":" + (Session.Selected.Anchor == AnchorMode.Stretch) + ":" + Session.ParentOf(Session.SelectedId)?.ControlsChildLayout + ":" + (Session.Selected.Layout != null);
         if (inspected != key) { inspected = key; Inspector.SetEntries(Properties(Session.SelectedId)); }
         else Inspector.RefreshValues();
         if (model) SetResources(resourceKind);
@@ -111,15 +119,33 @@ public sealed class EditorShell : Element
     {
         UiNode Node() => Session.Find(id);
         string group = "Node";
-        PropertyEntry Text(string name, Func<UiNode, string> read, Action<UiNode, string> write, bool editable = true) => new(name, () => read(Node()), value => Session.Edit(a => write(a.Root.DescendantsAndSelf().First(n => n.Id == id), value)), editable) { Group = group };
+        PropertyEntry Text(string name, Func<UiNode, string> read, Action<UiNode, string> write, bool editable = true) => new(name, () => read(Node()), value => Session.Edit(a => { var node = a.Root.DescendantsAndSelf().First(n => n.Id == id); write(node, value); if (node.Beta != null || node.Layout != null) a.Version = 2; }), editable) { Group = group };
         PropertyEntry Number(string name, Func<UiNode, float> read, Action<UiNode, float> write, bool editable = true) => Text(name, n => read(n).ToString("0.###", CultureInfo.InvariantCulture), (n, value) => write(n, float.Parse(value, CultureInfo.InvariantCulture)), editable);
         PropertyEntry Flag(string name, Func<UiNode, bool> read, Action<UiNode, bool> write) => Text(name, n => read(n) ? "true" : "false", (n, value) => write(n, bool.Parse(value))) with { Choices = ["false", "true"] };
-        bool root = id == Session.Asset.Root.Id, stack = Session.ParentOf(id)?.IsStack == true;
+        bool root = id == Session.Asset.Root.Id, stack = Session.ParentOf(id)?.ControlsChildLayout == true || Node().Layout != null;
         yield return Text("Name", n => n.Name, (n, v) => n.Name = v);
         yield return Text("Type", n => n.Kind.ToString(), (_, _) => { }, false);
         if (root) yield return new("Screen name", () => Session.Asset.Name, value => Session.Edit(a => a.Name = value)) { Group = group };
         group = "Content";
-        if (Node().Kind is NodeKind.Text or NodeKind.Button or NodeKind.Toggle or NodeKind.TextBox) yield return Text("Text", n => n.Text, (n, v) => n.Text = v);
+        if (Node().Kind is NodeKind.Text or NodeKind.Button or NodeKind.Toggle or NodeKind.TextBox or NodeKind.CheckBox or NodeKind.RadioButton) yield return Text("Text", n => n.Text, (n, v) => n.Text = v);
+        if (Node().Kind is NodeKind.ComboBox or NodeKind.VirtualList or NodeKind.TreeView)
+        {
+            yield return Text("Items (JSON)", n => System.Text.Json.JsonSerializer.Serialize(BetaAssetComponents.Options(n).Items), (n, v) => (n.Beta ??= new()).Items = System.Text.Json.JsonSerializer.Deserialize<List<string>>(v) ?? throw new InvalidDataException("Items required."));
+            if (Node().Kind == NodeKind.ComboBox) yield return Number("Selected index", n => BetaAssetComponents.Options(n).SelectedIndex, (n, v) => (n.Beta ??= new()).SelectedIndex = Integer(v));
+        }
+        if (Node().Kind == NodeKind.RadioButton) yield return Text("Radio group", n => BetaAssetComponents.Options(n).Group, (n, v) => (n.Beta ??= new()).Group = v);
+        if (Node().Kind == NodeKind.NumericUpDown)
+        {
+            yield return Number("Number", n => BetaAssetComponents.Options(n).Number, (n, v) => (n.Beta ??= new()).Number = v);
+            yield return Number("Minimum", n => BetaAssetComponents.Options(n).Minimum, (n, v) => (n.Beta ??= new()).Minimum = v);
+            yield return Number("Maximum", n => BetaAssetComponents.Options(n).Maximum, (n, v) => (n.Beta ??= new()).Maximum = v);
+            yield return Number("Step", n => BetaAssetComponents.Options(n).Step, (n, v) => (n.Beta ??= new()).Step = v);
+        }
+        if (Node().Kind == NodeKind.DataGrid)
+        {
+            yield return Text("Columns (JSON)", n => System.Text.Json.JsonSerializer.Serialize(BetaAssetComponents.Options(n).TableColumns), (n, v) => (n.Beta ??= new()).TableColumns = System.Text.Json.JsonSerializer.Deserialize<List<string>>(v) ?? throw new InvalidDataException("Columns required."));
+            yield return Text("Rows (JSON)", n => System.Text.Json.JsonSerializer.Serialize(BetaAssetComponents.Options(n).TableRows), (n, v) => (n.Beta ??= new()).TableRows = System.Text.Json.JsonSerializer.Deserialize<List<List<string>>>(v) ?? throw new InvalidDataException("Rows required."));
+        }
         group = "Layout";
         if (!root)
         {
@@ -130,35 +156,71 @@ public sealed class EditorShell : Element
         }
         yield return Number(Node().Anchor == AnchorMode.Stretch && !stack ? "Right inset" : "Width", n => n.Width, (n, v) => n.Width = v);
         yield return Number(Node().Anchor == AnchorMode.Stretch && !stack ? "Bottom inset" : "Height", n => n.Height, (n, v) => n.Height = v);
+        if (!root)
+        {
+            yield return Flag("Use box layout", n => n.Layout != null, (n, v) => n.Layout = v ? new BoxLayout() : null);
+            if (Node().Layout != null)
+            {
+                yield return Text("Width unit", n => n.Layout!.Width.Unit.ToString(), (n, v) => n.Layout = n.Layout! with { Width = new(Enum.Parse<SizeUnit>(v), n.Layout.Width.Value) }) with { Choices = Enum.GetNames<SizeUnit>() };
+                yield return Number("Width value", n => n.Layout!.Width.Value, (n, v) => n.Layout = n.Layout! with { Width = new(n.Layout.Width.Unit, v) });
+                yield return Text("Height unit", n => n.Layout!.Height.Unit.ToString(), (n, v) => n.Layout = n.Layout! with { Height = new(Enum.Parse<SizeUnit>(v), n.Layout.Height.Value) }) with { Choices = Enum.GetNames<SizeUnit>() };
+                yield return Number("Height value", n => n.Layout!.Height.Value, (n, v) => n.Layout = n.Layout! with { Height = new(n.Layout.Height.Unit, v) });
+                yield return Number("Min width", n => n.Layout!.MinWidth, (n, v) => n.Layout = n.Layout! with { MinWidth = v });
+                yield return Number("Max width", n => n.Layout!.MaxWidth, (n, v) => n.Layout = n.Layout! with { MaxWidth = v });
+                yield return Number("Min height", n => n.Layout!.MinHeight, (n, v) => n.Layout = n.Layout! with { MinHeight = v });
+                yield return Number("Max height", n => n.Layout!.MaxHeight, (n, v) => n.Layout = n.Layout! with { MaxHeight = v });
+                yield return Text("Horizontal alignment", n => n.Layout!.Horizontal.ToString(), (n, v) => n.Layout = n.Layout! with { Horizontal = Enum.Parse<Alignment>(v) }) with { Choices = Enum.GetNames<Alignment>() };
+                yield return Text("Vertical alignment", n => n.Layout!.Vertical.ToString(), (n, v) => n.Layout = n.Layout! with { Vertical = Enum.Parse<Alignment>(v) }) with { Choices = Enum.GetNames<Alignment>() };
+                yield return Number("Margin left", n => n.Layout!.Margin.Left, (n, v) => n.Layout = n.Layout! with { Margin = n.Layout.Margin with { Left = v } });
+                yield return Number("Margin top", n => n.Layout!.Margin.Top, (n, v) => n.Layout = n.Layout! with { Margin = n.Layout.Margin with { Top = v } });
+                yield return Number("Margin right", n => n.Layout!.Margin.Right, (n, v) => n.Layout = n.Layout! with { Margin = n.Layout.Margin with { Right = v } });
+                yield return Number("Margin bottom", n => n.Layout!.Margin.Bottom, (n, v) => n.Layout = n.Layout! with { Margin = n.Layout.Margin with { Bottom = v } });
+            }
+        }
         if (stack) yield return Number("Grow", n => n.Grow, (n, v) => n.Grow = v);
         if (Node().IsContainer) yield return Number("Padding", n => n.Padding, (n, v) => n.Padding = v);
         if (Node().IsStack) yield return Number("Gap", n => n.Gap, (n, v) => n.Gap = v);
+        if (Node().Kind is NodeKind.Grid or NodeKind.Wrap) yield return Number("Gap", n => n.Gap, (n, v) => n.Gap = v);
+        if (Node().Kind == NodeKind.Grid)
+        {
+            yield return Text("Grid rows (JSON)", n => System.Text.Json.JsonSerializer.Serialize(BetaAssetComponents.Options(n).GridRows), (n, v) => (n.Beta ??= new()).GridRows = System.Text.Json.JsonSerializer.Deserialize<List<string>>(v) ?? throw new InvalidDataException("Rows required."));
+            yield return Text("Grid columns (JSON)", n => System.Text.Json.JsonSerializer.Serialize(BetaAssetComponents.Options(n).GridColumns), (n, v) => (n.Beta ??= new()).GridColumns = System.Text.Json.JsonSerializer.Deserialize<List<string>>(v) ?? throw new InvalidDataException("Columns required."));
+        }
+        if (Session.ParentOf(id)?.Kind == NodeKind.Grid)
+        {
+            yield return Number("Grid row", n => BetaAssetComponents.Options(n).Row, (n, v) => (n.Beta ??= new()).Row = Integer(v));
+            yield return Number("Grid column", n => BetaAssetComponents.Options(n).Column, (n, v) => (n.Beta ??= new()).Column = Integer(v));
+            yield return Number("Row span", n => BetaAssetComponents.Options(n).RowSpan, (n, v) => (n.Beta ??= new()).RowSpan = Integer(v));
+            yield return Number("Column span", n => BetaAssetComponents.Options(n).ColumnSpan, (n, v) => (n.Beta ??= new()).ColumnSpan = Integer(v));
+        }
+        if (Node().Kind == NodeKind.TabControl) yield return Number("Selected tab", n => BetaAssetComponents.Options(n).SelectedIndex, (n, v) => (n.Beta ??= new()).SelectedIndex = Integer(v));
         group = "Appearance";
         if (Node().Kind is NodeKind.Canvas or NodeKind.Panel or NodeKind.Button or NodeKind.Toggle or NodeKind.VerticalStack or NodeKind.HorizontalStack)
         {
             yield return Text("Fill", n => n.Fill, (n, v) => n.Fill = v) with { Hint = "#RRGGBB / #RRGGBBAA" };
             yield return Number("Corner radius", n => n.Radius, (n, v) => n.Radius = v);
         }
-        if (Node().Kind is NodeKind.Text or NodeKind.Button or NodeKind.Toggle)
+        if (Node().Kind is NodeKind.Text or NodeKind.Button or NodeKind.Toggle or NodeKind.CheckBox or NodeKind.RadioButton)
         {
             group = "Typography";
             yield return Text("Text color", n => n.Foreground, (n, v) => n.Foreground = v) with { Hint = "Theme default" };
             yield return Number("Font size", n => n.FontSize, (n, v) => n.FontSize = v);
             yield return Flag("Bold", n => n.Bold, (n, v) => n.Bold = v);
         }
-        if (Node().Kind is NodeKind.Button or NodeKind.Toggle)
+        if (Node().Kind is NodeKind.Button or NodeKind.Toggle or NodeKind.CheckBox or NodeKind.RadioButton)
         {
             group = "Behavior";
             yield return Flag("Primary", n => n.Primary, (n, v) => n.Primary = v);
             yield return Text("Command", n => n.Command, (n, v) => n.Command = v);
         }
-        if (Node().Kind == NodeKind.Toggle) yield return Flag("Checked", n => n.Checked, (n, v) => n.Checked = v);
-        if (Node().Kind == NodeKind.Slider) yield return Number("Value", n => n.Value, (n, v) => n.Value = v);
+        if (Node().Kind is NodeKind.Toggle or NodeKind.CheckBox or NodeKind.RadioButton) yield return Flag("Checked", n => n.Checked, (n, v) => n.Checked = v);
+        if (Node().Kind is NodeKind.Slider or NodeKind.ProgressBar) yield return Number("Value", n => n.Value, (n, v) => n.Value = v);
         group = "Visibility";
         yield return Number("Opacity", n => n.Opacity, (n, v) => n.Opacity = v);
         if (Node().IsContainer) yield return Flag("Clip children", n => n.Clip, (n, v) => n.Clip = v);
         if (!root) { yield return Flag("Visible", n => n.Visible, (n, v) => n.Visible = v); yield return Flag("Enabled", n => n.Enabled, (n, v) => n.Enabled = v); }
     }
+    private static int Integer(float value) => float.IsFinite(value) && value == MathF.Truncate(value) && value >= int.MinValue && value < int.MaxValue ? (int)value : throw new InvalidDataException("Expected a whole number.");
     private void Shortcuts(UiEvent e)
     {
         if (e.Kind != EventKind.KeyDown) return;
@@ -194,12 +256,11 @@ public sealed class EditorShell : Element
         Place(Hierarchy, 6, 108, left - 12, componentY - 154);
         Place(upButton, 12, componentY - 38, 36, 28); Place(downButton, 54, componentY - 38, 36, 28); Place(duplicateButton, 98, componentY - 38, 54, 28); Place(deleteButton, 158, componentY - 38, 62, 28);
         Place(ComponentSearch, 12, componentY + 40, left - 24, 30);
-        int index = 0;
         foreach (var (button, kind) in palette)
         {
             button.Visible = (button.Text + " " + kind).Contains(ComponentSearch.Text, StringComparison.OrdinalIgnoreCase);
-            if (button.Visible) { Place(button, 12 + index % 2 * 110, componentY + 82 + index / 2 * 34, 102, 28); index++; }
         }
+        Place(paletteScroll, 12, componentY + 82, left - 24, Math.Max(40, projectY - componentY - 90));
         Place(Project, 4, projectY + 38, left - 8, b.Height - projectY - 80);
         Place(Canvas, left + 1, 114, center - 2, resourcesY - 114);
         Place(colorsTab, left + 128, resourcesY + 9, 74, 26); Place(fontsTab, left + 208, resourcesY + 9, 70, 26); Place(commandsTab, left + 284, resourcesY + 9, 106, 26);

@@ -4,6 +4,12 @@
 
 命名空间：`YoUI`。源码：[Controls.cs](../../managed/YoUI/Controls.cs)、[AuthoringControls.cs](../../managed/YoUI/AuthoringControls.cs)。以下类型继承 Element（Toggle 继承 Button，PropertyGrid 继承 ScrollView），通用属性见[基类](core.md#element)。
 
+Beta 新增组件、Content/Items 组合、Grid/Wrap、Popup 与 Binding/Command 的入口、
+行为和生命周期见 [Beta 组件与框架](../beta-components.md)。对应源码为
+[ApplicationControls.cs](../../managed/YoUI/ApplicationControls.cs)、
+[Composition.cs](../../managed/YoUI/Composition.cs)、[Layout.cs](../../managed/YoUI/Layout.cs)、
+[Binding.cs](../../managed/YoUI/Binding.cs)、[Popups.cs](../../managed/YoUI/Popups.cs)。
+
 ## Label
 
 `Label(string value = "")`；密封类，Role 为 `text`，默认不可聚焦、不可命中。
@@ -26,6 +32,7 @@
 | 成员 | 行为 |
 | --- | --- |
 | `Label Caption { get; }` | 实际文字子节点，可设置 FontSize / Bold |
+| `Element? Content` | Beta 可替换视觉内容槽；Caption/Text 保留；内容需先脱离旧父节点 |
 | `string Text` | 更新 Caption.Text 和 AccessibleName |
 | `Color? TextColor` | null 时按主题、Primary、Selected 选择 |
 | `bool Selected` | 默认 false，选择样式，不是切换值 |

@@ -8,6 +8,7 @@ using YoUI.Showcase;
 
 var artifactDir = Path.GetFullPath(Environment.GetEnvironmentVariable("YOUI_ARTIFACT_DIR") ?? Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts"));
 Directory.CreateDirectory(artifactDir);
+if (args.Contains("--beta")) { BetaRunner.Run(args, artifactDir); return; }
 if (args.Contains("--gallery")) { GalleryRunner.Run(args, artifactDir); return; }
 if (args.Contains("--benchmark")) { BenchmarkRunner.Run(args, artifactDir); return; }
 var scene = new Showcase();

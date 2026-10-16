@@ -33,12 +33,13 @@ UiDocument Doc(Element root, float width = 1440, float height = 900) => new(root
 void Click(UiDocument doc, Vector2 p) { doc.Dispatch(new(EventKind.PointerDown) { Position = p }); doc.Dispatch(new(EventKind.PointerUp) { Position = p }); }
 IEnumerable<Element> Elements(Element root) { yield return root; foreach (var child in root.Children) foreach (var e in Elements(child)) yield return e; }
 Vector2 Mid(Element e) => new(e.VisualBounds.X + e.Bounds.Width / 2, e.VisualBounds.Y + e.Bounds.Height / 2);
+BetaAssetTests.Run(Test, Require);
 
 Test("Versioned assets round-trip Unicode and reject invalid structure, colors, IDs and limits", () =>
 {
     var a = EditorSession.Starter(); a.Root.Children[0].Text = "你好 👨‍👩‍👧‍👦 \"quoted\"\nsecond line";
     string json = UiAssetJson.Serialize(a); Require(UiAssetJson.Serialize(UiAssetJson.Parse(json)) == json);
-    Reject(() => UiAssetJson.Parse("{}")); Reject(() => UiAssetJson.Parse(json.Replace("\"version\": 1", "\"version\": 2")));
+    Reject(() => UiAssetJson.Parse("{}")); Reject(() => UiAssetJson.Parse(json.Replace("\"version\": 1", "\"version\": 3")));
     Reject(() => UiAssetJson.Parse(json.Replace("\"darkTheme\": true", "\"unknown\": true")));
     a.Root.Children[0].Fill = "bad"; Reject(() => UiAssetJson.Validate(a)); a.Root.Children[0].Fill = "#ffffff";
     a.Root.Children[0].X = float.NaN; Reject(() => UiAssetJson.Validate(a)); a.Root.Children[0].X = 0;
@@ -179,7 +180,7 @@ Test("Project files filter and request guarded opening; resource references sele
     browser.Search.Text = "project.youi"; doc.BuildFrame(); Click(doc, new(70, 98)); doc.BuildFrame(); Click(doc, Mid(browser.OpenButton)); Require(opened == path);
     var shell = new EditorShell(); var shellDoc = Doc(shell); shellDoc.BuildFrame();
     var colors = shell.Resources.Bounds; Click(shellDoc, new(colors.X + 70, colors.Y + 42)); Require(shell.Session.SelectedId == shell.Session.Asset.Root.Id);
-    shell.ComponentSearch.Text = "Button"; shellDoc.BuildFrame(); var add = shell.Children.OfType<Button>().Single(b => b.Text == "Button"); Click(shellDoc, Mid(add)); Require(shell.Session.Selected.Kind == NodeKind.Button);
+    shell.ComponentSearch.Text = "Button"; shellDoc.BuildFrame(); var add = Elements(shell).OfType<Button>().Single(b => b.Text == "Button"); Click(shellDoc, Mid(add)); Require(shell.Session.Selected.Kind == NodeKind.Button);
     shell.TogglePreview(); Require(!shell.Inspector.Enabled && !add.Enabled); shell.TogglePreview();
     shellDoc.Resize(1100, 760); shellDoc.BuildFrame(); Require(shell.Canvas.Bounds.Right <= shell.Inspector.Bounds.X && shell.Project.Bounds.Bottom < 760 && shell.Canvas.Bounds.Height > 300);
 });
@@ -252,6 +253,12 @@ Test("Exported C# compiles and matches JSON runtime command IR and behavior with
     a.Root.Children.Add(new() { Kind = NodeKind.HorizontalStack, Width = 360, Height = 48, Anchor = AnchorMode.Center, Padding = 4, Children = [new() { Kind = NodeKind.Button, Text = "Test", Width = 120, Height = 40, Foreground = "#FF8844", Fill = "#223344", Bold = true }, new() { Kind = NodeKind.Text, Text = "Stack", Width = 140, Height = 30 }] });
     a.Root.Children.Add(new() { Kind = NodeKind.Panel, Anchor = AnchorMode.Stretch, X = 8, Y = 8, Width = 8, Height = 8, Opacity = .5f });
     foreach (var anchor in Enum.GetValues<AnchorMode>()) a.Root.Children.Add(new() { Kind = NodeKind.Panel, Anchor = anchor, X = 8, Y = 16, Width = 30, Height = 22, PivotX = .25f, PivotY = 1, Fill = "#AACCFF" });
+    a.Version = 2;
+    foreach (var kind in Enum.GetValues<NodeKind>().Where(k => k > NodeKind.HorizontalStack)) a.Root.Children.Add(new() { Kind = kind, Text = "Beta " + kind, X = 12, Y = 12, Width = 180, Height = 70 });
+    a.Root.Children.Add(new() { Kind = NodeKind.Panel, Layout = new() { Width = UiLength.Percent(.25f), Height = UiLength.Fixed(40), Margin = new Thickness(4) } });
+    a.Root.Children.Add(new() { Kind = NodeKind.Grid, Width = 300, Height = 100, Children = [new() { Kind = NodeKind.Text, Text = "Spanned", Beta = new() { ColumnSpan = 2 } }] });
+    a.Root.Children.Add(new() { Kind = NodeKind.TabControl, Width = 300, Height = 150, Beta = new() { SelectedIndex = 1 }, Children = [new() { Kind = NodeKind.Content, Name = "First", Children = [new() { Kind = NodeKind.Text, Text = "One" }] }, new() { Kind = NodeKind.Panel, Name = "Second" }] });
+    a.Root.Children.Add(new() { Kind = NodeKind.Button, Text = "Composite", Width = 240, Height = 48, Children = [new() { Kind = NodeKind.HorizontalStack, Width = 200, Height = 30, Children = [new() { Kind = NodeKind.Text, Text = "★", Width = 24, Height = 24 }, new() { Kind = NodeKind.Text, Text = "Custom content", Width = 140, Height = 24 }] }] });
     string folder = Path.Combine(output, "compiled"); ExportCatalog.Write(new CSharpExporter(), a, folder);
     string runtimeProject = System.Security.SecurityElement.Escape(Path.Combine(rootPath, "managed/YoUI/YoUI.csproj"));
     File.WriteAllText(Path.Combine(folder, "Generated.csproj"), $"<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include=\"{runtimeProject}\" /></ItemGroup></Project>");
