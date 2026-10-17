@@ -5,15 +5,17 @@
 ## Project Snapshot
 
 - **Project:** YoUI
-- **Generation:** 37
-- **Generated:** 2026-09-21T15:04:47Z
-- **Active task:** [TASK-20260912-CC3A20](short/tasks/task-20260912-cc3a20-build-native-rendering-engine-and-c-ui.md)
+- **Generation:** 61
+- **Generated:** 2026-10-17T03:03:01Z
+- **Active task:** [TASK-20261017-06D61A](short/tasks/task-20261017-06d61a-create-independently-review-and-merge-beta-pr.md)
 - **Overview:** Independent native rendering engine with a C# retained UI framework; user allows C++ or Rust and requests efficient modern UI.
 
 ### Next Actions
 
-1. Validate Spine/Cubism high-risk composition using selected SDK versions and legal reference assets.
-2. Follow docs/design-status.md for rendering, UI, platform, editor and stability milestones.
+1. Freeze/push independently repaired-reviewed PR35 Grid source; run fresh complete local gates and final-head CI.
+2. Commit final premerge review record, verify final-head required checks and authorized input-test conditions, then merge and capture GitHub proof.
+3. Freeze/push independently confirmed PR35 Grid repair and run fresh complete revision-specific gates/CI.
+4. Record final premerge review, verify final-head CI and input-test condition, merge and record actual GitHub state.
 
 ### Blockers
 
@@ -23,11 +25,13 @@ _None recorded._
 
 | ID | Kind | Status | Summary | Updated |
 |---|---|---|---|---|
-| [TASK-20260912-CC3A20](short/tasks/task-20260912-cc3a20-build-native-rendering-engine-and-c-ui.md) | task | active | First Windows desktop foundation delivered and verified; broad shared-design implementation remains active and incomplete. | 2026-09-12T09:00:00Z |
+| [TASK-20261017-06D61A](short/tasks/task-20261017-06d61a-create-independently-review-and-merge-beta-pr.md) | task | active | PR35 Grid P2 repaired and independently confirmed by clean serial build,215 managed checks and original repro; fresh full gates/final CI/merge pending, prior Beta task completed. | 2026-10-17T03:02:25Z |
 
 ## Active Plans
 
-_None._
+| ID | Kind | Status | Summary | Updated |
+|---|---|---|---|---|
+| [PLAN-20261017-EFE3A2](short/plans/plan-20261017-efe3a2-beta-pr-independent-review-and-merge-plan.md) | plan | active | Publish Beta PR, independently review actual head, repair/reverify findings, commit review record, verify checks and merge with explicit evidence. | 2026-10-17T03:02:25Z |
 
 ## Current Analyses
 
@@ -39,9 +43,7 @@ _None._
 
 ## Current Handoffs
 
-| ID | Kind | Status | Summary | Updated |
-|---|---|---|---|---|
-| [HANDOFF-20260912-1DDDD0](short/handoffs/handoff-20260912-1dddd0-backend-verification-complete-and-framework-continuation.md) | handoff | active | Required Windows backend verification complete; original framework roadmap active, ANGLE optional and not rendering-verified. | 2026-09-12T08:07:20Z |
+_None._
 
 ## Current Project-specific Memory
 
@@ -51,10 +53,7 @@ _None._
 
 | ID | Kind | Status | Summary | Updated |
 |---|---|---|---|---|
-| [ARCH-20260912-064C54](long/architecture/arch-20260912-064c54-self-hosted-editor-and-runtime-asset-export-architecture.md) | architecture | active | Reusable YoUI authoring controls and runtime assets underpin a same-library Editor with JSON, standalone generated C#, and local exporter plugins. | 2026-09-12T07:08:57Z |
-| [ARCH-20260912-8E49FD](long/architecture/arch-20260912-8e49fd-explicit-windows-rendering-backend-selection.md) | architecture | active | YOUI_BACKEND strictly selects DX12 Vulkan or native OpenGL; adapter identity verified without cross-API fallback. | 2026-09-12T08:06:49Z |
-| [ARCH-20260912-A547ED](long/architecture/arch-20260912-a547ed-desktop-foundation-architecture.md) | architecture | active | Rust wgpu renderer, optional Rust scene tree, batched C ABI, retained C# UI and Win32 host. | 2026-09-12T06:16:11Z |
-| [DEC-20260912-340228](long/decisions/dec-20260912-340228-windows-dx12-and-downward-logical-coordinates.md) | decision | active | Verified backend is Windows DX12; top-left Y-down coordinates explicitly differ from shared design. | 2026-09-12T06:16:12Z |
+| [ARCH-20261016-18BA51](long/architecture/arch-20261016-18ba51-current-alpha-baseline-and-beta-architecture-boundaries.md) | architecture | active | Independent renderer, retained C# runtime and same-library Editor; host-owned loops/platform code; ordered batching, matched builds and revision-specific evidence remain mandatory. | 2026-10-16T18:45:06Z |
 | [PROJ-20260912-5E915B](long/project/proj-20260912-5e915b-youi-project-scope.md) | project | active | Independent native rendering engine with a C# retained UI framework; user allows C++ or Rust and requests efficient modern UI. | 2026-09-12T05:45:26Z |
 | [STD-20260912-27E073](long/standards/std-20260912-27e073-python-environment-convention.md) | standard | active | Run Python through uv-managed environments. | 2026-09-12T05:45:27Z |
 
@@ -66,22 +65,25 @@ _None._
 
 | ID | Kind | Status | Summary | Updated |
 |---|---|---|---|---|
+| [RPT-20261017-42017B](short/reports/rpt-20261017-42017b-pr35-grid-review-finding-and-pending-repaired-verification.md) | report | active | PR35 independent P2 Grid stale placement repaired/reviewed; serial build clean,215 managed checks and original repro passed. Final frozen-head full gates/CI and merge remain pending; mixed-build failures retained. | 2026-10-17T03:02:25Z |
+| [HANDOFF-20261016-C07420](short/handoffs/handoff-20261016-c07420-completed-local-beta-scope-and-final-evidence-handoff.md) | handoff | completed | B01-B10 local WindowsDX12 Beta completed at90e86ad with final clean All/package/image/independent proof; no active task or required Beta action, no public release. | 2026-10-16T18:49:55Z |
+| [RPT-20261016-0EE9B5](short/reports/rpt-20261016-0ee9b5-beta-b01-b10-local-implementation-and-acceptance-complete.md) | report | completed | All B01-B10 accepted at clean90e86ad: final Debug/Release All, stable same-source package pair, actual GPU/HWND, image QA and independent requirement review; local WindowsDX12 scope only, no publication. | 2026-10-16T18:48:00Z |
+| [RPT-20261016-919434](short/reports/rpt-20261016-919434-clean-beta-all-gates-passed-with-new-keyboard-scope-failure.md) | report | superseded | Clean0555ea5 Debug/Release All passed; later RadioGroup scope leak is repaired and independently reproduced, while second freeze All reruns and stable package pair remain pending. | 2026-10-16T18:45:06Z |
+| [RPT-20261016-F4A454](short/reports/rpt-20261016-f4a454-beta-implementation-and-intermediate-verification-checkpoint.md) | report | superseded | B01-B09 implemented; intermediate Logic/Window/GPU/package evidence passes on earlier dirty snapshots, while final B10 freeze and integrated verification remain pending. | 2026-10-16T18:45:06Z |
+| [HANDOFF-20260912-1DDDD0](short/handoffs/handoff-20260912-1dddd0-backend-verification-complete-and-framework-continuation.md) | handoff | superseded | Required Windows backend verification complete; original framework roadmap active, ANGLE optional and not rendering-verified. | 2026-10-16T17:34:13Z |
+| [HANDOFF-20260912-9E2CED](short/handoffs/handoff-20260912-9e2ced-final-basic-editor-delivery-and-continuation.md) | handoff | superseded | Editor task and plan complete; resume original broad design from current docs with advanced Editor work explicitly remaining. | 2026-10-16T17:34:13Z |
+| [HANDOFF-20260912-AD2A1A](short/handoffs/handoff-20260912-ad2a1a-desktop-foundation-handoff-and-remaining-scope.md) | handoff | superseded | Milestone 0.1 is runnable and verified on Windows DX12; broad design remains active with P0 SDK risk validation next. | 2026-10-16T17:34:13Z |
 | [RPT-20260921-CA3FAE](short/reports/rpt-20260921-ca3fae-public-github-repository.md) | report | completed | The ting-aaa/YoUI GitHub repository was changed from private to public at the user request. | 2026-09-21T15:04:47Z |
 | [RPT-20260921-C32975](short/reports/rpt-20260921-c32975-private-github-publication.md) | report | superseded | YoUI was published to the private ting-aaa/YoUI GitHub repository on main. | 2026-09-21T14:54:03Z |
-| [HANDOFF-20260912-1DDDD0](short/handoffs/handoff-20260912-1dddd0-backend-verification-complete-and-framework-continuation.md) | handoff | active | Required Windows backend verification complete; original framework roadmap active, ANGLE optional and not rendering-verified. | 2026-09-12T08:07:20Z |
 | [RPT-20260912-8CEEDD](short/reports/rpt-20260912-8ceedd-windows-backend-matrix-acceptance.md) | report | completed | 24 backend runs and28 comparisons passed for DX12 Vulkan nativeGL; ANGLE optional experiments did not render successfully. | 2026-09-12T08:06:49Z |
-| [HANDOFF-20260912-9E2CED](short/handoffs/handoff-20260912-9e2ced-final-basic-editor-delivery-and-continuation.md) | handoff | superseded | Editor task and plan complete; resume original broad design from current docs with advanced Editor work explicitly remaining. | 2026-09-12T07:11:57Z |
 | [RPT-20260912-D59AB5](short/reports/rpt-20260912-d59ab5-final-editor-capture-fix-and-release-acceptance.md) | report | completed | Final Release gate passed with 13 Editor Win32 checks; native modal-dialog capture regression resolved. | 2026-09-12T07:11:56Z |
-| [HANDOFF-20260912-7F60A0](short/handoffs/handoff-20260912-7f60a0-editor-milestone-complete-and-broad-design-continuation.md) | handoff | superseded | Basic self-hosted Editor and all requested export modes complete; broad rendering/UI roadmap remains incomplete. | 2026-09-12T07:09:29Z |
-| [RPT-20260912-50A1E8](short/reports/rpt-20260912-50a1e8-basic-self-hosted-editor-acceptance.md) | report | superseded | UI-first Editor with configuration, compilable C# and plugin export verified through full Release gate and real-window save/open/plugin workflows. | 2026-09-12T07:08:58Z |
-| [HANDOFF-20260912-AD2A1A](short/handoffs/handoff-20260912-ad2a1a-desktop-foundation-handoff-and-remaining-scope.md) | handoff | superseded | Milestone 0.1 is runnable and verified on Windows DX12; broad design remains active with P0 SDK risk validation next. | 2026-09-12T06:16:28Z |
-| [DEC-20260912-340228](long/decisions/dec-20260912-340228-windows-dx12-and-downward-logical-coordinates.md) | decision | active | Verified backend is Windows DX12; top-left Y-down coordinates explicitly differ from shared design. | 2026-09-12T06:16:12Z |
-| [RPT-20260912-2D669F](short/reports/rpt-20260912-2d669f-first-desktop-milestone-verification.md) | report | completed | Runnable desktop foundation passed native/GPU/managed/window validation; broad design remains incomplete. | 2026-09-12T06:15:48Z |
+
+_4 more record(s) are in `index.json`._
 
 ## Memory Map
 
-- Long-term records: 6
-- Short-term records: 16
+- Long-term records: 7
+- Short-term records: 25
 - Temporary records: 0
 - Archived records: 0
 - Complete machine-readable inventory: [`index.json`](index.json)

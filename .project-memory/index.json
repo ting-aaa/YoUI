@@ -1,13 +1,13 @@
 {
-  "active_task_id": "TASK-20260912-CC3A20",
+  "active_task_id": "TASK-20261017-06D61A",
   "counts": {
     "archive": 0,
-    "long": 6,
-    "short": 16,
+    "long": 7,
+    "short": 25,
     "temp": 0
   },
-  "generated_at": "2026-09-21T15:04:47Z",
-  "generation": 37,
+  "generated_at": "2026-10-17T03:03:01Z",
+  "generation": 61,
   "project_name": "YoUI",
   "records": [
     {
@@ -15,7 +15,7 @@
       "confidence": "high",
       "created_at": "2026-09-12T07:08:57Z",
       "derived_from": [],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "youi-editor-architecture-v1",
       "expired": false,
       "id": "ARCH-20260912-064C54",
@@ -49,7 +49,7 @@
       "confidence": "high",
       "created_at": "2026-09-12T08:06:49Z",
       "derived_from": [],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "youi-backend-architecture-v1",
       "expired": false,
       "id": "ARCH-20260912-8E49FD",
@@ -81,7 +81,7 @@
       "confidence": "high",
       "created_at": "2026-09-12T06:16:11Z",
       "derived_from": [],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "youi-architecture-desktop-v1",
       "expired": false,
       "id": "ARCH-20260912-A547ED",
@@ -111,9 +111,53 @@
     {
       "blockers": [],
       "confidence": "high",
-      "created_at": "2026-09-12T06:16:12Z",
+      "created_at": "2026-10-16T17:35:10Z",
       "derived_from": [],
       "effective_status": "active",
+      "event_id": "beta-current-architecture-20261017-v1",
+      "expired": false,
+      "id": "ARCH-20261016-18BA51",
+      "kind": "architecture",
+      "next_actions": [],
+      "path": "long/architecture/arch-20261016-18ba51-current-alpha-baseline-and-beta-architecture-boundaries.md",
+      "review_after": "",
+      "schema_version": 1,
+      "scope": [],
+      "sensitivity": "internal",
+      "sha256": "86f7d8fe68f68ada3d89e22b5947aeec4268215b8237d3ad6ad64122c9ccbbe4",
+      "sources": [
+        "AGENTS.md",
+        "docs/architecture.md at e336d6e",
+        "docs/alpha-acceptance.md at e336d6e",
+        "managed/YoUI/Assets/UiAsset.cs at e336d6e",
+        "git rev-parse HEAD: e336d6e6ec8881764d5b3a8053e152f791ddb581",
+        "docs/beta-review.md final B01-B10 proof at90e86ad",
+        "RPT-20261016-0EE9B5 final local Beta acceptance"
+      ],
+      "status": "active",
+      "summary": "Independent renderer, retained C# runtime and same-library Editor; host-owned loops/platform code; ordered batching, matched builds and revision-specific evidence remain mandatory.",
+      "supersedes": [
+        "ARCH-20260912-A547ED",
+        "ARCH-20260912-064C54",
+        "ARCH-20260912-8E49FD",
+        "DEC-20260912-340228"
+      ],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "long",
+      "title": "Current Alpha baseline and Beta architecture boundaries",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:45:06Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
+      "confidence": "high",
+      "created_at": "2026-09-12T06:16:12Z",
+      "derived_from": [],
+      "effective_status": "superseded",
       "event_id": "youi-decisions-desktop-v1",
       "expired": false,
       "id": "DEC-20260912-340228",
@@ -147,7 +191,7 @@
       "derived_from": [
         "RPT-20260912-8CEEDD"
       ],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "youi-backend-handoff-v1",
       "expired": false,
       "id": "HANDOFF-20260912-1DDDD0",
@@ -161,12 +205,12 @@
       "schema_version": 1,
       "scope": [],
       "sensitivity": "internal",
-      "sha256": "c791501b06e7da6d4c4816ba7f38fb9fb600ad68d021a1eb443aaa9c49b4421e",
+      "sha256": "3fda5b5e3a6c88a482692bd7bad9c978dfeb4b4943f4e867a2e1114365df0413",
       "sources": [
         "docs/render-backends.md",
         "docs/design-status.md"
       ],
-      "status": "active",
+      "status": "superseded",
       "summary": "Required Windows backend verification complete; original framework roadmap active, ANGLE optional and not rendering-verified.",
       "supersedes": [
         "HANDOFF-20260912-9E2CED"
@@ -176,7 +220,7 @@
       "tier": "short",
       "title": "Backend verification complete and framework continuation",
       "type_version": 1,
-      "updated_at": "2026-09-12T08:07:20Z",
+      "updated_at": "2026-10-16T17:34:13Z",
       "valid_as_of": "2026-09-12"
     },
     {
@@ -240,13 +284,13 @@
       "schema_version": 1,
       "scope": [],
       "sensitivity": "internal",
-      "sha256": "9e4024daf2f9ec0ef3ef37c8d6b742d63be5e8432bd2feadc761fc642ec7d13b",
+      "sha256": "b2f0ed0144c96447a7b08524dd734e6876aeace08b6d606acc04ae044a8bbe8d",
       "sources": [
         "docs/editor.md",
         "docs/design-status.md",
         "docs/verification.md"
       ],
-      "status": "active",
+      "status": "superseded",
       "summary": "Editor task and plan complete; resume original broad design from current docs with advanced Editor work explicitly remaining.",
       "supersedes": [
         "HANDOFF-20260912-7F60A0"
@@ -256,7 +300,7 @@
       "tier": "short",
       "title": "Final basic Editor delivery and continuation",
       "type_version": 1,
-      "updated_at": "2026-09-12T07:11:57Z",
+      "updated_at": "2026-10-16T17:34:13Z",
       "valid_as_of": "2026-09-12"
     },
     {
@@ -281,13 +325,13 @@
       "schema_version": 1,
       "scope": [],
       "sensitivity": "internal",
-      "sha256": "f606e9b047ab107ca40c7b88693f5b6be41b885e40f022f3981697af793feaeb",
+      "sha256": "4f7ad7a203a09714c7b66ae343b44ff5f56daa7998d4e00cdcb8813bb0794cce",
       "sources": [
         "README.md",
         "docs/design-status.md",
         "docs/verification.md"
       ],
-      "status": "active",
+      "status": "superseded",
       "summary": "Milestone 0.1 is runnable and verified on Windows DX12; broad design remains active with P0 SDK risk validation next.",
       "supersedes": [],
       "tags": [],
@@ -295,8 +339,47 @@
       "tier": "short",
       "title": "Desktop foundation handoff and remaining scope",
       "type_version": 1,
-      "updated_at": "2026-09-12T06:16:28Z",
+      "updated_at": "2026-10-16T17:34:13Z",
       "valid_as_of": "2026-09-12"
+    },
+    {
+      "blockers": [],
+      "confidence": "confirmed",
+      "created_at": "2026-10-16T18:49:55Z",
+      "derived_from": [
+        "RPT-20261016-0EE9B5"
+      ],
+      "effective_status": "completed",
+      "event_id": "beta-final-handoff-20261017-v1",
+      "expired": false,
+      "id": "HANDOFF-20261016-C07420",
+      "kind": "handoff",
+      "next_actions": [],
+      "path": "short/handoffs/handoff-20261016-c07420-completed-local-beta-scope-and-final-evidence-handoff.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [],
+      "sensitivity": "internal",
+      "sha256": "d3de12c578fd8d539ef9e1958ef963b0ec1c0bcbd7e0435b6cdd13cc47cf8dd6",
+      "sources": [
+        "RPT-20261016-0EE9B5 final local Beta acceptance",
+        "docs/beta-review.md independent46-clause audit",
+        "docs/beta-acceptance.md",
+        "artifacts/beta-review-20261017/completion-receipt.json",
+        "artifacts/beta-final/90e86add65c6ffd24f73dca7a30874176d887474/driver-result.json"
+      ],
+      "status": "completed",
+      "summary": "B01-B10 local WindowsDX12 Beta completed at90e86ad with final clean All/package/image/independent proof; no active task or required Beta action, no public release.",
+      "supersedes": [],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "short",
+      "title": "Completed local Beta scope and final evidence handoff",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:49:55Z",
+      "valid_as_of": "2026-10-17"
     },
     {
       "blockers": [],
@@ -400,6 +483,94 @@
       "type_version": 1,
       "updated_at": "2026-09-12T07:11:27Z",
       "valid_as_of": "2026-09-12"
+    },
+    {
+      "blockers": [],
+      "confidence": "high",
+      "created_at": "2026-10-16T17:34:13Z",
+      "derived_from": [],
+      "effective_status": "completed",
+      "event_id": "beta-components-plan-20261017-v1",
+      "expired": false,
+      "id": "PLAN-20261016-DB1C18",
+      "kind": "plan",
+      "next_actions": [],
+      "path": "short/plans/plan-20261016-db1c18-beta-component-acceptance-and-implementation-plan.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "samples",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "1f7b132dc3947bb55ee2a454ba3355f353bfd2006a0346cbd40c4e882a0b6f1d",
+      "sources": [
+        "User roadmap clarification 2026-10-17: Alpha rendering and few controls, Beta expands controls and framework capability",
+        "docs/alpha-acceptance.md milestone boundary",
+        "docs/beta-development.md B01-B10 completion contract",
+        "artifacts/beta-verification/bootstrap.log native dev build success, historical managed CS0103 ReorderChildren failure",
+        "RPT-20261016-0EE9B5 final B01-B10 local Beta acceptance",
+        "docs/beta-review.md independent46-clause final proof"
+      ],
+      "status": "completed",
+      "summary": "All B01-B10 plan requirements completed and accepted at clean90e86ad with final Debug/Release All, stable packages, image QA and independent clause proof.",
+      "supersedes": [],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "short",
+      "title": "Beta component acceptance and implementation plan",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:45:06Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
+      "confidence": "high",
+      "created_at": "2026-10-17T02:52:49Z",
+      "derived_from": [],
+      "effective_status": "active",
+      "event_id": "beta-pr-review-merge-plan-20261017-v1",
+      "expired": false,
+      "id": "PLAN-20261017-EFE3A2",
+      "kind": "plan",
+      "next_actions": [
+        "Freeze/push independently confirmed PR35 Grid repair and run fresh complete revision-specific gates/CI.",
+        "Record final premerge review, verify final-head CI and input-test condition, merge and record actual GitHub state."
+      ],
+      "path": "short/plans/plan-20261017-efe3a2-beta-pr-independent-review-and-merge-plan.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "9ac4b216a8b82eef7eda1a6dcd1c007d1ff7da4f4b6ecd3a7fdc000ab3bc9900",
+      "sources": [
+        "User authorized PR+independent review+merge2026-10-17",
+        "TASK-20261017-06D61A",
+        "docs/beta-review.md completed implementation acceptance",
+        "https://github.com/ting-aaa/YoUI/pull/35",
+        "RPT-20261017-42017B Grid finding/repair and mixed-build evidence boundaries"
+      ],
+      "status": "active",
+      "summary": "Publish Beta PR, independently review actual head, repair/reverify findings, commit review record, verify checks and merge with explicit evidence.",
+      "supersedes": [],
+      "tags": [
+        "beta",
+        "pull-request"
+      ],
+      "task_id": "TASK-20261017-06D61A",
+      "tier": "short",
+      "title": "Beta PR independent review and merge plan",
+      "type_version": 1,
+      "updated_at": "2026-10-17T03:02:25Z",
+      "valid_as_of": "2026-10-17"
     },
     {
       "blockers": [],
@@ -666,6 +837,220 @@
     {
       "blockers": [],
       "confidence": "confirmed",
+      "created_at": "2026-10-16T18:46:00Z",
+      "derived_from": [
+        "RPT-20261016-919434",
+        "RPT-20261016-F4A454"
+      ],
+      "effective_status": "completed",
+      "event_id": "beta-final-local-acceptance-20261017-v1",
+      "expired": false,
+      "id": "RPT-20261016-0EE9B5",
+      "kind": "report",
+      "next_actions": [],
+      "path": "short/reports/rpt-20261016-0ee9b5-beta-b01-b10-local-implementation-and-acceptance-complete.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "samples",
+        "scripts",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "af3ee13679319a3e8ea086bb9f29e108c841568731cab8c8cd1e167f1ed5891b",
+      "sources": [
+        "docs/beta-review.md independent46-clause proof; original receipt SHA256297F24944D2BE6DCAFDB1F4A9E2F49555F8C9EE7E5789F8013317958521B32EF",
+        "docs/beta-development.md B01-B10",
+        "docs/beta-acceptance.md",
+        "artifacts/verification/1a5285693a6444aeae3a80cdaeb33036/result.json",
+        "artifacts/verification/b56c2ee269ec469e89f670c7cb59038f/result.json",
+        "artifacts/beta-final/90e86add65c6ffd24f73dca7a30874176d887474/driver-result.json",
+        "artifacts/beta-final/90e86add65c6ffd24f73dca7a30874176d887474/toolchain.json",
+        "artifacts/beta-final/90e86add65c6ffd24f73dca7a30874176d887474/image-qa.json",
+        "artifacts/beta-packages/0.2.0-beta.1-Debug-e078b5678b144b4a9f5421e64e0651d0/manifest.json",
+        "artifacts/beta-packages/0.2.0-beta.1-Release-01d827e977a54cf5a4a7642e7c9d6584/manifest.json",
+        "artifacts/beta-review-20261017/completion-receipt.md final independent B01-B10 proof",
+        "artifacts/beta-review-20261017/final-evidence-validation.json",
+        "Root explicit final reviewer success and task closure authorization 2026-10-17"
+      ],
+      "status": "completed",
+      "summary": "All B01-B10 accepted at clean90e86ad: final Debug/Release All, stable same-source package pair, actual GPU/HWND, image QA and independent requirement review; local WindowsDX12 scope only, no publication.",
+      "supersedes": [
+        "RPT-20261016-919434"
+      ],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "short",
+      "title": "Beta B01-B10 local implementation and acceptance complete",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:48:00Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
+      "confidence": "high",
+      "created_at": "2026-10-16T18:25:40Z",
+      "derived_from": [
+        "RPT-20261016-F4A454"
+      ],
+      "effective_status": "superseded",
+      "event_id": "beta-first-clean-freeze-and-scope-failure-20261017-v1",
+      "expired": false,
+      "id": "RPT-20261016-919434",
+      "kind": "report",
+      "next_actions": [
+        "Preserve original RadioGroup scope reproduction and independently confirmed repaired result.",
+        "Create second clean freeze and rerun Debug/Release All plus stable local package pair and inspect fresh images."
+      ],
+      "path": "short/reports/rpt-20261016-919434-clean-beta-all-gates-passed-with-new-keyboard-scope-failure.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "scripts",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "59b480653467976573c8203910e5a03b2c8cfef55ecdc0b75bdb42b8c183222e",
+      "sources": [
+        "artifacts/verification/c8029b74b7114e9f9fede5f2705e6aa0/result.json",
+        "artifacts/verification/8539b609ca90422298f9205733dad1fa/result.json",
+        "artifacts/beta-final/0555ea504eaf7a95aa9e44350b367ef16c704fce/Debug-All.log",
+        "artifacts/beta-final/0555ea504eaf7a95aa9e44350b367ef16c704fce/Release-All.log",
+        "artifacts/beta-review-20261017/repro-modal-0555ea5.log",
+        "artifacts/beta-review-20261017/repro-modal-repaired.log",
+        "artifacts/beta-verification/orchestration-final.log",
+        "artifacts/beta-verification/mouse-condition.txt",
+        "Root second-freeze checkpoint and beta_controls followup memory_delta on 2026-10-17"
+      ],
+      "status": "superseded",
+      "summary": "Clean0555ea5 Debug/Release All passed; later RadioGroup scope leak is repaired and independently reproduced, while second freeze All reruns and stable package pair remain pending.",
+      "supersedes": [
+        "RPT-20261016-F4A454"
+      ],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "short",
+      "title": "Clean Beta All gates passed with new keyboard scope failure pending",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:45:06Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
+      "confidence": "high",
+      "created_at": "2026-10-16T18:06:43Z",
+      "derived_from": [],
+      "effective_status": "superseded",
+      "event_id": "beta-pre-freeze-checkpoint-20261017-v1",
+      "expired": false,
+      "id": "RPT-20261016-F4A454",
+      "kind": "report",
+      "next_actions": [
+        "Finish binding normalization and independent review, then freeze product source.",
+        "Rerun complete Debug/Release Logic/Gpu/Window plus package consumers and inspect regenerated screenshots against frozen source."
+      ],
+      "path": "short/reports/rpt-20261016-f4a454-beta-implementation-and-intermediate-verification-checkpoint.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "samples",
+        "scripts",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "8a3b18bebe5229080ba8f0ad1282d4b2093c9449aa8bb56aaa18361dd7979e43",
+      "sources": [
+        "docs/beta-development.md B01-B10 contract",
+        "artifacts/beta-verification/bootstrap.log",
+        "artifacts/beta-verification/editor-debug-content.log",
+        "artifacts/verification/dfa133f9ad3b4605883ef11ddcdd5151/result.json",
+        "artifacts/verification/20e4f8cafa144d3abc5c293906ed1626/result.json",
+        "artifacts/beta-verification/beta-expanded.log",
+        "artifacts/beta-headless.json",
+        "artifacts/beta-verification/mouse-condition.txt",
+        "artifacts/beta-packages/0.2.0-beta.1-Debug-191bf84f6df9413686f3ec2352d87122/manifest.json",
+        "artifacts/beta-packages/0.2.0-beta.1-Release-cd220fe2a6a3410cae753d24accf0b35/manifest.json",
+        "Root prefreeze checkpoint and beta_controls/beta_packaging memory_delta on 2026-10-17"
+      ],
+      "status": "superseded",
+      "summary": "B01-B09 implemented; intermediate Logic/Window/GPU/package evidence passes on earlier dirty snapshots, while final B10 freeze and integrated verification remain pending.",
+      "supersedes": [],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "TASK-20261016-665876",
+      "tier": "short",
+      "title": "Beta implementation and intermediate verification checkpoint",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:45:06Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
+      "confidence": "high",
+      "created_at": "2026-10-17T03:01:45Z",
+      "derived_from": [],
+      "effective_status": "active",
+      "event_id": "beta-pr35-grid-review-checkpoint-20261017-v1",
+      "expired": false,
+      "id": "RPT-20261017-42017B",
+      "kind": "report",
+      "next_actions": [
+        "Freeze/push independently repaired-reviewed Grid source and run fresh full acceptance/CI.",
+        "Commit final premerge review record, verify final-head CI and merge with GitHub evidence."
+      ],
+      "path": "short/reports/rpt-20261017-42017b-pr35-grid-review-finding-and-pending-repaired-verification.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs/beta-components.md",
+        "managed/YoUI/Layout.cs",
+        "tests/YoUI.Tests/BetaFrameworkTests.cs"
+      ],
+      "sensitivity": "internal",
+      "sha256": "201638256983a84fa6ff77c1bbdc90bf53750212c53df1ad0821c967da6c602d",
+      "sources": [
+        "https://github.com/ting-aaa/YoUI/pull/35 root created/attached receipt",
+        "git rev-parse HEAD:1dfb4071b72120f289469d76df5ffcebeeff86a4",
+        "artifacts/pr35-review/Program.cs",
+        "artifacts/pr35-review/repro.log",
+        "artifacts/pr35-review/review.md final independent repair review",
+        "artifacts/pr35-review/repaired-build.log zero warnings/errors",
+        "artifacts/pr35-review/repaired-logic.log215 passed",
+        "artifacts/pr35-review/repaired-repro.log GRID PASS",
+        "artifacts/pr35-review/grid-fix-tests.log invalid stale/mixed build output",
+        "artifacts/pr35-review/logic.log invalid stale/mixed build output",
+        "managed/YoUI/Layout.cs GetCell uncommitted repair",
+        "tests/YoUI.Tests/BetaFrameworkTests.cs two reattachment regression groups",
+        "Root checkpoint CI38996686797 at1dfb407 running and fresh idle question pending2026-10-17"
+      ],
+      "status": "active",
+      "summary": "PR35 independent P2 Grid stale placement repaired/reviewed; serial build clean,215 managed checks and original repro passed. Final frozen-head full gates/CI and merge remain pending; mixed-build failures retained.",
+      "supersedes": [],
+      "tags": [
+        "beta",
+        "pull-request"
+      ],
+      "task_id": "TASK-20261017-06D61A",
+      "tier": "short",
+      "title": "PR35 Grid review finding and pending repaired verification",
+      "type_version": 1,
+      "updated_at": "2026-10-17T03:02:25Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
+      "confidence": "confirmed",
       "created_at": "2026-09-12T05:45:27Z",
       "derived_from": [],
       "effective_status": "active",
@@ -772,7 +1157,7 @@
       "confidence": "confirmed",
       "created_at": "2026-09-12T05:45:27Z",
       "derived_from": [],
-      "effective_status": "active",
+      "effective_status": "superseded",
       "event_id": "youi-task-implementation-20260912",
       "expired": false,
       "id": "TASK-20260912-CC3A20",
@@ -786,11 +1171,11 @@
       "schema_version": 1,
       "scope": [],
       "sensitivity": "internal",
-      "sha256": "c87f8f944142ffcaa1555c23ecd55ae2c72d630725da4ae0d6285fb61d86ce47",
+      "sha256": "cfeacc819b3d2e4d21debca456424852667a7e0c871dc9d19df9bbaef919316d",
       "sources": [
         "User request 2026-09-12"
       ],
-      "status": "active",
+      "status": "superseded",
       "summary": "First Windows desktop foundation delivered and verified; broad shared-design implementation remains active and incomplete.",
       "supersedes": [],
       "tags": [],
@@ -798,8 +1183,102 @@
       "tier": "short",
       "title": "Build native rendering engine and C# UI",
       "type_version": 1,
-      "updated_at": "2026-09-12T09:00:00Z",
+      "updated_at": "2026-10-16T17:34:13Z",
       "valid_as_of": "2026-09-12"
+    },
+    {
+      "blockers": [],
+      "confidence": "confirmed",
+      "created_at": "2026-10-16T17:33:36Z",
+      "derived_from": [],
+      "effective_status": "completed",
+      "event_id": "beta-components-task-20261017-v1",
+      "expired": false,
+      "id": "TASK-20261016-665876",
+      "kind": "task",
+      "next_actions": [],
+      "path": "short/tasks/task-20261016-665876-implement-beta-component-milestone.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "samples",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "45933997f413b822be008effcdc4d53c10531e00de66d2a0dfd6d1137e3ed03f",
+      "sources": [
+        "User goal 2026-10-17: 规划beta版本的开发计划和完整功能实现",
+        "docs/alpha-acceptance.md: Beta more components, 1.0 complete UI capabilities",
+        "git rev-parse HEAD: e336d6e6ec8881764d5b3a8053e152f791ddb581",
+        "docs/beta-development.md B01-B10 agreement",
+        "artifacts/beta-verification/bootstrap.log native dev build success, historical managed CS0103 ReorderChildren failure",
+        "git branch --show-current on resume: codex/beta-components",
+        "RPT-20261016-0EE9B5 final clean90e86ad local Beta acceptance",
+        "docs/beta-review.md final independent46-clause B01-B10 proof",
+        "artifacts/beta-verification/mouse-condition.txt explicit mouse-idle agreement"
+      ],
+      "status": "completed",
+      "summary": "Full B01-B10 local WindowsDX12 Beta completed and independently accepted at clean90e86ad; final Debug/Release All, stable packages and image proof passed, no required Beta actions remain.",
+      "supersedes": [
+        "TASK-20260912-CC3A20"
+      ],
+      "tags": [
+        "beta"
+      ],
+      "task_id": "",
+      "tier": "short",
+      "title": "Implement Beta component milestone",
+      "type_version": 1,
+      "updated_at": "2026-10-16T18:45:06Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
+      "confidence": "confirmed",
+      "created_at": "2026-10-17T02:52:30Z",
+      "derived_from": [],
+      "effective_status": "active",
+      "event_id": "beta-pr-review-merge-task-20261017-v1",
+      "expired": false,
+      "id": "TASK-20261017-06D61A",
+      "kind": "task",
+      "next_actions": [
+        "Freeze/push independently repaired-reviewed PR35 Grid source; run fresh complete local gates and final-head CI.",
+        "Commit final premerge review record, verify final-head required checks and authorized input-test conditions, then merge and capture GitHub proof."
+      ],
+      "path": "short/tasks/task-20261017-06d61a-create-independently-review-and-merge-beta-pr.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "e782c401f5c9864c4e8995185ecee633ef1775533defa89d2b015db8fa5d1523",
+      "sources": [
+        "User request2026-10-17: 发起PR并进行独立审查后合并",
+        "git rev-parse HEAD:2ad3a49c56ec9e59edda0590186ef4b2e1a70f42 clean codex/beta-components",
+        "Root successful git fetch origin on this request; origin/main e336d6e0behind3ahead no existing PR",
+        "RPT-20261016-0EE9B5 completed local Beta acceptance at90e86ad",
+        "https://github.com/ting-aaa/YoUI/pull/35 created/attached and branch pushed",
+        "RPT-20261017-42017B independent Grid finding and repair-verification checkpoint"
+      ],
+      "status": "active",
+      "summary": "PR35 Grid P2 repaired and independently confirmed by clean serial build,215 managed checks and original repro; fresh full gates/final CI/merge pending, prior Beta task completed.",
+      "supersedes": [],
+      "tags": [
+        "beta",
+        "pull-request"
+      ],
+      "task_id": "",
+      "tier": "short",
+      "title": "Create independently review and merge Beta PR",
+      "type_version": 1,
+      "updated_at": "2026-10-17T03:02:25Z",
+      "valid_as_of": "2026-10-17"
     }
   ],
   "schema_version": 1,

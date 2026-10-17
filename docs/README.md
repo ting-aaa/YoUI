@@ -2,7 +2,10 @@
 
 [返回项目首页](../README.md)
 
-这套文档对应仓库当前 **0.1.0** 实现。YoUI 由独立 Rust 渲染器、可选 Rust 场景树、C# 保留式 UI、Windows 宿主及尚未完成原生窗口验收的 Linux X11 实验宿主组成。目前在 Windows x64 上验证了 **DX12 / Vulkan / 原生 OpenGL**，详见[渲染后端验证](render-backends.md)；其他平台和未实现能力见[设计对照](design-status.md)。
+这套文档涵盖 **0.1 Alpha 基础与本分支的 0.2 Beta 增量**。YoUI 由独立 Rust 渲染器、可选 Rust 场景树、C# 保留式 UI、Windows 宿主及尚未完成原生窗口验收的 Linux X11 实验宿主组成。历史 Windows x64 **DX12 / Vulkan / 原生 OpenGL** 证据见[渲染后端验证](render-backends.md)；本轮 Beta 在 Windows x64 / DX12 上验收，其他平台和未实现能力见[设计对照](design-status.md)。
+
+Beta 开发分支的增量能力与本轮验收另见 [Beta 计划](beta-development.md) 和 [Beta 验收](beta-acceptance.md)；上述后端历史
+结果不自动成为当前 Beta 提交的完整平台验收。
 
 ## 从这里开始
 
@@ -21,6 +24,7 @@
 | 理解分层、颜色、绘制顺序与性能边界 | [架构约定](architecture.md) |
 | 了解已经完成的验证和仍未验证的能力 | [验证记录](verification.md)、[设计对照](design-status.md) |
 | 核对 Alpha 渲染与基础 Demo 范围、证据和剩余验收 | [Alpha 验收清单](alpha-acceptance.md) |
+| 核对 Beta 组件扩充的计划、能力和验收 | [Beta 开发计划](beta-development.md)、[Beta 组件与框架](beta-components.md)、[Beta 验收报告](beta-acceptance.md) |
 
 建议第一次使用时按“快速开始 → 使用指南 → 对应模块 API”阅读。Editor 用户可以先阅读 Editor 指南，再查资源和导出 API。
 

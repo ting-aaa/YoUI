@@ -44,7 +44,7 @@ public sealed class EditorSession
     private void SetReference(string id, AnchorMode? anchor, Vector2? pivot, Rect parentContent)
     {
         var current = Find(id);
-        if (id == Asset.Root.Id || ParentOf(id)?.IsStack == true) throw new InvalidDataException("The parent layout owns this node's position.");
+        if (id == Asset.Root.Id || ParentOf(id)?.ControlsChildLayout == true) throw new InvalidDataException("The parent layout owns this node's position.");
         if (pivot.HasValue && current.Anchor == AnchorMode.Stretch) throw new InvalidDataException("Stretch uses edge insets; choose a fixed anchor to edit the pivot.");
         if ((anchor.HasValue && anchor.Value == current.Anchor) || (pivot.HasValue && pivot.Value == current.Pivot)) return;
         var bounds = current.Transform.Resolve(parentContent);
@@ -82,7 +82,11 @@ public sealed class EditorSession
         if (kind == NodeKind.Canvas) throw new InvalidOperationException("Use New for an artboard.");
         string parent = Selected.IsContainer ? SelectedId : ParentOf(SelectedId)!.Id;
         var node = new UiNode { Kind = kind, Name = kind.ToString(), Text = kind switch { NodeKind.Text => "Your text", NodeKind.Button => "Continue", NodeKind.Toggle => "Option", _ => "" }, X = 24, Y = 24, Width = kind is NodeKind.Panel or NodeKind.VerticalStack or NodeKind.HorizontalStack ? 280 : 180, Height = kind is NodeKind.Panel or NodeKind.VerticalStack or NodeKind.HorizontalStack ? 180 : 44, Fill = kind is NodeKind.Panel or NodeKind.VerticalStack or NodeKind.HorizontalStack ? "#1F2937" : "#00000000", Primary = kind == NodeKind.Button };
-        Edit(a => a.Root.DescendantsAndSelf().First(n => n.Id == parent).Children.Add(node)); Select(node.Id);
+        if (kind is NodeKind.CheckBox or NodeKind.RadioButton) node.Text = "Option";
+        if (kind is NodeKind.Grid or NodeKind.Wrap or NodeKind.Content or NodeKind.TabControl or NodeKind.ScrollView) { node.Width = 280; node.Height = 180; }
+        if (kind == NodeKind.Separator) node.Height = 1;
+        if (kind == NodeKind.DataGrid) { node.Width = 320; node.Height = 180; }
+        Edit(a => { var target = a.Root.DescendantsAndSelf().First(n => n.Id == parent); if (kind > NodeKind.HorizontalStack || target.Kind == NodeKind.Button) a.Version = 2; target.Children.Add(node); }); Select(node.Id);
     }
     public void Delete()
     {
@@ -97,7 +101,7 @@ public sealed class EditorSession
         Edit(a =>
         {
             var p = a.Root.DescendantsAndSelf().First(n => n.Id == parent); int i = p.Children.FindIndex(n => n.Id == id);
-            var copy = UiAssetJson.Parse(UiAssetJson.Serialize(new UiAsset { Root = new UiNode { Kind = NodeKind.Canvas, Width = 640, Height = 480, Children = [p.Children[i]] } })).Root.Children[0];
+            var copy = UiAssetJson.Parse(UiAssetJson.Serialize(new UiAsset { Version = a.Version, Root = new UiNode { Kind = NodeKind.Canvas, Width = 640, Height = 480, Children = [p.Children[i]] } })).Root.Children[0];
             foreach (var n in copy.DescendantsAndSelf()) n.Id = Guid.NewGuid().ToString("N");
             copy.Name += " copy"; if (!p.IsStack) { copy.X += 16; copy.Y += 16; } next = copy.Id; p.Children.Insert(i + 1, copy);
         }); Select(next);
@@ -112,7 +116,7 @@ public sealed class EditorSession
         var node = Find(id); var parent = Find(parentId);
         if (id == Asset.Root.Id || !parent.IsContainer || node.DescendantsAndSelf().Any(n => n.Id == parentId)) throw new InvalidDataException("Drop onto a container outside this subtree.");
         string old = ParentOf(id)!.Id; if (old == parentId) return;
-        Edit(a => { var all = a.Root.DescendantsAndSelf().ToDictionary(n => n.Id); var n = all[id]; all[old].Children.Remove(n); all[parentId].Children.Add(n); }); Select(id);
+        Edit(a => { var all = a.Root.DescendantsAndSelf().ToDictionary(n => n.Id); var n = all[id]; all[old].Children.Remove(n); all[parentId].Children.Add(n); if (all[parentId].Kind == NodeKind.Button) a.Version = 2; }); Select(id);
     }
     public void New() => Replace(Starter(), null);
     public void Open(string path) { var asset = UiAssetJson.Load(path); Replace(asset, Path.GetFullPath(path)); }

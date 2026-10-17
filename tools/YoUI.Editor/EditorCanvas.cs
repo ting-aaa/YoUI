@@ -82,7 +82,7 @@ public sealed class EditorCanvas : Element
         for (int i = n.Children.Count - 1; i >= 0; i--) { var hit = Hit(n.Children[i], point, clip); if (hit != null) return hit; }
         return b.Contains(point) ? n : null;
     }
-    public bool CanManipulate => session.SelectedId != session.Asset.Root.Id && session.ParentOf(session.SelectedId)?.IsStack != true && session.Selected.Anchor != AnchorMode.Stretch;
+    public bool CanManipulate => session.SelectedId != session.Asset.Root.Id && session.ParentOf(session.SelectedId)?.ControlsChildLayout != true && session.Selected.Layout == null && session.Selected.Anchor != AnchorMode.Stretch;
     public void Forward(UiEvent e)
     {
         EnsureRuntime(); Viewport();

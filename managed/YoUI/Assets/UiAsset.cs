@@ -5,7 +5,8 @@ using System.Text.Json.Serialization;
 
 namespace YoUI.Assets;
 
-public enum NodeKind { Canvas, Panel, Text, Button, Toggle, Slider, TextBox, VerticalStack, HorizontalStack }
+public enum NodeKind { Canvas, Panel, Text, Button, Toggle, Slider, TextBox, VerticalStack, HorizontalStack,
+    CheckBox, RadioButton, ComboBox, NumericUpDown, ProgressBar, TabControl, Separator, DataGrid, Content, Grid, Wrap, VirtualList, TreeView, ScrollView }
 public enum AnchorMode { TopLeft, Center, Stretch, TopCenter, TopRight, CenterLeft, CenterRight, BottomLeft, BottomCenter, BottomRight }
 
 /// <summary>Versioned authoring data. Never contains GPU resources, resolved bounds, or executable code.</summary>
@@ -39,9 +40,12 @@ public sealed class UiNode
     public bool Checked { get; set; }
     public float Value { get; set; } = .5f;
     public string Command { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public BetaNodeOptions? Beta { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public BoxLayout? Layout { get; set; }
     public List<UiNode> Children { get; set; } = [];
-    [JsonIgnore] public bool IsContainer => Kind is NodeKind.Canvas or NodeKind.Panel or NodeKind.VerticalStack or NodeKind.HorizontalStack;
+    [JsonIgnore] public bool IsContainer => Kind is NodeKind.Canvas or NodeKind.Panel or NodeKind.Button or NodeKind.VerticalStack or NodeKind.HorizontalStack or NodeKind.Content or NodeKind.Grid or NodeKind.Wrap or NodeKind.TabControl or NodeKind.ScrollView;
     [JsonIgnore] public bool IsStack => Kind is NodeKind.VerticalStack or NodeKind.HorizontalStack;
+    [JsonIgnore] public bool ControlsChildLayout => IsStack || Kind is NodeKind.Button or NodeKind.Grid or NodeKind.Wrap or NodeKind.TabControl or NodeKind.Content or NodeKind.ScrollView;
     public IEnumerable<UiNode> DescendantsAndSelf() { yield return this; foreach (var c in Children) foreach (var n in c.DescendantsAndSelf()) yield return n; }
     public static Vector2 AnchorPoint(AnchorMode anchor) => anchor switch
     {
@@ -96,7 +100,7 @@ public static class UiAssetJson
     }
     public static void Validate(UiAsset asset)
     {
-        if (asset.Version != 1) throw new InvalidDataException($"Unsupported UI asset version {asset.Version}.");
+        if (asset.Version is not (1 or 2)) throw new InvalidDataException($"Unsupported UI asset version {asset.Version}.");
         CheckString(asset.Name, 128);
         if (asset.Root is null || asset.Root.Kind != NodeKind.Canvas) throw new InvalidDataException("Root must be a Canvas.");
         var ids = new HashSet<string>(); int count = 0;
@@ -105,6 +109,7 @@ public static class UiAssetJson
             if (n is null || depth > 24 || ++count > 1000) throw new InvalidDataException("UI limit: 1000 nodes, 24 levels.");
             if (!Guid.TryParseExact(n.Id, "N", out _) || !ids.Add(n.Id)) throw new InvalidDataException("Node IDs must be unique GUIDs.");
             if (!Enum.IsDefined(n.Kind) || !Enum.IsDefined(n.Anchor)) throw new InvalidDataException("Unknown node or anchor kind.");
+            BetaAssetComponents.Validate(n, asset.Version);
             if (depth > 0 && n.Kind == NodeKind.Canvas) throw new InvalidDataException("Canvas is only allowed at the root.");
             CheckString(n.Name, 128); CheckString(n.Text, 16384); CheckString(n.Command, 128); CheckString(n.Foreground, 9);
             _ = ParseColor(n.Fill); if (n.Foreground.Length != 0) _ = ParseColor(n.Foreground);
@@ -115,7 +120,8 @@ public static class UiAssetJson
             if (n.Children is null || (!n.IsContainer && n.Children.Count != 0)) throw new InvalidDataException("Only containers may have children.");
             foreach (var c in n.Children)
             {
-                if (n.IsStack && c != null && (c.Width < 0 || c.Height < 0)) throw new InvalidDataException("Stack children require non-negative dimensions.");
+                if (n.ControlsChildLayout && c != null && (c.Width < 0 || c.Height < 0)) throw new InvalidDataException("Layout children require non-negative dimensions.");
+                if (c != null) BetaAssetComponents.ValidateChild(n, c);
                 Visit(c!, depth + 1);
             }
         }
@@ -136,6 +142,7 @@ public static class UiAssetRuntime
     {
         UiAssetJson.Validate(asset);
         var nodes = new Dictionary<string, Element>();
+        var groups = new Dictionary<string, RadioGroup>(StringComparer.Ordinal);
         Element BuildNode(UiNode n, UiNode? parent)
         {
             Element e = n.Kind switch
@@ -146,9 +153,10 @@ public static class UiAssetRuntime
                 NodeKind.Slider => new Slider { Name = n.Name, Value = n.Value },
                 NodeKind.TextBox => new TextBox { Name = n.Name, Text = n.Text, Placeholder = n.Name },
                 NodeKind.VerticalStack or NodeKind.HorizontalStack => new StackPanel { Name = n.Name, Horizontal = n.Kind == NodeKind.HorizontalStack, Gap = n.Gap },
-                _ => new Element { Name = n.Name }
+                _ => BetaAssetComponents.Create(n)
             };
-            Apply(e, n, parent?.IsStack == true, parent == null);
+            Apply(e, n, parent?.ControlsChildLayout == true, parent == null);
+            BetaAssetComponents.Configure(e, n, groups);
             if (e is Button button)
             {
                 button.Caption.FontSize = n.FontSize; button.Caption.Bold = n.Bold;
@@ -156,7 +164,8 @@ public static class UiAssetRuntime
                 if (n.Command.Length != 0) { string name = n.Command; button.Clicked += () => command?.Invoke(name); }
             }
             nodes.Add(n.Id, e);
-            foreach (var child in n.Children) e.Add(BuildNode(child, n));
+            foreach (var child in n.Children) BetaAssetComponents.AttachChild(e, BuildNode(child, n), child);
+            BetaAssetComponents.Complete(e, n);
             return e;
         }
         return new(BuildNode(asset.Root, null), nodes);
@@ -166,7 +175,8 @@ public static class UiAssetRuntime
     {
         e.Background = UiAssetJson.ParseColor(n.Fill); e.Radius = n.Radius; e.Padding = n.Padding;
         e.InheritedOpacity = n.Opacity; e.ClipToBounds = n.Clip; e.Visible = n.Visible; e.Enabled = n.Enabled; e.Grow = n.Grow;
+        if (n.Layout != null) e.Layout = n.Layout;
         if (stackChild) { e.Width = n.Width; e.Height = n.Height; }
-        else if (!root) e.Transform = n.Transform;
+        else if (!root && n.Layout == null) e.Transform = n.Transform;
     }
 }

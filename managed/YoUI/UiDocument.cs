@@ -7,7 +7,7 @@ public sealed record SemanticNode(string Name, string Role, string Value, Rect B
 public interface IClipboard { string GetText(); void SetText(string text); }
 
 /// <summary>One UI thread; frozen dispatch paths permit safe tree mutation in handlers.</summary>
-public sealed class UiDocument
+public sealed partial class UiDocument
 {
     private DirtyFlags dirty = DirtyFlags.All;
     private Vector2 size;
@@ -66,7 +66,12 @@ public sealed class UiDocument
         if (!float.IsFinite(width) || !float.IsFinite(height) || width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width));
         if (size == new Vector2(width, height)) return; size = new(width, height); Invalidate(DirtyFlags.All);
     }
-    internal void Invalidate(DirtyFlags flags) => dirty |= Element.ExpandInvalidation(flags);
+    internal void Invalidate(DirtyFlags flags)
+    {
+        dirty |= Element.ExpandInvalidation(flags);
+        PrunePopups();
+        if (popups.Any(p => p.Anchor != p.Owner.VisualBounds)) dirty |= DirtyFlags.All;
+    }
     private void BeginUpdate()
     {
         if (updating) throw new InvalidOperationException("Document updates cannot be nested inside layout, paint or semantic callbacks.");
@@ -77,6 +82,7 @@ public sealed class UiDocument
         var consumed = consumedDirty;
         consumed.Clear();
         Root.ConsumeDirty(flags, consumed);
+        foreach (var popup in popups.ToArray()) if (popup.IsOpen) popup.Content.ConsumeDirty(flags, consumed);
         dirty &= ~flags;
         return consumed;
     }
@@ -112,7 +118,7 @@ public sealed class UiDocument
         // Consume the entire stage before any callback, including Measure and custom Arrange overrides.
         var consumed = Consume(DirtyFlags.Layout);
         Invalidate(DirtyFlags.Paint | DirtyFlags.Semantics);
-        try { Root.Measure(size); Root.Arrange(new(0, 0, size.X, size.Y)); LayoutPasses++; }
+        try { Root.Measure(size); Root.Arrange(new(0, 0, size.X, size.Y)); ArrangePopups(); LayoutPasses++; }
         catch { Restore(DirtyFlags.Layout, consumed); throw; }
         finally { consumed.Clear(); }
     }
@@ -128,7 +134,14 @@ public sealed class UiDocument
                 try
                 {
                     frame.Clear(); frame.Rectangle(new(0, 0, size.X, size.Y), Theme.Background);
-                    Root.PaintTree(frame, Vector2.Zero, 1, Theme); PaintPasses++;
+                    Root.PaintTree(frame, Vector2.Zero, 1, Theme);
+                    if (popups.Count > 0)
+                    {
+                        frame.PushClip(new(0, 0, size.X, size.Y));
+                        foreach (var popup in popups.ToArray()) if (popup.IsOpen) popup.Content.PaintTree(frame, Vector2.Zero, 1, Theme);
+                        frame.PopClip();
+                    }
+                    PaintPasses++;
                 }
                 catch { Restore(DirtyFlags.Paint, consumed); throw; }
                 finally { consumed.Clear(); }
@@ -142,11 +155,17 @@ public sealed class UiDocument
         if (!root.Visible || !root.Enabled) yield break;
         yield return root; foreach (var child in root.Children) foreach (var n in Traverse(child)) yield return n;
     }
-    private bool Active(Element node) => node.Document == this && Traverse(modal ?? Root).Contains(node);
+    private bool Active(Element node) => node.Document == this && (Traverse(modal ?? Root).Contains(node) || popups.Any(p => p.IsOpen && PopupOwnerActive(p.Owner) && Traverse(p.Content).Contains(node)));
+    private Element KeyboardNavigationRoot => popups.Count > 0 ? popups[^1].Content : modal ?? Root;
+    /// <summary>Keyboard navigation stays within the top popup, then modal, then root.
+    /// This is narrower than attachment/focus eligibility while overlays are open.</summary>
+    internal bool IsInKeyboardNavigationScope(Element node) => node.Document == this && Traverse(KeyboardNavigationRoot).Contains(node);
     internal void Detached(Element root)
     {
         Exception? failure = null;
         void Cleanup(Action action) { try { action(); } catch (Exception error) { failure ??= error; } }
+        foreach (var popup in popups.ToArray().Reverse())
+            if (popup.Owner.IsDescendantOf(root) || popup.Content.IsDescendantOf(root)) Cleanup(popup.Dispose);
         if (Focused?.IsDescendantOf(root) == true) Cleanup(() => Focus(null));
         Cleanup(() => CancelPointer(root));
         if (hovered?.IsDescendantOf(root) == true) { hovered.IsHovered = false; hovered.Invalidate(); hovered = null; }
@@ -166,10 +185,14 @@ public sealed class UiDocument
     }
     public void SetModal(Element? element)
     {
-        if (element != null && element.Document != this) throw new InvalidOperationException("Modal must be attached to this document.");
+        if (element != null && (element.Document != this || !element.IsDescendantOf(Root))) throw new InvalidOperationException("Modal must belong to this document's root tree.");
+        Exception? popupFailure = null;
+        foreach (var popup in popups.ToArray().Reverse())
+            try { popup.Dispose(); } catch (Exception error) { popupFailure ??= error; }
+        if (popupFailure != null) ExceptionDispatchInfo.Capture(popupFailure).Throw();
         Invalidate(DirtyFlags.Semantics);
-        if (element != null) { focusBeforeModal = Focused; modal = element; CancelPointer(); Focus(Traverse(element).FirstOrDefault(e => e.Focusable)); }
-        else { var previous = focusBeforeModal; modal = null; focusBeforeModal = null; Focus(previous); }
+        if (element != null) { focusBeforeModal = Focused; modal = element; PrunePopups(); CancelPointer(); Focus(Traverse(element).FirstOrDefault(e => e.Focusable)); }
+        else { var previous = focusBeforeModal; modal = null; focusBeforeModal = null; PrunePopups(); Focus(previous); }
     }
     // Recycled controls invalidate only gestures tied to their old subtree identity.
     internal void CancelPointer(Element? subtree)
@@ -208,16 +231,23 @@ public sealed class UiDocument
         EnsureLayout();
         PreviewInput?.Invoke(e);
         if (e.Handled) return;
+        if (popups.Count > 0)
+        {
+            var top = popups[^1];
+            if (e.Kind == EventKind.KeyDown && e.Key == 27) { top.Dispose(); e.Handled = true; return; }
+            if (e.Kind == EventKind.PointerDown && !top.Content.VisualBounds.Contains(e.Position))
+            { top.Dispose(); e.Handled = true; return; }
+        }
         if (Focused != null && !Active(Focused)) Focus(null);
         if (captured != null && !Active(captured)) CancelPointer();
         if (e.Kind == EventKind.KeyDown && e.Key == 9)
         {
-            var all = Traverse(modal ?? Root).Where(n => n.Focusable).ToArray();
+            var all = Traverse(KeyboardNavigationRoot).Where(n => n.Focusable).ToArray();
             if (all.Length > 0) { int index = Array.IndexOf(all, Focused); Focus(all[index < 0 ? (e.Shift ? all.Length - 1 : 0) : (index + (e.Shift ? all.Length - 1 : 1)) % all.Length]); }
             return;
         }
         bool pointer = e.Kind is EventKind.PointerDown or EventKind.PointerMove or EventKind.PointerUp or EventKind.Scroll;
-        var hit = pointer ? (modal ?? Root).HitTest(e.Position, new(0, 0, size.X, size.Y), AncestorOffset(modal)) : null;
+        var hit = pointer ? HitTestPopups(e.Position) ?? (modal ?? Root).HitTest(e.Position, new(0, 0, size.X, size.Y), AncestorOffset(modal)) : null;
         if (e.Kind == EventKind.PointerMove && hovered != hit)
         {
             if (hovered != null) { hovered.IsHovered = false; hovered.Invalidate(); }
@@ -259,7 +289,7 @@ public sealed class UiDocument
             var consumed = Consume(DirtyFlags.Semantics);
             try
             {
-                return Traverse(modal ?? Root).Where(e => e.Focusable || e.Role == "text").Select(e => new SemanticNode(e.AccessibleName, e.Role, e.SemanticValue, e.Bounds.Translate(AncestorOffset(e) + e.VisualOffset), e.Enabled, e.IsFocused)).ToArray();
+                return Traverse(modal ?? Root).Concat(popups.Where(p => p.IsOpen).SelectMany(p => Traverse(p.Content))).Where(e => e.Focusable || e.Role is "text" or "progressbar" or "combobox" or "spinbutton" or "tablist").Select(e => new SemanticNode(e.AccessibleName, e.Role, e.SemanticValue, e.Bounds.Translate(AncestorOffset(e) + e.VisualOffset), e.Enabled, e.IsFocused)).ToArray();
             }
             catch { Restore(DirtyFlags.Semantics, consumed); throw; }
             finally { consumed.Clear(); }

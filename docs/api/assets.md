@@ -4,6 +4,10 @@
 
 项目：`managed/YoUI`，命名空间：`YoUI.Assets`。源码：[UiAsset.cs](../../managed/YoUI/Assets/UiAsset.cs)。资源解析与控件树构造不创建 GPU 设备，运行时无需引用 Editor。
 
+Beta 增加版本 2 和可选 `UiNode.Beta` / `UiNode.Layout`。版本 1 的输入和公开入口保留；
+在 v1 中混入新增类型或设置会拒绝。新增节点、选项、布局和制作限制详见
+[Beta 组件与框架](../beta-components.md)，源码为 [BetaAssetComponents.cs](../../managed/YoUI/Assets/BetaAssetComponents.cs)。
+
 ## UiAsset
 
 `sealed class UiAsset`，使用默认构造函数和可读写属性：
@@ -24,14 +28,18 @@
 | `Canvas` | Element（仅允许根节点） | 是 |
 | `Panel` | Element | 是 |
 | `Text` | Label | 否 |
-| `Button` | Button | 否 |
+| `Button` | Button | v1 否；v2 最多一个内容子节点 |
 | `Toggle` | Toggle | 否 |
 | `Slider` | Slider | 否 |
 | `TextBox` | TextBox | 否 |
 | `VerticalStack` | StackPanel | 是 |
 | `HorizontalStack` | StackPanel { Horizontal=true } | 是 |
 
-Button 的 Caption 是运行时内部节点，不写入资源 Children。TreeView、VirtualList、ScrollView、PropertyGrid、自定义控件和图像尚无此格式的 NodeKind。
+Button 的 Caption 是运行时内部节点，不写入资源 Children；v2 可用一个子节点替换 Content。
+Beta v2 新增 CheckBox、RadioButton、
+ComboBox、NumericUpDown、ProgressBar、TabControl、Separator、DataGrid、Content、Grid、Wrap、
+VirtualList、TreeView 和 ScrollView。Content 最多一个子节点，Grid/Wrap/TabControl/ScrollView
+拥有子项布局。PropertyGrid、自定义控件和图像仍没有此格式的 NodeKind。
 
 `AnchorMode`：
 
@@ -104,7 +112,7 @@ JSON 属性名为 camelCase，枚举写为名称，如 `"VerticalStack"`；不�
 
 | 项目 | 规则 |
 | --- | --- |
-| 版本与根 | Version=1；唯一根必须是 Canvas；子节点不能是 Canvas |
+| 版本与根 | Version=1 或 2；唯一根必须是 Canvas；子节点不能是 Canvas；Beta 数据要求 v2 |
 | ID | 每个节点都是不带连字符的 32 位 GUID（N 格式），整个资源中唯一 |
 | 数量 / 深度 | 最多 1000 个节点；根深度=0，节点深度不得超过 24 |
 | 画板 | Width/Height 在 64..4096；TopLeft、Visible=true、Enabled=true |

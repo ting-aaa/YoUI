@@ -4,6 +4,10 @@
 
 Editor 按“先 UI 库，再自举”的顺序实现：树视图、滚动容器、属性表单、按钮和输入框都来自 `managed/YoUI`，Editor 自身也是一棵 YoUI 控件树。Windows 层只提供窗口、输入和文件对话框，图形仍由独立 Rust 渲染器完成。
 
+Beta 增加可搜索滚动组件面板、v2 常用控件/布局/按钮内容制作与属性编辑；v1 文件继续
+兼容，升级和制作修改可撤销。可直接打开 [Beta 示例](examples/beta.youi.json)。完整能力与
+限制见 [Beta 指南](beta-components.md)，多选、Prefab、时间轴和完整资产导入继续留在后续阶段。
+
 ## 启动与操作
 
 ```powershell

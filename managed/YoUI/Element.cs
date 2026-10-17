@@ -29,6 +29,7 @@ public class Element
     private readonly IReadOnlyList<Element> readOnlyChildren;
     private bool visible = true, enabled = true, clip;
     private RectTransform? transform;
+    private BoxLayout? layout;
     private float width = float.NaN, height = float.NaN, grow, padding, radius, opacity = 1, groupOpacity = 1;
     private Color background;
     private Vector2 visualOffset;
@@ -53,7 +54,16 @@ public class Element
     public bool Visible { get => visible; set => Set(ref visible, value, DirtyFlags.All); }
     public bool Enabled { get => enabled; set => Set(ref enabled, value, DirtyFlags.Paint | DirtyFlags.Semantics); }
     public bool ClipToBounds { get => clip; set => Set(ref clip, value, DirtyFlags.Paint); }
-    public RectTransform? Transform { get => transform; set => Set(ref transform, value, DirtyFlags.Layout); }
+    public RectTransform? Transform
+    {
+        get => transform;
+        set { if (value != null && layout != null) throw new InvalidOperationException("RectTransform and BoxLayout cannot own the same element."); Set(ref transform, value, DirtyFlags.Layout); }
+    }
+    public BoxLayout? Layout
+    {
+        get => layout;
+        set { value?.Validate(); if (value != null && transform != null) throw new InvalidOperationException("RectTransform and BoxLayout cannot own the same element."); Set(ref layout, value, DirtyFlags.Layout); }
+    }
     public float Width { get => width; set => Set(ref width, Dimension(value), DirtyFlags.Layout); }
     public float Height { get => height; set => Set(ref height, Dimension(value), DirtyFlags.Layout); }
     public float Grow { get => grow; set => Set(ref grow, NonNegative(value), DirtyFlags.Layout); }
@@ -123,6 +133,18 @@ public class Element
         return true;
     }
     public void Clear() { foreach (var child in children.ToArray()) Remove(child); }
+    /// <summary>Change draw, hit-test and traversal order without detaching retained children.</summary>
+    public void ReorderChildren(IEnumerable<Element> order)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+        var next = order.ToArray();
+        if (next.Length != children.Count || next.Distinct(ReferenceEqualityComparer.Instance).Count() != next.Length || next.Any(c => c == null || c.Parent != this))
+            throw new ArgumentException("The order must contain every current child exactly once.", nameof(order));
+        if (children.SequenceEqual(next)) return;
+        children.Clear(); children.AddRange(next); Invalidate(DirtyFlags.All);
+    }
+    /// <summary>Convert window coordinates to this element's local origin, including ancestor visual offsets.</summary>
+    public Vector2 WindowToLocal(Vector2 position) => position - new Vector2(VisualBounds.X, VisualBounds.Y);
     internal void Attach(UiDocument? document)
     {
         var notifications = new List<(Element Node, UiDocument? Previous, long Revision)>();
@@ -149,10 +171,21 @@ public class Element
     /// <summary>Pair external subscriptions with document attachment; detach releases them.</summary>
     protected virtual void OnDocumentChanged(UiDocument? previous, UiDocument? current) { }
     internal bool IsDescendantOf(Element root) { for (Element? n = this; n != null; n = n.Parent) if (n == root) return true; return false; }
+    internal Thickness LayoutMargin => Layout?.Margin ?? default;
+    internal Vector2 DesiredSizeWithMargin => DesiredSize + new Vector2(LayoutMargin.Horizontal, LayoutMargin.Vertical);
+    // Parent layout controllers measure border sizes; margins are accounted for once by the parent.
+    internal Vector2 MeasureForLayout(Vector2 available)
+    {
+        if (Layout == null) return Measure(available);
+        var constraint = Layout.MeasureConstraint(available);
+        var measured = Measure(constraint);
+        DesiredSize = Layout.Constrain(available, measured);
+        return DesiredSize;
+    }
     public virtual Vector2 Measure(Vector2 available)
     {
         float w = 0, h = 0;
-        foreach (var child in children.Where(c => c.Visible)) { var size = child.Measure(Vector2.Max(Vector2.Zero, available - new Vector2(Padding * 2))); w = Math.Max(w, size.X); h = Math.Max(h, size.Y); }
+        foreach (var child in children.Where(c => c.Visible)) { child.MeasureForLayout(Vector2.Max(Vector2.Zero, available - new Vector2(Padding * 2))); var size = child.DesiredSizeWithMargin; w = Math.Max(w, size.X); h = Math.Max(h, size.Y); }
         DesiredSize = new(float.IsNaN(Width) ? w + Padding * 2 : Width, float.IsNaN(Height) ? h + Padding * 2 : Height); return DesiredSize;
     }
     public virtual void Arrange(Rect bounds)
@@ -163,8 +196,10 @@ public class Element
     {
         foreach (var child in children.Where(c => c.Visible))
         {
-            var rect = child.Transform?.Resolve(content) ?? new Rect(content.X, content.Y, float.IsNaN(child.Width) ? content.Width : child.Width, float.IsNaN(child.Height) ? content.Height : child.Height);
-            child.Measure(new(rect.Width, rect.Height)); child.Arrange(rect);
+            if (child.Layout != null) child.MeasureForLayout(new(content.Width, content.Height));
+            var rect = child.Transform?.Resolve(content) ?? child.Layout?.Resolve(content, child.DesiredSize) ?? new Rect(content.X, content.Y, float.IsNaN(child.Width) ? content.Width : child.Width, float.IsNaN(child.Height) ? content.Height : child.Height);
+            if (child.Layout == null) child.Measure(new(rect.Width, rect.Height));
+            child.Arrange(rect);
         }
     }
     internal void PaintTree(DrawList list, Vector2 offset, float inherited, Theme theme)
@@ -224,7 +259,8 @@ public sealed class StackPanel : Element
         foreach (var child in Children.Where(c => c.Visible))
         {
             if (child.Transform != null) throw new InvalidOperationException("StackPanel owns child position and size; remove the child's RectTransform.");
-            var size = child.Measure(Vector2.Max(Vector2.Zero, available - new Vector2(Padding * 2)));
+            child.MeasureForLayout(Vector2.Max(Vector2.Zero, available - new Vector2(Padding * 2)));
+            var size = child.DesiredSizeWithMargin;
             main += Horizontal ? size.X : size.Y; cross = Math.Max(cross, Horizontal ? size.Y : size.X); count++;
         }
         main += Math.Max(0, count - 1) * Gap;
@@ -233,12 +269,28 @@ public sealed class StackPanel : Element
     }
     protected override void ArrangeChildren(Rect content)
     {
-        var items = Children.Where(c => c.Visible).ToArray(); float total = 0, grow = 0;
-        foreach (var child in items) { total += Horizontal ? child.DesiredSize.X : child.DesiredSize.Y; grow += child.Grow; }
-        float free = Math.Max(0, (Horizontal ? content.Width : content.Height) - total - Math.Max(0, items.Length - 1) * Gap), position = 0;
+        var items = Children.Where(c => c.Visible).ToArray(); double total = 0, grow = 0;
         foreach (var child in items)
         {
-            float main = (Horizontal ? child.DesiredSize.X : child.DesiredSize.Y) + (grow > 0 ? free * child.Grow / grow : 0);
+            if (child.Transform != null) throw new InvalidOperationException("StackPanel owns child position and size; remove the child's RectTransform.");
+            // A containing layout may assign a narrower extent than Measure received.
+            // Resolve percentages and wrapping against that extent before allocating slots.
+            if (child.Layout != null) child.MeasureForLayout(new(content.Width, content.Height));
+            total += Horizontal ? child.DesiredSizeWithMargin.X : child.DesiredSizeWithMargin.Y; grow += child.Grow;
+        }
+        double free = Math.Max(0, (Horizontal ? content.Width : content.Height) - total - Math.Max(0, items.Length - 1) * (double)Gap); float position = 0;
+        foreach (var child in items)
+        {
+            if (child.Layout != null)
+            {
+                float allocated = (float)((Horizontal ? child.DesiredSizeWithMargin.X : child.DesiredSizeWithMargin.Y) + (grow > 0 ? free * child.Grow / grow : 0));
+                var slot = Horizontal ? new Rect(content.X + position, content.Y, allocated, content.Height) : new Rect(content.X, content.Y + position, content.Width, allocated);
+                var box = child.Layout;
+                if (Horizontal && box.Width.Unit == SizeUnit.Percent) box = box with { Width = UiLength.Fixed(child.DesiredSize.X) };
+                if (!Horizontal && box.Height.Unit == SizeUnit.Percent) box = box with { Height = UiLength.Fixed(child.DesiredSize.Y) };
+                child.Arrange(box.Resolve(slot, child.DesiredSize)); position += allocated + Gap; continue;
+            }
+            float main = (float)((Horizontal ? child.DesiredSize.X : child.DesiredSize.Y) + (grow > 0 ? free * child.Grow / grow : 0));
             var size = Horizontal ? new Vector2(main, float.IsNaN(child.Height) ? content.Height : child.Height) : new Vector2(float.IsNaN(child.Width) ? content.Width : child.Width, main);
             // Text is remeasured after actual width is known, then height is assigned.
             var measured = child.Measure(size);
