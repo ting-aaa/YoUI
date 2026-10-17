@@ -5,14 +5,17 @@
 ## Project Snapshot
 
 - **Project:** YoUI
-- **Generation:** 56
-- **Generated:** 2026-10-16T18:49:55Z
-- **Active task:** _None or invalid._
+- **Generation:** 58
+- **Generated:** 2026-10-17T02:52:49Z
+- **Active task:** [TASK-20261017-06D61A](short/tasks/task-20261017-06d61a-create-independently-review-and-merge-beta-pr.md)
 - **Overview:** Independent native rendering engine with a C# retained UI framework; user allows C++ or Rust and requests efficient modern UI.
 
 ### Next Actions
 
-_None recorded._
+1. Create and attach Beta PR, then independently review actual PR head and fix/review findings.
+2. Commit premerge review record, confirm required checks, merge and capture GitHub merge evidence.
+3. Create PR and get fresh independent actual-diff review.
+4. Record premerge proof, verify checks and merge; record postmerge state without recursive PR.
 
 ### Blockers
 
@@ -20,11 +23,15 @@ _None recorded._
 
 ## Active Tasks
 
-_None._
+| ID | Kind | Status | Summary | Updated |
+|---|---|---|---|---|
+| [TASK-20261017-06D61A](short/tasks/task-20261017-06d61a-create-independently-review-and-merge-beta-pr.md) | task | active | User authorized Beta PR creation, fresh independent review, fixes/checks and merge; implementation task remains completed, PR and merge evidence pending. | 2026-10-17T02:52:30Z |
 
 ## Active Plans
 
-_None._
+| ID | Kind | Status | Summary | Updated |
+|---|---|---|---|---|
+| [PLAN-20261017-EFE3A2](short/plans/plan-20261017-efe3a2-beta-pr-independent-review-and-merge-plan.md) | plan | active | Publish Beta PR, independently review actual head, repair/reverify findings, commit review record, verify checks and merge with explicit evidence. | 2026-10-17T02:52:49Z |
 
 ## Current Analyses
 
@@ -76,7 +83,7 @@ _3 more record(s) are in `index.json`._
 ## Memory Map
 
 - Long-term records: 7
-- Short-term records: 22
+- Short-term records: 24
 - Temporary records: 0
 - Archived records: 0
 - Complete machine-readable inventory: [`index.json`](index.json)

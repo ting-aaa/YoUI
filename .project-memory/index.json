@@ -1,13 +1,13 @@
 {
-  "active_task_id": "",
+  "active_task_id": "TASK-20261017-06D61A",
   "counts": {
     "archive": 0,
     "long": 7,
-    "short": 22,
+    "short": 24,
     "temp": 0
   },
-  "generated_at": "2026-10-16T18:49:55Z",
-  "generation": 56,
+  "generated_at": "2026-10-17T02:52:49Z",
+  "generation": 58,
   "project_name": "YoUI",
   "records": [
     {
@@ -525,6 +525,49 @@
       "title": "Beta component acceptance and implementation plan",
       "type_version": 1,
       "updated_at": "2026-10-16T18:45:06Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
+      "confidence": "high",
+      "created_at": "2026-10-17T02:52:49Z",
+      "derived_from": [],
+      "effective_status": "active",
+      "event_id": "beta-pr-review-merge-plan-20261017-v1",
+      "expired": false,
+      "id": "PLAN-20261017-EFE3A2",
+      "kind": "plan",
+      "next_actions": [
+        "Create PR and get fresh independent actual-diff review.",
+        "Record premerge proof, verify checks and merge; record postmerge state without recursive PR."
+      ],
+      "path": "short/plans/plan-20261017-efe3a2-beta-pr-independent-review-and-merge-plan.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "e72bd653e16de986ecfe603afa2bfc5b04ad01762bdca1b55aa0806237022913",
+      "sources": [
+        "User authorized PR+independent review+merge2026-10-17",
+        "TASK-20261017-06D61A",
+        "docs/beta-review.md completed implementation acceptance"
+      ],
+      "status": "active",
+      "summary": "Publish Beta PR, independently review actual head, repair/reverify findings, commit review record, verify checks and merge with explicit evidence.",
+      "supersedes": [],
+      "tags": [
+        "beta",
+        "pull-request"
+      ],
+      "task_id": "TASK-20261017-06D61A",
+      "tier": "short",
+      "title": "Beta PR independent review and merge plan",
+      "type_version": 1,
+      "updated_at": "2026-10-17T02:52:49Z",
       "valid_as_of": "2026-10-17"
     },
     {
@@ -1134,6 +1177,50 @@
       "title": "Implement Beta component milestone",
       "type_version": 1,
       "updated_at": "2026-10-16T18:45:06Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
+      "confidence": "confirmed",
+      "created_at": "2026-10-17T02:52:30Z",
+      "derived_from": [],
+      "effective_status": "active",
+      "event_id": "beta-pr-review-merge-task-20261017-v1",
+      "expired": false,
+      "id": "TASK-20261017-06D61A",
+      "kind": "task",
+      "next_actions": [
+        "Create and attach Beta PR, then independently review actual PR head and fix/review findings.",
+        "Commit premerge review record, confirm required checks, merge and capture GitHub merge evidence."
+      ],
+      "path": "short/tasks/task-20261017-06d61a-create-independently-review-and-merge-beta-pr.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs",
+        "managed",
+        "tests"
+      ],
+      "sensitivity": "internal",
+      "sha256": "a9f213177cc10224e4d6a3e45c62fb2f23b90f606ff6b73364922e4ae5179bc9",
+      "sources": [
+        "User request2026-10-17: 发起PR并进行独立审查后合并",
+        "git rev-parse HEAD:2ad3a49c56ec9e59edda0590186ef4b2e1a70f42 clean codex/beta-components",
+        "Root successful git fetch origin on this request; origin/main e336d6e0behind3ahead no existing PR",
+        "RPT-20261016-0EE9B5 completed local Beta acceptance at90e86ad"
+      ],
+      "status": "active",
+      "summary": "User authorized Beta PR creation, fresh independent review, fixes/checks and merge; implementation task remains completed, PR and merge evidence pending.",
+      "supersedes": [],
+      "tags": [
+        "beta",
+        "pull-request"
+      ],
+      "task_id": "",
+      "tier": "short",
+      "title": "Create independently review and merge Beta PR",
+      "type_version": 1,
+      "updated_at": "2026-10-17T02:52:30Z",
       "valid_as_of": "2026-10-17"
     }
   ],
