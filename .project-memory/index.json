@@ -3,11 +3,11 @@
   "counts": {
     "archive": 0,
     "long": 7,
-    "short": 24,
+    "short": 25,
     "temp": 0
   },
-  "generated_at": "2026-10-17T02:52:49Z",
-  "generation": 58,
+  "generated_at": "2026-10-17T03:03:01Z",
+  "generation": 61,
   "project_name": "YoUI",
   "records": [
     {
@@ -538,8 +538,8 @@
       "id": "PLAN-20261017-EFE3A2",
       "kind": "plan",
       "next_actions": [
-        "Create PR and get fresh independent actual-diff review.",
-        "Record premerge proof, verify checks and merge; record postmerge state without recursive PR."
+        "Freeze/push independently confirmed PR35 Grid repair and run fresh complete revision-specific gates/CI.",
+        "Record final premerge review, verify final-head CI and input-test condition, merge and record actual GitHub state."
       ],
       "path": "short/plans/plan-20261017-efe3a2-beta-pr-independent-review-and-merge-plan.md",
       "review_after": "2026-10-31",
@@ -550,11 +550,13 @@
         "tests"
       ],
       "sensitivity": "internal",
-      "sha256": "e72bd653e16de986ecfe603afa2bfc5b04ad01762bdca1b55aa0806237022913",
+      "sha256": "9ac4b216a8b82eef7eda1a6dcd1c007d1ff7da4f4b6ecd3a7fdc000ab3bc9900",
       "sources": [
         "User authorized PR+independent review+merge2026-10-17",
         "TASK-20261017-06D61A",
-        "docs/beta-review.md completed implementation acceptance"
+        "docs/beta-review.md completed implementation acceptance",
+        "https://github.com/ting-aaa/YoUI/pull/35",
+        "RPT-20261017-42017B Grid finding/repair and mixed-build evidence boundaries"
       ],
       "status": "active",
       "summary": "Publish Beta PR, independently review actual head, repair/reverify findings, commit review record, verify checks and merge with explicit evidence.",
@@ -567,7 +569,7 @@
       "tier": "short",
       "title": "Beta PR independent review and merge plan",
       "type_version": 1,
-      "updated_at": "2026-10-17T02:52:49Z",
+      "updated_at": "2026-10-17T03:02:25Z",
       "valid_as_of": "2026-10-17"
     },
     {
@@ -995,6 +997,59 @@
     },
     {
       "blockers": [],
+      "confidence": "high",
+      "created_at": "2026-10-17T03:01:45Z",
+      "derived_from": [],
+      "effective_status": "active",
+      "event_id": "beta-pr35-grid-review-checkpoint-20261017-v1",
+      "expired": false,
+      "id": "RPT-20261017-42017B",
+      "kind": "report",
+      "next_actions": [
+        "Freeze/push independently repaired-reviewed Grid source and run fresh full acceptance/CI.",
+        "Commit final premerge review record, verify final-head CI and merge with GitHub evidence."
+      ],
+      "path": "short/reports/rpt-20261017-42017b-pr35-grid-review-finding-and-pending-repaired-verification.md",
+      "review_after": "2026-10-31",
+      "schema_version": 1,
+      "scope": [
+        "docs/beta-components.md",
+        "managed/YoUI/Layout.cs",
+        "tests/YoUI.Tests/BetaFrameworkTests.cs"
+      ],
+      "sensitivity": "internal",
+      "sha256": "201638256983a84fa6ff77c1bbdc90bf53750212c53df1ad0821c967da6c602d",
+      "sources": [
+        "https://github.com/ting-aaa/YoUI/pull/35 root created/attached receipt",
+        "git rev-parse HEAD:1dfb4071b72120f289469d76df5ffcebeeff86a4",
+        "artifacts/pr35-review/Program.cs",
+        "artifacts/pr35-review/repro.log",
+        "artifacts/pr35-review/review.md final independent repair review",
+        "artifacts/pr35-review/repaired-build.log zero warnings/errors",
+        "artifacts/pr35-review/repaired-logic.log215 passed",
+        "artifacts/pr35-review/repaired-repro.log GRID PASS",
+        "artifacts/pr35-review/grid-fix-tests.log invalid stale/mixed build output",
+        "artifacts/pr35-review/logic.log invalid stale/mixed build output",
+        "managed/YoUI/Layout.cs GetCell uncommitted repair",
+        "tests/YoUI.Tests/BetaFrameworkTests.cs two reattachment regression groups",
+        "Root checkpoint CI38996686797 at1dfb407 running and fresh idle question pending2026-10-17"
+      ],
+      "status": "active",
+      "summary": "PR35 independent P2 Grid stale placement repaired/reviewed; serial build clean,215 managed checks and original repro passed. Final frozen-head full gates/CI and merge remain pending; mixed-build failures retained.",
+      "supersedes": [],
+      "tags": [
+        "beta",
+        "pull-request"
+      ],
+      "task_id": "TASK-20261017-06D61A",
+      "tier": "short",
+      "title": "PR35 Grid review finding and pending repaired verification",
+      "type_version": 1,
+      "updated_at": "2026-10-17T03:02:25Z",
+      "valid_as_of": "2026-10-17"
+    },
+    {
+      "blockers": [],
       "confidence": "confirmed",
       "created_at": "2026-09-12T05:45:27Z",
       "derived_from": [],
@@ -1190,8 +1245,8 @@
       "id": "TASK-20261017-06D61A",
       "kind": "task",
       "next_actions": [
-        "Create and attach Beta PR, then independently review actual PR head and fix/review findings.",
-        "Commit premerge review record, confirm required checks, merge and capture GitHub merge evidence."
+        "Freeze/push independently repaired-reviewed PR35 Grid source; run fresh complete local gates and final-head CI.",
+        "Commit final premerge review record, verify final-head required checks and authorized input-test conditions, then merge and capture GitHub proof."
       ],
       "path": "short/tasks/task-20261017-06d61a-create-independently-review-and-merge-beta-pr.md",
       "review_after": "2026-10-31",
@@ -1202,15 +1257,17 @@
         "tests"
       ],
       "sensitivity": "internal",
-      "sha256": "a9f213177cc10224e4d6a3e45c62fb2f23b90f606ff6b73364922e4ae5179bc9",
+      "sha256": "e782c401f5c9864c4e8995185ecee633ef1775533defa89d2b015db8fa5d1523",
       "sources": [
         "User request2026-10-17: 发起PR并进行独立审查后合并",
         "git rev-parse HEAD:2ad3a49c56ec9e59edda0590186ef4b2e1a70f42 clean codex/beta-components",
         "Root successful git fetch origin on this request; origin/main e336d6e0behind3ahead no existing PR",
-        "RPT-20261016-0EE9B5 completed local Beta acceptance at90e86ad"
+        "RPT-20261016-0EE9B5 completed local Beta acceptance at90e86ad",
+        "https://github.com/ting-aaa/YoUI/pull/35 created/attached and branch pushed",
+        "RPT-20261017-42017B independent Grid finding and repair-verification checkpoint"
       ],
       "status": "active",
-      "summary": "User authorized Beta PR creation, fresh independent review, fixes/checks and merge; implementation task remains completed, PR and merge evidence pending.",
+      "summary": "PR35 Grid P2 repaired and independently confirmed by clean serial build,215 managed checks and original repro; fresh full gates/final CI/merge pending, prior Beta task completed.",
       "supersedes": [],
       "tags": [
         "beta",
@@ -1220,7 +1277,7 @@
       "tier": "short",
       "title": "Create independently review and merge Beta PR",
       "type_version": 1,
-      "updated_at": "2026-10-17T02:52:30Z",
+      "updated_at": "2026-10-17T03:02:25Z",
       "valid_as_of": "2026-10-17"
     }
   ],

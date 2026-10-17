@@ -118,7 +118,17 @@ public sealed class Grid : Element
             throw new ArgumentException("A grid requires 1 to 256 finite nonnegative tracks; Star weights must be positive.", nameof(tracks));
         return Array.AsReadOnly(copy);
     }
-    private Cell GetCell(Element child) => cells.TryGetValue(child, out var cell) ? cell : new(0, 0, 1, 1);
+    private Cell GetCell(Element child)
+    {
+        if (cells.TryGetValue(child, out var cell))
+        {
+            if (cell.Row + cell.RowSpan <= rows.Count && cell.Column + cell.ColumnSpan <= columns.Count) return cell;
+            // A detached child can outlive track changes. Reattach it in the default cell
+            // when its old placement no longer fits; attached occupied cells stay protected.
+            cells.Remove(child);
+        }
+        return new(0, 0, 1, 1);
+    }
     private void ValidateCells(int rowCount, int columnCount)
     {
         if (Children.Any(child => { var c = GetCell(child); return c.Row + c.RowSpan > rowCount || c.Column + c.ColumnSpan > columnCount; }))

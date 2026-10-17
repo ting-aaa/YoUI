@@ -126,6 +126,35 @@ static class BetaFrameworkTests
             var doc = Doc(grid); Throws<InvalidOperationException>(doc.EnsureLayout); child.Transform = null;
             Check(doc.UpdateLayout(), "failed grid layout should be retryable");
         });
+        test("Beta grid resets invalid detached cells and spans on reattachment", () =>
+        {
+            foreach (bool vertical in new[] { false, true })
+            foreach (bool spanning in new[] { false, true })
+            foreach (bool hidden in new[] { false, true })
+            {
+                var grid = new Grid { Columns = new[] { GridTrack.Star(), GridTrack.Star() }, Rows = new[] { GridTrack.Star(), GridTrack.Star() } };
+                var child = grid.Add(new Element());
+                grid.SetCell(child, vertical && !spanning ? 1 : 0, !vertical && !spanning ? 1 : 0, vertical && spanning ? 2 : 1, !vertical && spanning ? 2 : 1);
+                var doc = Doc(grid, 200, 100); doc.EnsureLayout();
+                grid.Remove(child);
+                if (vertical) grid.Rows = new[] { GridTrack.Star() }; else grid.Columns = new[] { GridTrack.Star() };
+                child.Visible = !hidden; grid.Add(child); doc.EnsureLayout();
+                child.Visible = true; doc.EnsureLayout();
+                Check(child.Bounds == new Rect(0, 0, vertical ? 100 : 200, vertical ? 100 : 50), "stale cell did not return to the default placement");
+                // A valid occupied placement still rejects track removal atomically.
+                grid.SetCell(child, vertical ? 0 : 1, vertical ? 1 : 0);
+                Throws<ArgumentException>(() => { if (vertical) grid.Columns = new[] { GridTrack.Star() }; else grid.Rows = new[] { GridTrack.Star() }; });
+                doc.EnsureLayout();
+                Check(vertical ? child.Bounds.X == 100 : child.Bounds.Y == 50);
+            }
+        });
+        test("Beta grid retains valid cell metadata across removal and reattachment", () =>
+        {
+            var grid = new Grid { Columns = new[] { GridTrack.Fixed(40), GridTrack.Star() } };
+            var child = grid.Add(new Element()); grid.SetCell(child, 0, 1);
+            var doc = Doc(grid, 200, 100); doc.EnsureLayout(); grid.Remove(child); grid.Add(child); doc.EnsureLayout();
+            Check(child.Bounds == new Rect(40, 0, 160, 100));
+        });
         test("Beta wrap recomputes lines on resize and skips hidden items", () =>
         {
             var wrap = new WrapPanel { Gap = 5, Padding = 5 }; var a = wrap.Add(new Element { Width = 60, Height = 20 }); var b = wrap.Add(new Element { Width = 60, Height = 20 }); var c = wrap.Add(new Element { Width = 60, Height = 20 });

@@ -55,7 +55,9 @@ var input = grid.Add(new TextBox()); grid.SetCell(input, 1, 1);
 input.Layout = new() { MinWidth = 80, Margin = new Thickness(4) };
 ```
 
-Grid 的 Auto 为内容预留空间，Star 按权重分配剩余空间，支持行列跨度。WrapPanel 按有限
+Grid 的 Auto 为内容预留空间，Star 按权重分配剩余空间，支持行列跨度。子项移除后重新加入时
+保留仍然有效的单元格设置；若期间行列缩减使旧位置或跨度越界，则回到默认的首行首列单格。
+已附着子项占用的行列不能被直接删减。WrapPanel 按有限
 可用宽度换行，隐藏项不占位。容器拥有子项位置时应去除子项 RectTransform。旧 StackPanel
 与锚点入口保留；本轮未实现通用布局依赖图或动态高度虚拟列表。
 

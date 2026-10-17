@@ -3,12 +3,16 @@
 日期：2026-10-17（Asia/Shanghai）。本轮按“Alpha 完成渲染和少量组件，Beta 扩充组件与框架，1.0 完善更广泛 UI 能力”的既有路线交付。
 验收对象是 [B01–B10 开发合约](beta-development.md)，结论限定为 Windows x64 本地 Beta；尚未创建新 tag、GitHub Release 或公开发布包。
 
+后续 [PR #35](https://github.com/ting-aaa/YoUI/pull/35) 的新一轮独立审查发现并修复了 Grid
+移除子项、缩减行列后重新加入导致旧位置越界的问题。新增两个回归组，修复后独立串行运行
+215 项托管检查通过。下文保留 `90e86ad` 的原始验收记录；PR 修复后的门禁和合并状态以该 PR 的记录为准。
+
 ## 源码与复验边界
 
 - 开发分支：`codex/beta-components`；独立工作区：`C:\Users\HT\.codex\worktrees\beta-components\YoUI`。原工作区的未提交 1.0 草案没有混入本轮实现。
 - 基线：本地缓存的 Alpha 修复提交 `e336d6e6ec8881764d5b3a8053e152f791ddb581`。远端刷新失败，因此不声称已与最新远端同步。
 - 最终受测产品提交：`90e86add65c6ffd24f73dca7a30874176d887474`。四条验收命令开始和结束均为同一干净提交，退出码全部为 0。
-- 验收之后的收尾仅更新文档和项目记忆；该文档提交不冒充重新运行产品测试。产品源码、测试、样例和构建脚本相对上述受测提交保持不变。
+- `2ad3a49` 收尾提交仅更新文档和项目记忆，产品源码、测试、样例和构建脚本相对上述受测提交保持不变；此说明不适用于后续 PR #35 的 Grid 修复。
 
 最终驱动记录：[driver-result.json](../artifacts/beta-final/90e86add65c6ffd24f73dca7a30874176d887474/driver-result.json)。
 完整独立逐项审查见 [Beta 审查回执](beta-review.md)。

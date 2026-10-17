@@ -8,8 +8,8 @@
   "id": "PLAN-20261017-EFE3A2",
   "kind": "plan",
   "next_actions": [
-    "Create PR and get fresh independent actual-diff review.",
-    "Record premerge proof, verify checks and merge; record postmerge state without recursive PR."
+    "Freeze/push independently confirmed PR35 Grid repair and run fresh complete revision-specific gates/CI.",
+    "Record final premerge review, verify final-head CI and input-test condition, merge and record actual GitHub state."
   ],
   "review_after": "2026-10-31",
   "schema_version": 1,
@@ -22,7 +22,9 @@
   "sources": [
     "User authorized PR+independent review+merge2026-10-17",
     "TASK-20261017-06D61A",
-    "docs/beta-review.md completed implementation acceptance"
+    "docs/beta-review.md completed implementation acceptance",
+    "https://github.com/ting-aaa/YoUI/pull/35",
+    "RPT-20261017-42017B Grid finding/repair and mixed-build evidence boundaries"
   ],
   "status": "active",
   "summary": "Publish Beta PR, independently review actual head, repair/reverify findings, commit review record, verify checks and merge with explicit evidence.",
@@ -35,7 +37,7 @@
   "tier": "short",
   "title": "Beta PR independent review and merge plan",
   "type_version": 1,
-  "updated_at": "2026-10-17T02:52:49Z",
+  "updated_at": "2026-10-17T03:02:25Z",
   "valid_as_of": "2026-10-17"
 }
 -->
@@ -50,4 +52,4 @@
 
 ## Current evidence
 
-Initial cleanhead2ad3a49c56ec9e59edda0590186ef4b2e1a70f42; origin/main e336d6e6ec8881764d5b3a8053e152f791ddb581 after successful fetch. Existing accepted Beta product90e86ad proof remains valid for that revision, with docs/memory closure only afterward. No PR/independent new review/merge evidence yet. Prior Beta implementation task is completed. This plan does not request tag/Release/NuGet publication or broaden platform/IME/accessibility1.0 claims.
+PR35 is created/attached at startup memory-only head1dfb407 after2ad3a49; origin/main e336d6e was freshly fetched. Grid reattachment P2 repair is independently confirmed: serial build0 warnings/errors,215 managed checks and original repro GRID PASS. Mixed-build failures remain invalid evidence; reviewer ran logic only. Freeze/push, fresh complete local gates/final CI and GitHub merge proof remain, so task/plan active. Fresh native idle answer pending and no cursor test started. Prior90e86ad acceptance stays revision-specific; no tag/Release/NuGet publication or expanded support claim.

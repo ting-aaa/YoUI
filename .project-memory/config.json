@@ -7,9 +7,9 @@
     "temp_compaction_count": 10,
     "temp_review_days": 7
   },
-  "generation": 58,
-  "last_reindexed_at": "2026-10-17T02:52:49Z",
+  "generation": 61,
+  "last_reindexed_at": "2026-10-17T03:03:01Z",
   "project_name": "YoUI",
   "schema_version": 1,
-  "updated_at": "2026-10-17T02:52:49Z"
+  "updated_at": "2026-10-17T03:03:01Z"
 }

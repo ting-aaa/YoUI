@@ -5,17 +5,17 @@
 ## Project Snapshot
 
 - **Project:** YoUI
-- **Generation:** 58
-- **Generated:** 2026-10-17T02:52:49Z
+- **Generation:** 61
+- **Generated:** 2026-10-17T03:03:01Z
 - **Active task:** [TASK-20261017-06D61A](short/tasks/task-20261017-06d61a-create-independently-review-and-merge-beta-pr.md)
 - **Overview:** Independent native rendering engine with a C# retained UI framework; user allows C++ or Rust and requests efficient modern UI.
 
 ### Next Actions
 
-1. Create and attach Beta PR, then independently review actual PR head and fix/review findings.
-2. Commit premerge review record, confirm required checks, merge and capture GitHub merge evidence.
-3. Create PR and get fresh independent actual-diff review.
-4. Record premerge proof, verify checks and merge; record postmerge state without recursive PR.
+1. Freeze/push independently repaired-reviewed PR35 Grid source; run fresh complete local gates and final-head CI.
+2. Commit final premerge review record, verify final-head required checks and authorized input-test conditions, then merge and capture GitHub proof.
+3. Freeze/push independently confirmed PR35 Grid repair and run fresh complete revision-specific gates/CI.
+4. Record final premerge review, verify final-head CI and input-test condition, merge and record actual GitHub state.
 
 ### Blockers
 
@@ -25,13 +25,13 @@ _None recorded._
 
 | ID | Kind | Status | Summary | Updated |
 |---|---|---|---|---|
-| [TASK-20261017-06D61A](short/tasks/task-20261017-06d61a-create-independently-review-and-merge-beta-pr.md) | task | active | User authorized Beta PR creation, fresh independent review, fixes/checks and merge; implementation task remains completed, PR and merge evidence pending. | 2026-10-17T02:52:30Z |
+| [TASK-20261017-06D61A](short/tasks/task-20261017-06d61a-create-independently-review-and-merge-beta-pr.md) | task | active | PR35 Grid P2 repaired and independently confirmed by clean serial build,215 managed checks and original repro; fresh full gates/final CI/merge pending, prior Beta task completed. | 2026-10-17T03:02:25Z |
 
 ## Active Plans
 
 | ID | Kind | Status | Summary | Updated |
 |---|---|---|---|---|
-| [PLAN-20261017-EFE3A2](short/plans/plan-20261017-efe3a2-beta-pr-independent-review-and-merge-plan.md) | plan | active | Publish Beta PR, independently review actual head, repair/reverify findings, commit review record, verify checks and merge with explicit evidence. | 2026-10-17T02:52:49Z |
+| [PLAN-20261017-EFE3A2](short/plans/plan-20261017-efe3a2-beta-pr-independent-review-and-merge-plan.md) | plan | active | Publish Beta PR, independently review actual head, repair/reverify findings, commit review record, verify checks and merge with explicit evidence. | 2026-10-17T03:02:25Z |
 
 ## Current Analyses
 
@@ -65,6 +65,7 @@ _None._
 
 | ID | Kind | Status | Summary | Updated |
 |---|---|---|---|---|
+| [RPT-20261017-42017B](short/reports/rpt-20261017-42017b-pr35-grid-review-finding-and-pending-repaired-verification.md) | report | active | PR35 independent P2 Grid stale placement repaired/reviewed; serial build clean,215 managed checks and original repro passed. Final frozen-head full gates/CI and merge remain pending; mixed-build failures retained. | 2026-10-17T03:02:25Z |
 | [HANDOFF-20261016-C07420](short/handoffs/handoff-20261016-c07420-completed-local-beta-scope-and-final-evidence-handoff.md) | handoff | completed | B01-B10 local WindowsDX12 Beta completed at90e86ad with final clean All/package/image/independent proof; no active task or required Beta action, no public release. | 2026-10-16T18:49:55Z |
 | [RPT-20261016-0EE9B5](short/reports/rpt-20261016-0ee9b5-beta-b01-b10-local-implementation-and-acceptance-complete.md) | report | completed | All B01-B10 accepted at clean90e86ad: final Debug/Release All, stable same-source package pair, actual GPU/HWND, image QA and independent requirement review; local WindowsDX12 scope only, no publication. | 2026-10-16T18:48:00Z |
 | [RPT-20261016-919434](short/reports/rpt-20261016-919434-clean-beta-all-gates-passed-with-new-keyboard-scope-failure.md) | report | superseded | Clean0555ea5 Debug/Release All passed; later RadioGroup scope leak is repaired and independently reproduced, while second freeze All reruns and stable package pair remain pending. | 2026-10-16T18:45:06Z |
@@ -76,14 +77,13 @@ _None._
 | [RPT-20260921-C32975](short/reports/rpt-20260921-c32975-private-github-publication.md) | report | superseded | YoUI was published to the private ting-aaa/YoUI GitHub repository on main. | 2026-09-21T14:54:03Z |
 | [RPT-20260912-8CEEDD](short/reports/rpt-20260912-8ceedd-windows-backend-matrix-acceptance.md) | report | completed | 24 backend runs and28 comparisons passed for DX12 Vulkan nativeGL; ANGLE optional experiments did not render successfully. | 2026-09-12T08:06:49Z |
 | [RPT-20260912-D59AB5](short/reports/rpt-20260912-d59ab5-final-editor-capture-fix-and-release-acceptance.md) | report | completed | Final Release gate passed with 13 Editor Win32 checks; native modal-dialog capture regression resolved. | 2026-09-12T07:11:56Z |
-| [HANDOFF-20260912-7F60A0](short/handoffs/handoff-20260912-7f60a0-editor-milestone-complete-and-broad-design-continuation.md) | handoff | superseded | Basic self-hosted Editor and all requested export modes complete; broad rendering/UI roadmap remains incomplete. | 2026-09-12T07:09:29Z |
 
-_3 more record(s) are in `index.json`._
+_4 more record(s) are in `index.json`._
 
 ## Memory Map
 
 - Long-term records: 7
-- Short-term records: 24
+- Short-term records: 25
 - Temporary records: 0
 - Archived records: 0
 - Complete machine-readable inventory: [`index.json`](index.json)
